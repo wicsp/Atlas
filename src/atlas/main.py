@@ -1,0 +1,483 @@
+from __future__ import annotations
+
+import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+
+from . import __version__
+from .agents.models import AgentRecord, AgentRegistration
+from .agents.service import AgentService, create_agent_service
+from .config import Settings, get_settings
+from .dashboard import DashboardSnapshot, DashboardSnapshotCollector
+from .messages.models import MessageAck, MessageClaim, MessageCreate, MessageRecord
+from .messages.service import MessageService, MessageStateError, create_message_service
+from .network import NetworkConnectivity
+from .probes import ProbeHistorySummary, ProbeResult
+from .rate_limit import login_rate_limiter
+from .security import (
+    SESSION_COOKIE_NAME,
+    create_session_token,
+    verify_agent_token,
+    verify_login_password,
+    verify_session_token,
+)
+from .sub2api import (
+    Sub2ApiAccountsResponse,
+    Sub2ApiRefreshResponse,
+    Sub2ApiSnapshotCollector,
+    get_sub2api_accounts,
+)
+from .system import (
+    GpuSummary,
+    SystemGlanceSummary,
+    SystemSummary,
+    get_system_summary,
+)
+from .todos import (
+    DEFAULT_TODO_STORE_PATH,
+    TodoCreateRequest,
+    TodoItem,
+    TodoNotFoundError,
+    TodoUpdateRequest,
+    create_todo,
+    delete_todo,
+    list_todos,
+    update_todo,
+)
+
+
+class HealthResponse(BaseModel):
+    status: str
+    version: str
+
+
+class LoginRequest(BaseModel):
+    password: str
+
+
+class AuthStatus(BaseModel):
+    authenticated: bool
+
+
+class DeleteResponse(BaseModel):
+    deleted: bool
+
+
+def _todo_store_path(request: Request) -> Path:
+    return request.app.state.todo_store_path
+
+
+def _dashboard_collector(request: Request) -> DashboardSnapshotCollector:
+    return request.app.state.dashboard_collector
+
+
+def _agent_service(request: Request) -> AgentService:
+    service = getattr(request.app.state, "agent_service", None)
+    if service is None:
+        settings: Settings = request.app.state.settings
+        service = create_agent_service(
+            database_path=settings.agents.database_path,
+            heartbeat_ttl_seconds=settings.agents.heartbeat_ttl_seconds,
+        )
+        request.app.state.agent_service = service
+    return service
+
+
+def _message_service(request: Request) -> MessageService:
+    service = getattr(request.app.state, "message_service", None)
+    if service is None:
+        settings: Settings = request.app.state.settings
+        service = create_message_service(settings.agents.database_path)
+        request.app.state.message_service = service
+    return service
+
+
+def require_auth(request: Request) -> None:
+    settings: Settings = request.app.state.settings
+    token = request.cookies.get(SESSION_COOKIE_NAME)
+    if not verify_session_token(token, settings.auth):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+        )
+
+
+def require_agent_auth(request: Request) -> None:
+    settings: Settings = request.app.state.settings
+    authorization = request.headers.get("Authorization", "")
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not verify_agent_token(token, settings.agents):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Agent token required",
+        )
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    collector = getattr(app.state, "sub2api_collector", None)
+    dashboard_collector = getattr(app.state, "dashboard_collector", None)
+    if collector is not None:
+        collector.start()
+    if dashboard_collector is not None:
+        dashboard_collector.start()
+    try:
+        yield
+    finally:
+        if dashboard_collector is not None:
+            await dashboard_collector.stop()
+        if collector is not None:
+            await collector.stop()
+
+
+def create_app(settings: Settings | None = None) -> FastAPI:
+    resolved_settings = settings or get_settings()
+    app = FastAPI(title="Atlas", version=__version__, lifespan=lifespan)
+    app.state.settings = resolved_settings
+    app.state.probe_results = {}
+    app.state.todo_store_path = DEFAULT_TODO_STORE_PATH
+    app.state.agent_service = None
+    app.state.message_service = None
+    app.state.sub2api_collector = (
+        Sub2ApiSnapshotCollector(resolved_settings.sub2api)
+        if resolved_settings.sub2api.enabled
+        else None
+    )
+    app.state.dashboard_collector = DashboardSnapshotCollector(resolved_settings)
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            "http://127.0.0.1:5173",
+            "http://localhost:5173",
+        ],
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["*"],
+    )
+
+    @app.get("/api/health", response_model=HealthResponse)
+    async def health() -> HealthResponse:
+        return HealthResponse(status="ok", version=__version__)
+
+    @app.post("/api/auth/login", response_model=AuthStatus)
+    async def login(payload: LoginRequest, request: Request, response: Response) -> AuthStatus:
+        client_ip = login_rate_limiter.check(request)
+        app_settings: Settings = request.app.state.settings
+        if not app_settings.auth.password_configured:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Admin password is not configured",
+            )
+        if not verify_login_password(payload.password, app_settings.auth):
+            login_rate_limiter.record_failure(client_ip)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid password",
+            )
+
+        login_rate_limiter.record_success(client_ip)
+        response.set_cookie(
+            key=SESSION_COOKIE_NAME,
+            value=create_session_token(app_settings.auth.session_secret),
+            max_age=app_settings.auth.session_max_age_seconds,
+            httponly=True,
+            secure=app_settings.auth.cookie_secure,
+            samesite="lax",
+        )
+        return AuthStatus(authenticated=True)
+
+    @app.post("/api/auth/logout", response_model=AuthStatus)
+    async def logout(response: Response) -> AuthStatus:
+        response.delete_cookie(SESSION_COOKIE_NAME, httponly=True, samesite="lax")
+        return AuthStatus(authenticated=False)
+
+    @app.get("/api/auth/me", response_model=AuthStatus)
+    async def me(request: Request) -> AuthStatus:
+        app_settings: Settings = request.app.state.settings
+        token = request.cookies.get(SESSION_COOKIE_NAME)
+        return AuthStatus(authenticated=verify_session_token(token, app_settings.auth))
+
+    @app.get(
+        "/api/agents",
+        response_model=list[AgentRecord],
+        dependencies=[Depends(require_auth)],
+    )
+    async def list_agents(request: Request) -> list[AgentRecord]:
+        return _agent_service(request).list_agents()
+
+    @app.post(
+        "/api/agents/register",
+        response_model=AgentRecord,
+        dependencies=[Depends(require_agent_auth)],
+    )
+    async def register_agent(
+        request: Request,
+        payload: AgentRegistration,
+    ) -> AgentRecord:
+        return _agent_service(request).register_agent(payload)
+
+    @app.post(
+        "/api/agents/{agent_id}/heartbeat",
+        response_model=AgentRecord,
+        dependencies=[Depends(require_agent_auth)],
+    )
+    async def agent_heartbeat(request: Request, agent_id: str) -> AgentRecord:
+        try:
+            return _agent_service(request).record_heartbeat(agent_id)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Agent not found",
+            ) from exc
+
+    @app.post(
+        "/api/messages",
+        response_model=MessageRecord,
+        dependencies=[Depends(require_agent_auth)],
+    )
+    async def send_message(request: Request, payload: MessageCreate) -> MessageRecord:
+        return _message_service(request).send_message(payload)
+
+    @app.get(
+        "/api/agents/{agent_id}/messages/inbox",
+        response_model=list[MessageRecord],
+        dependencies=[Depends(require_agent_auth)],
+    )
+    async def message_inbox(request: Request, agent_id: str) -> list[MessageRecord]:
+        return _message_service(request).list_inbox(agent_id)
+
+    @app.post(
+        "/api/messages/{message_id}/claim",
+        response_model=MessageRecord,
+        dependencies=[Depends(require_agent_auth)],
+    )
+    async def claim_message(
+        request: Request,
+        message_id: str,
+        payload: MessageClaim,
+    ) -> MessageRecord:
+        try:
+            return _message_service(request).claim_message(message_id, payload.agent_id)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Message not found",
+            ) from exc
+        except PermissionError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Message belongs to another agent",
+            ) from exc
+        except MessageStateError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
+            ) from exc
+
+    @app.post(
+        "/api/messages/{message_id}/ack",
+        response_model=MessageRecord,
+        dependencies=[Depends(require_agent_auth)],
+    )
+    async def acknowledge_message(
+        request: Request,
+        message_id: str,
+        payload: MessageAck,
+    ) -> MessageRecord:
+        try:
+            return _message_service(request).acknowledge_message(
+                message_id,
+                agent_id=payload.agent_id,
+                result=payload.result,
+            )
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Message not found",
+            ) from exc
+        except PermissionError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Message belongs to another agent",
+            ) from exc
+        except MessageStateError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
+            ) from exc
+
+    @app.get(
+        "/api/messages/{message_id}",
+        response_model=MessageRecord,
+        dependencies=[Depends(require_auth)],
+    )
+    async def get_message(request: Request, message_id: str) -> MessageRecord:
+        try:
+            return _message_service(request).get_message(message_id)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Message not found",
+            ) from exc
+
+    @app.get(
+        "/api/system/summary",
+        response_model=SystemSummary,
+        dependencies=[Depends(require_auth)],
+    )
+    async def system_summary() -> SystemSummary:
+        return get_system_summary()
+
+    @app.get(
+        "/api/dashboard/snapshot",
+        response_model=DashboardSnapshot,
+        dependencies=[Depends(require_auth)],
+    )
+    async def dashboard_snapshot(request: Request) -> DashboardSnapshot:
+        collector: Sub2ApiSnapshotCollector | None = request.app.state.sub2api_collector
+        return await _dashboard_collector(request).get_snapshot(collector)
+
+    @app.get(
+        "/api/system/glance",
+        response_model=SystemGlanceSummary,
+        dependencies=[Depends(require_auth)],
+    )
+    async def system_glance(request: Request) -> SystemGlanceSummary:
+        return await _dashboard_collector(request).get_system()
+
+    @app.get(
+        "/api/system/gpus",
+        response_model=list[GpuSummary],
+        dependencies=[Depends(require_auth)],
+    )
+    async def system_gpus(request: Request) -> list[GpuSummary]:
+        return await _dashboard_collector(request).get_gpus()
+
+    @app.get(
+        "/api/network/connectivity",
+        response_model=NetworkConnectivity,
+        dependencies=[Depends(require_auth)],
+    )
+    async def network_connectivity(request: Request) -> NetworkConnectivity:
+        return await _dashboard_collector(request).get_network()
+
+    @app.get(
+        "/api/probes",
+        response_model=list[ProbeResult],
+        dependencies=[Depends(require_auth)],
+    )
+    async def list_probes(request: Request) -> list[ProbeResult]:
+        return await _dashboard_collector(request).get_probes()
+
+    @app.get(
+        "/api/probes/history",
+        response_model=list[ProbeHistorySummary],
+        dependencies=[Depends(require_auth)],
+    )
+    async def probe_history(request: Request) -> list[ProbeHistorySummary]:
+        return await _dashboard_collector(request).get_probe_history()
+
+    @app.post(
+        "/api/probes/run",
+        response_model=list[ProbeResult],
+        dependencies=[Depends(require_auth)],
+    )
+    async def run_configured_probes(request: Request) -> list[ProbeResult]:
+        return await _dashboard_collector(request).refresh_probes()
+
+    @app.get(
+        "/api/sub2api/accounts",
+        response_model=Sub2ApiAccountsResponse,
+        dependencies=[Depends(require_auth)],
+    )
+    async def sub2api_accounts(request: Request) -> Sub2ApiAccountsResponse:
+        app_settings: Settings = request.app.state.settings
+        collector: Sub2ApiSnapshotCollector | None = request.app.state.sub2api_collector
+        return await get_sub2api_accounts(
+            app_settings.sub2api,
+            refreshing=collector.refreshing if collector is not None else False,
+        )
+
+    @app.post(
+        "/api/sub2api/accounts/refresh",
+        response_model=Sub2ApiRefreshResponse,
+        dependencies=[Depends(require_auth)],
+    )
+    async def refresh_sub2api_accounts(request: Request) -> Sub2ApiRefreshResponse:
+        app_settings: Settings = request.app.state.settings
+        collector: Sub2ApiSnapshotCollector | None = request.app.state.sub2api_collector
+        if not app_settings.sub2api.enabled or collector is None:
+            return Sub2ApiRefreshResponse(
+                status="disabled",
+                scheduled=False,
+                refreshing=False,
+            )
+
+        scheduled = collector.request_refresh()
+        if not collector.running:
+            asyncio.create_task(collector.refresh_once())
+        return Sub2ApiRefreshResponse(
+            status="running" if collector.refreshing else "scheduled",
+            scheduled=scheduled,
+            refreshing=collector.refreshing,
+        )
+
+    @app.get(
+        "/api/todos",
+        response_model=list[TodoItem],
+        dependencies=[Depends(require_auth)],
+    )
+    async def get_todos(request: Request) -> list[TodoItem]:
+        return list_todos(_todo_store_path(request))
+
+    @app.post(
+        "/api/todos",
+        response_model=TodoItem,
+        dependencies=[Depends(require_auth)],
+    )
+    async def create_todo_item(request: Request, payload: TodoCreateRequest) -> TodoItem:
+        return create_todo(payload, _todo_store_path(request))
+
+    @app.patch(
+        "/api/todos/{todo_id}",
+        response_model=TodoItem,
+        dependencies=[Depends(require_auth)],
+    )
+    async def update_todo_item(
+        request: Request,
+        todo_id: str,
+        payload: TodoUpdateRequest,
+    ) -> TodoItem:
+        try:
+            return update_todo(todo_id, payload, _todo_store_path(request))
+        except TodoNotFoundError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Todo not found",
+            ) from exc
+
+    @app.delete(
+        "/api/todos/{todo_id}",
+        response_model=DeleteResponse,
+        dependencies=[Depends(require_auth)],
+    )
+    async def delete_todo_item(request: Request, todo_id: str) -> DeleteResponse:
+        try:
+            delete_todo(todo_id, _todo_store_path(request))
+        except TodoNotFoundError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Todo not found",
+            ) from exc
+        return DeleteResponse(deleted=True)
+
+    return app
+
+
+app = create_app()

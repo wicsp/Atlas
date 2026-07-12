@@ -1,0 +1,107 @@
+from pathlib import Path
+
+from fastapi.testclient import TestClient
+
+from atlas.config import AgentSettings, AuthSettings, Settings, Sub2ApiSettings
+from atlas.main import create_app
+
+
+def make_client(tmp_path: Path) -> TestClient:
+    settings = Settings(
+        auth=AuthSettings(
+            admin_password="correct-password",
+            session_secret="test-session-secret",
+        ),
+        agents=AgentSettings(
+            database_path=tmp_path / "atlas.sqlite3",
+            shared_token="agent-secret",
+            heartbeat_ttl_seconds=60,
+        ),
+        sub2api=Sub2ApiSettings(enabled=False),
+    )
+    return TestClient(create_app(settings))
+
+
+def agent_headers(token: str = "agent-secret") -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}"}
+
+
+def login(client: TestClient) -> None:
+    response = client.post("/api/auth/login", json={"password": "correct-password"})
+    assert response.status_code == 200
+
+
+def test_agent_registration_requires_bearer_token(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+
+    response = client.post(
+        "/api/agents/register",
+        json={"agent_id": "mac-dev", "name": "Mac Dev"},
+    )
+
+    assert response.status_code == 401
+
+
+def test_agent_registration_rejects_wrong_bearer_token(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+
+    response = client.post(
+        "/api/agents/register",
+        headers=agent_headers("wrong-token"),
+        json={"agent_id": "mac-dev", "name": "Mac Dev"},
+    )
+
+    assert response.status_code == 401
+
+
+def test_agent_can_register_and_heartbeat(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+
+    register_response = client.post(
+        "/api/agents/register",
+        headers=agent_headers(),
+        json={
+            "agent_id": "mac-dev",
+            "name": "Mac Dev",
+            "capabilities": ["messages:send", "tasks:claim"],
+            "metadata": {"host": "mac"},
+        },
+    )
+    heartbeat_response = client.post(
+        "/api/agents/mac-dev/heartbeat",
+        headers=agent_headers(),
+    )
+
+    assert register_response.status_code == 200
+    registered = register_response.json()
+    assert registered["agent_id"] == "mac-dev"
+    assert registered["name"] == "Mac Dev"
+    assert registered["capabilities"] == ["messages:send", "tasks:claim"]
+    assert registered["metadata"] == {"host": "mac"}
+    assert registered["online"] is True
+    assert heartbeat_response.status_code == 200
+    assert heartbeat_response.json()["agent_id"] == "mac-dev"
+
+
+def test_dashboard_can_list_registered_agents_after_login(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    client.post(
+        "/api/agents/register",
+        headers=agent_headers(),
+        json={"agent_id": "amax-prod", "name": "Amax Prod"},
+    )
+    login(client)
+
+    response = client.get("/api/agents")
+
+    assert response.status_code == 200
+    assert response.json()[0]["agent_id"] == "amax-prod"
+    assert response.json()[0]["online"] is True
+
+
+def test_agent_list_requires_dashboard_login(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+
+    response = client.get("/api/agents")
+
+    assert response.status_code == 401

@@ -1,0 +1,63 @@
+[server]
+host = "0.0.0.0"
+port = 8000
+
+[auth]
+# Generate this with: uv run atlas-password-hash
+password_hash = "pbkdf2_sha256$260000$example-salt$example-digest"
+# Use a long random value. Sessions are invalidated when this changes.
+session_secret = "replace-with-a-long-random-secret"
+session_max_age_seconds = 604800
+cookie_secure = false
+
+[agents]
+# Agent endpoints use Authorization: Bearer <shared_token>.
+database_path = "data/atlas.sqlite3"
+shared_token = "replace-with-a-long-random-agent-token"
+heartbeat_ttl_seconds = 90
+
+[sub2api]
+# Atlas periodically snapshots account status from the local Dockerized sub2api Postgres container.
+enabled = true
+docker_command = "docker"
+postgres_container = "sub2api-postgres"
+postgres_user = "sub2api"
+postgres_database = "sub2api"
+snapshot_database_path = "data/sub2api_snapshots.sqlite3"
+timeout = 5.0
+recent_window_minutes = 60
+refresh_interval_seconds = 60.0
+stale_after_seconds = 180.0
+
+[probe_history]
+database_path = "data/probe_history.sqlite3"
+retention_hours = 168
+summary_window_hours = 24
+
+[[probes]]
+name = "Atlas API"
+type = "http"
+url = "http://127.0.0.1:8000/api/health"
+method = "GET"
+timeout = 2.0
+expected_status_min = 200
+expected_status_max = 299
+
+[[probes]]
+name = "SSH"
+type = "tcp"
+host = "127.0.0.1"
+port = 22
+timeout = 2.0
+
+[[probes]]
+name = "nexus"
+type = "icmp"
+host = "154.21.80.210"
+timeout = 2.0
+
+[[probes]]
+name = "mio"
+type = "icmp"
+host = "8.135.45.26"
+timeout = 2.0
