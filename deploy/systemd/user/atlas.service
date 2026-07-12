@@ -1,0 +1,22 @@
+[Unit]
+Description=Atlas personal control plane service
+# Eventual production replacement for the Atlas backend. Keep installed but do not start until
+# explicit cutover. `config/atlas.toml` already provides auth.password_hash and auth.session_secret;
+# the required user environment file only needs ATLAS_AGENT_SHARED_TOKEN.
+Documentation=file:/home/wicsp/projects/Atlas/README.md file:/home/wicsp/projects/Atlas/docs/operations/atlas-milestone-0.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/wicsp/projects/Atlas
+Environment=PYTHONUNBUFFERED=1
+Environment=ATLAS_CONFIG=/home/wicsp/projects/Atlas/config/atlas.toml
+UMask=0077
+EnvironmentFile=%h/.config/atlas/atlas.env
+ExecStart=/home/wicsp/projects/Atlas/.venv/bin/python -m uvicorn atlas.main:app --host 0.0.0.0 --port 8000
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=default.target

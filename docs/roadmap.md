@@ -5,19 +5,23 @@ backlogs.
 
 ## Current state and immediate risks
 
-As observed on 2026-07-12:
+As observed after the AMAX Atlas Milestone 0 cutover on 2026-07-12:
 
-- Atlas source passes 87 tests and Ruff, but the repository has no commits yet.
-- Port 8000 is still served by an old in-memory `atlas_console.main:app` process.
-- The current environment can import `atlas` but no longer imports `atlas_console`, so the old
-  command will not restart successfully.
+- Atlas source has baseline commit `4b79af1` (`chore: establish atlas baseline`) and passes 87
+  tests and Ruff.
+- `atlas.service` now runs `atlas.main:app` on port 8000 as an active, enabled systemd user service;
+  it passed isolated current-source and rollback canaries plus a production restart-persistence
+  check.
+- A detached `4b79af1` rollback worktree and a SQLite-consistent pre-cutover backup are the recovery
+  anchors for Milestone 0.
+- The old `atlas_console` process has been retired and is not a valid rollback target.
 - Current Atlas source already contains an agent registry and direct-message MVP.
 - Lumio contains active, uncommitted model/fast-mode changes and a Bilibili summary skill.
 - `nix-config` contains broad uncommitted changes and still needs its README and personal host
   boundaries brought in line with current usage.
 
-Do not stop the old Atlas process until the new entry point has been tested on a temporary port and
-placed under a service manager.
+The bootstrap service is operational; long-term Atlas service ownership still needs to move into
+`nix-config`.
 
 ## Milestone 0: Stable baselines
 
@@ -25,11 +29,15 @@ placed under a service manager.
 
 ### Atlas
 
-- Verify `.gitignore` excludes configuration secrets, databases, logs, caches, and temporary data.
-- Create the first commit from the currently passing source.
-- Start `atlas.main:app` on a temporary port and verify its OpenAPI routes.
-- Define a managed service and a rollback procedure.
-- Replace the old `atlas_console` process only after validation.
+**Status:** The Atlas operational portion of Milestone 0 completed on 2026-07-12.
+
+- `.gitignore` excludes configuration secrets, databases, logs, caches, and temporary data.
+- Baseline commit `4b79af1` and its detached rollback worktree are verified recovery anchors.
+- Current and rollback `atlas.main:app` canaries passed on isolated localhost ports.
+- The production systemd user unit, runtime token, persistent agent database, and restart behavior
+  are verified on port 8000.
+- The old `atlas_console` process is retired and is not used for rollback.
+- Move the verified bootstrap service declaration into `nix-config` for long-term ownership.
 
 ### Lumio
 
@@ -43,7 +51,8 @@ placed under a service manager.
 - Split or checkpoint the current broad worktree changes by concern.
 - Update the README to describe the actual personal configuration and maintained hosts.
 - Establish clean format, evaluation, and affected-host build checks.
-- Add Atlas/Lumio deployment only after that baseline is recoverable.
+- Add Atlas/Lumio deployment only after the Atlas canary, environment, and rollback path are
+  recoverable.
 
 **Exit criteria:** Each repository has a clean or intentionally documented worktree, passing local
 checks, and a known revision suitable for rollback.

@@ -142,17 +142,19 @@ single concise status message or `/atlas status` command is sufficient for diagn
 
 Before exposing the source implementation as the real service:
 
-1. Establish a Git baseline for the currently passing source.
+1. Use baseline commit `4b79af1` (`chore: establish atlas baseline`) as the rollback anchor.
 2. Verify `atlas.main:app` on a temporary port.
 3. Confirm that the agent SQLite path is persistent and excluded from Git.
 4. Run the current agent API/service tests.
 5. Deploy the new entry point under a service manager.
-6. Do not stop the existing `atlas_console` process until the replacement has passed checks.
+6. Keep the canary isolated to a localhost systemd user service and a detached `4b79af1`
+   rollback worktree.
 
-For this RFC, Atlas may retain the current shared agent token because the API is reachable only on
-the private network and no remote work execution is added. This token does **not** authenticate the
-claimed `from_agent_id`. Per-agent credentials and server-derived identity are mandatory before
-Atlas accepts security-sensitive jobs or remote execution.
+For this RFC, Atlas keeps bearer-token authentication for the agent API, but the token is supplied
+out of band through environment or secret-file wiring. It does **not** authenticate the claimed
+`from_agent_id`. Per-agent credentials and server-derived identity are mandatory before Atlas
+accepts security-sensitive jobs or remote execution, and `config/atlas.toml` must not carry a
+shared token value.
 
 ## Lumio implementation work
 
@@ -253,9 +255,10 @@ without switching it first.
 ## Rollout order
 
 1. Stabilize and deploy the current Atlas source under the correct `atlas.main:app` entry point.
-2. Implement the Lumio adapter against a fake Atlas server.
-3. Test against AMAX Atlas manually.
-4. Add the minimal `nix-config` configuration.
-5. Run the end-to-end acceptance checks.
-6. Change this RFC status to `Implemented` and record the three deployed revisions.
-
+2. Keep the canary isolated to a localhost systemd user service and a detached `4b79af1`
+   rollback worktree, not the old `atlas_console` process.
+3. Implement the Lumio adapter against a fake Atlas server.
+4. Test against AMAX Atlas manually.
+5. Add the minimal `nix-config` configuration.
+6. Run the end-to-end acceptance checks.
+7. Change this RFC status to `Implemented` and record the three deployed revisions.
