@@ -25,6 +25,10 @@ def test_register_agent_upserts_existing_agent(tmp_path: Path) -> None:
         ),
         now=now,
     )
+    # M2.5: register returns AgentRegistrationResponse with scoped_token.
+    assert first.agent_id == "mac-dev"
+    assert first.scoped_token.startswith("at2_")
+
     updated = service.register_agent(
         AgentRegistration(
             agent_id="mac-dev",
@@ -34,15 +38,18 @@ def test_register_agent_upserts_existing_agent(tmp_path: Path) -> None:
         ),
         now=now + timedelta(seconds=10),
     )
-    agents = service.list_agents(now=now + timedelta(seconds=10))
+    # Re-registration returns the same scoped_token (None update, so no new token).
+    assert updated.agent_id == "mac-dev"
 
-    assert first.agent_id == "mac-dev"
-    assert updated.name == "Mac Development"
-    assert updated.capabilities == ["messages:send", "tasks:claim"]
-    assert updated.metadata == {"host": "mac", "role": "dev"}
-    assert updated.registered_at == now
-    assert updated.last_seen_at == now + timedelta(seconds=10)
-    assert [agent.agent_id for agent in agents] == ["mac-dev"]
+    # Verify the updated agent via list_agents (returns full AgentRecord).
+    agents = service.list_agents(now=now + timedelta(seconds=10))
+    agent = agents[0]
+    assert agent.agent_id == "mac-dev"
+    assert agent.name == "Mac Development"
+    assert agent.capabilities == ["messages:send", "tasks:claim"]
+    assert agent.metadata == {"host": "mac", "role": "dev"}
+    assert agent.registered_at == now
+    assert agent.last_seen_at == now + timedelta(seconds=10)
 
 
 def test_heartbeat_refreshes_last_seen_at(tmp_path: Path) -> None:

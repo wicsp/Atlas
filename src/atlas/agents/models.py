@@ -46,4 +46,10 @@ class AgentRecord(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
     registered_at: datetime
     last_seen_at: datetime
+    scoped_token_hash: str | None = None
     online: bool
+
+
+class AgentRegistrationResponse(BaseModel):
+    agent_id: str
+    scoped_token: str

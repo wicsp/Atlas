@@ -94,7 +94,9 @@ class RunComplete(BaseModel):
 
 class RunFail(BaseModel):
     agent_id: str = Field(min_length=1, max_length=128)
+    error_code: str | None = Field(default=None, max_length=128)
     error_message: str | None = Field(default=None, max_length=10_000)
+    retryable: bool = False
 
     @field_validator("agent_id")
     @classmethod

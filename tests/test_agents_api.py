@@ -73,14 +73,20 @@ def test_agent_can_register_and_heartbeat(tmp_path: Path) -> None:
     )
 
     assert register_response.status_code == 200
+    # M2.5: registration returns agent_id + scoped_token.
     registered = register_response.json()
     assert registered["agent_id"] == "mac-dev"
-    assert registered["name"] == "Mac Dev"
-    assert registered["capabilities"] == ["messages:send", "tasks:claim"]
-    assert registered["metadata"] == {"host": "mac"}
-    assert registered["online"] is True
+    assert "scoped_token" in registered
+    assert registered["scoped_token"].startswith("at2_")
+
     assert heartbeat_response.status_code == 200
-    assert heartbeat_response.json()["agent_id"] == "mac-dev"
+    # Heartbeat returns full AgentRecord.
+    hb = heartbeat_response.json()
+    assert hb["agent_id"] == "mac-dev"
+    assert hb["name"] == "Mac Dev"
+    assert hb["capabilities"] == ["messages:send", "tasks:claim"]
+    assert hb["metadata"] == {"host": "mac"}
+    assert hb["online"] is True
 
 
 def test_dashboard_can_list_registered_agents_after_login(tmp_path: Path) -> None:

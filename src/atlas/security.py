@@ -12,6 +12,8 @@ from .config import AgentSettings, AuthSettings
 HASH_ALGORITHM = "pbkdf2_sha256"
 HASH_ITERATIONS = 260_000
 SESSION_COOKIE_NAME = "atlas_session"
+SCOPED_TOKEN_PREFIX = "at2_"
+SCOPED_TOKEN_BYTES = 32
 
 
 def _b64encode(value: bytes) -> str:
@@ -21,6 +23,19 @@ def _b64encode(value: bytes) -> str:
 def _b64decode(value: str) -> bytes:
     padding = "=" * (-len(value) % 4)
     return base64.urlsafe_b64decode(value + padding)
+
+
+def hash_token(token: str) -> str:
+    return _b64encode(hashlib.sha256(token.encode("utf-8")).digest())
+
+
+def generate_scoped_token() -> str:
+    raw = secrets.token_bytes(SCOPED_TOKEN_BYTES)
+    return SCOPED_TOKEN_PREFIX + _b64encode(raw)
+
+
+def verify_scoped_token(token: str, token_hash: str) -> bool:
+    return hmac.compare_digest(hash_token(token), token_hash)
 
 
 def hash_password(password: str) -> str:

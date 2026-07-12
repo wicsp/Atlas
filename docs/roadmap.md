@@ -5,23 +5,20 @@ backlogs.
 
 ## Current state and immediate risks
 
-As observed after the AMAX Atlas Milestone 0 cutover on 2026-07-12:
+As observed after the first Atlas/Lumio execution slice on 2026-07-12:
 
-- Atlas source has baseline commit `4b79af1` (`chore: establish atlas baseline`) and passes 87
-  tests and Ruff.
+- Atlas has 106 passing tests and one remaining Ruff failure in the work API tests.
 - `atlas.service` now runs `atlas.main:app` on port 8000 as an active, enabled systemd user service;
-  it passed isolated current-source and rollback canaries plus a production restart-persistence
-  check.
+  production contains live Lumio heartbeats and completed work runs.
 - A detached `4b79af1` rollback worktree and a SQLite-consistent pre-cutover backup are the recovery
   anchors for Milestone 0.
 - The old `atlas_console` process has been retired and is not a valid rollback target.
-- Current Atlas source already contains an agent registry and direct-message MVP.
-- Lumio contains active, uncommitted model/fast-mode changes and a Bilibili summary skill.
-- `nix-config` contains broad uncommitted changes and still needs its README and personal host
-  boundaries brought in line with current usage.
+- RFC 0001 is implemented; Lumio also has prototype M2 work polling and an M3 Bilibili handler.
+- Lumio has no focused fake-Atlas tests, and its check command is not yet self-contained.
+- nix-config provisions the Atlas endpoint, node identity, and agenix-managed token file.
 
-The bootstrap service is operational; long-term Atlas service ownership still needs to move into
-`nix-config`.
+The immediate risk is no longer connectivity. It is trusting a prototype execution contract before
+identity, lease ownership, idempotency, shell safety, and artifact boundaries are enforced.
 
 ## Milestone 0: Stable baselines
 
@@ -59,14 +56,16 @@ checks, and a known revision suitable for rollback.
 
 ## Milestone 1: Connected Lumio agent
 
-Implement [RFC 0001](rfcs/0001-connected-lumio-agent.md).
+**Status:** Implemented.
 
 **Outcome:** An active Lumio-enabled pi session appears in Atlas with heartbeat, versions, and
 capabilities; Atlas failure does not impair local pi use.
 
-This is the first three-repository integration test and should remain deliberately small.
+See [RFC 0001](rfcs/0001-connected-lumio-agent.md) for the accepted contract and revisions.
 
 ## Milestone 2: Reliable work execution
+
+**Status:** Functional prototype; blocked on Execution Hardening.
 
 **Outcome:** Atlas can represent actionable work independently of a specific agent runtime.
 
@@ -82,7 +81,31 @@ Introduce only the domain behavior required by the first real pipeline:
 Do not build a generic distributed platform. SQLite and polling are sufficient until measured
 requirements prove otherwise.
 
+## Milestone 2.5: Execution Hardening
+
+Implement [RFC 0002](rfcs/0002-execution-hardening.md).
+
+**Outcome:** The existing Atlas/Lumio execution loop becomes a trustworthy boundary before more
+sources, workers, or user interfaces depend on it.
+
+This is a stop-the-line gate, not a new platform feature. It requires:
+
+- per-agent or per-session credentials with server-derived identity;
+- atomic claim and strict lease-owner transitions;
+- idempotent terminal reporting and transactional Events;
+- explicit capability routing and visible unsupported-job failure;
+- asynchronous shell-free subprocess execution;
+- bounded run output with transcripts and generated Resources stored as ArtifactRefs;
+- fake-server, concurrency, restart, lease-loss, cancellation, and redaction tests;
+- deterministic green checks in Atlas, Lumio, and nix-config.
+
+**Exit criteria:** Every RFC 0002 acceptance check passes, deployed revisions and protocol versions
+are recorded, and the current Bilibili slice survives a two-agent race plus an Atlas restart without
+false success, duplicate completion, leaked secrets, or transcript bytes in SQLite.
+
 ## Milestone 3: Bilibili vertical slice
+
+**Status:** Prototype capture and transcript execution works; expansion is blocked on Milestone 2.5.
 
 **Outcome:** A captured Bilibili URL becomes a reviewable AI Resource with traceable source data.
 
@@ -99,6 +122,8 @@ The transcript and summary are Resources, not human knowledge. The human-comment
 generated or silently promoted by AI.
 
 ## Milestone 4: Academic source workflow
+
+**Status:** Blocked until Milestone 2.5 is complete and the Bilibili Resource boundary is accepted.
 
 **Outcome:** Papers can be discovered and triaged without duplicating Zotero's authority.
 

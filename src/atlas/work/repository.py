@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Integer, String, Text, select
+from sqlalchemy import Integer, String, Text, select, update
 from sqlalchemy.orm import Mapped, Session, mapped_column, sessionmaker
 
 from atlas.db.base import Base
@@ -77,6 +77,16 @@ class ArtifactRow(Base):
     created_at: Mapped[str] = mapped_column(String(64))
 
 
+class IdempotencyRow(Base):
+    __tablename__ = "run_idempotency"
+
+    idempotency_key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    run_id: Mapped[str] = mapped_column(String(128), index=True)
+    operation_type: Mapped[str] = mapped_column(String(32))
+    payload_digest: Mapped[str] = mapped_column(String(128))
+    created_at: Mapped[str] = mapped_column(String(64))
+
+
 class WorkRepository:
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
         self._session_factory = session_factory
@@ -120,6 +130,16 @@ class WorkRepository:
                 created_at=now.isoformat(),
             )
             session.add(row)
+            session.add(
+                EventRow(
+                    event_id=f"evt_{uuid.uuid4().hex}",
+                    run_id=row.run_id,
+                    agent_id=None,
+                    event_type="enqueued",
+                    body="Run created",
+                    created_at=now.isoformat(),
+                )
+            )
             session.commit()
             return _to_run(row)
 
@@ -172,7 +192,6 @@ class WorkRepository:
                 .where(RunRow.attempt_number < RunRow.max_attempts)
                 .order_by(RunRow.priority.desc(), RunRow.created_at)
                 .limit(50)
-                .limit(50)
             )
             if capabilities:
                 # Filter runs whose required capabilities are a subset of agent capabilities
@@ -192,7 +211,155 @@ class WorkRepository:
             return _to_run(row)
 
 
+    def claim_next_atomic(
+        self,
+        agent_id: str,
+        lease_expires_at: datetime,
+        now: datetime,
+        capabilities: list[str] | None = None,
+    ) -> RunRecord | None:
+        """Atomically find + claim a pending run in a single transaction.
+
+        Uses UPDATE … WHERE status = 'pending' as a concurrency guard so that
+        two agents claiming simultaneously produce exactly one winner.
+        """
+        with self._session_factory() as session, session.begin():
+            # Expire stale claims first.
+            stale = session.scalars(
+                select(RunRow)
+                .where(RunRow.status == "claimed")
+                .where(RunRow.lease_expires_at <= now.isoformat())
+            ).all()
+            for row in stale:
+                previous_agent = row.agent_id
+                if row.attempt_number >= row.max_attempts:
+                    row.status = "failed"
+                    row.error_message = "lease expired; attempts exhausted"
+                    row.completed_at = now.isoformat()
+                    event_type = "failed"
+                    body = "Lease expired and all attempts were exhausted"
+                else:
+                    row.status = "pending"
+                    event_type = "lease_expired"
+                    body = "Lease expired; run returned to pending"
+                row.agent_id = None
+                row.lease_expires_at = None
+                session.add(
+                    EventRow(
+                        event_id=f"evt_{uuid.uuid4().hex}",
+                        run_id=row.run_id,
+                        agent_id=previous_agent,
+                        event_type=event_type,
+                        body=body,
+                        created_at=now.isoformat(),
+                    )
+                )
+
+            # Find candidates (up to 50 to allow Python-side capability matching).
+            stmt = (
+                select(RunRow)
+                .where(RunRow.status == "pending")
+                .where(RunRow.attempt_number < RunRow.max_attempts)
+                .order_by(RunRow.priority.desc(), RunRow.created_at)
+                .limit(50)
+            )
+            candidates = list(session.scalars(stmt).all())
+
+            effective_capabilities = capabilities or []
+            matching = [
+                row
+                for row in candidates
+                if _capabilities_match(row.capabilities_json, effective_capabilities)
+            ]
+
+            if not matching:
+                return None
+
+            # Try to atomically claim the best match.
+            target = matching[0]
+            result = session.execute(
+                update(RunRow)
+                .where(RunRow.run_id == target.run_id)
+                .where(RunRow.status == "pending")
+                .values(
+                    status="claimed",
+                    agent_id=agent_id,
+                    lease_expires_at=lease_expires_at.isoformat(),
+                    attempt_number=RunRow.attempt_number + 1,
+                    started_at=now.isoformat(),
+                )
+            )
+            if result.rowcount == 0:
+                # Another concurrent claim won the race.
+                return None
+
+            # Reload the updated row (the ORM identity map still has the old state).
+            session.expire(target)
+            claimed = session.get(RunRow, target.run_id)
+            assert claimed is not None, "Run must exist after atomic claim"
+
+            session.add(
+                EventRow(
+                    event_id=f"evt_{uuid.uuid4().hex}",
+                    run_id=claimed.run_id,
+                    agent_id=agent_id,
+                    event_type="claimed",
+                    body=f"Claimed by {agent_id}, attempt {claimed.attempt_number}",
+                    created_at=now.isoformat(),
+                )
+            )
+
+            return _to_run(claimed)
+
     def claim_run(
+        self,
+        run_id: str,
+        agent_id: str,
+        lease_expires_at: datetime,
+        now: datetime,
+        capabilities: list[str],
+    ) -> RunRecord:
+        with self._session_factory() as session, session.begin():
+            row = session.get(RunRow, run_id)
+            if row is None:
+                raise KeyError(run_id)
+            if row.status != "pending":
+                raise ValueError(f"Run {run_id} is not pending (status={row.status})")
+            if row.attempt_number >= row.max_attempts:
+                raise ValueError(f"Run {run_id} has exhausted all attempts")
+            if not _capabilities_match(row.capabilities_json, capabilities):
+                raise PermissionError(f"Agent lacks capabilities required by run {run_id}")
+            result = session.execute(
+                update(RunRow)
+                .where(RunRow.run_id == run_id)
+                .where(RunRow.status == "pending")
+                .where(RunRow.attempt_number < RunRow.max_attempts)
+                .values(
+                    status="claimed",
+                    agent_id=agent_id,
+                    lease_expires_at=lease_expires_at.isoformat(),
+                    attempt_number=RunRow.attempt_number + 1,
+                    started_at=now.isoformat(),
+                )
+            )
+            if result.rowcount == 0:
+                raise ValueError(f"Run {run_id} was claimed concurrently")
+            session.expire(row)
+            claimed = session.get(RunRow, run_id)
+            assert claimed is not None
+            session.add(
+                EventRow(
+                    event_id=f"evt_{uuid.uuid4().hex}",
+                    run_id=run_id,
+                    agent_id=agent_id,
+                    event_type="claimed",
+                    body=f"Claimed by {agent_id}, attempt {claimed.attempt_number}",
+                    created_at=now.isoformat(),
+                )
+            )
+            return _to_run(claimed)
+
+    def heartbeat_run(
         self,
         run_id: str,
         agent_id: str,
@@ -203,32 +370,12 @@ class WorkRepository:
             row = session.get(RunRow, run_id)
             if row is None:
                 raise KeyError(run_id)
-            if row.status != "pending":
-                raise ValueError(f"Run {run_id} is not pending (status={row.status})")
-            if row.attempt_number >= row.max_attempts:
-                raise ValueError(f"Run {run_id} has exhausted all attempts")
-            row.status = "claimed"
-            row.agent_id = agent_id
-            row.lease_expires_at = lease_expires_at.isoformat()
-            row.attempt_number += 1
-            row.started_at = now.isoformat()
-            session.commit()
-            return _to_run(row)
-
-    def heartbeat_run(
-        self,
-        run_id: str,
-        agent_id: str,
-        lease_expires_at: datetime,
-    ) -> RunRecord:
-        with self._session_factory() as session:
-            row = session.get(RunRow, run_id)
-            if row is None:
-                raise KeyError(run_id)
             if row.status != "claimed":
                 raise ValueError(f"Run {run_id} is not claimed")
             if row.agent_id != agent_id:
                 raise PermissionError(f"Run {run_id} is claimed by {row.agent_id}")
+            if row.lease_expires_at is not None and row.lease_expires_at <= now.isoformat():
+                raise PermissionError("lease expired")
             row.lease_expires_at = lease_expires_at.isoformat()
             session.commit()
             return _to_run(row)
@@ -240,15 +387,37 @@ class WorkRepository:
         output: dict[str, Any],
         artifacts: list[ArtifactRefCreate],
         now: datetime,
+        idempotency_key: str | None = None,
+        payload_digest: str | None = None,
     ) -> RunRecord:
         with self._session_factory() as session:
+            # M2.5 P0-1: idempotency detection.
+            if idempotency_key and payload_digest:
+                cached = session.get(IdempotencyRow, idempotency_key)
+                if cached is not None:
+                    if cached.run_id != run_id or cached.operation_type != "complete":
+                        raise ValueError("Idempotency key already used for a different operation")
+                    if cached.payload_digest == payload_digest:
+                        # Replay — return the already-terminal run.
+                        run_row = session.get(RunRow, run_id)
+                        if run_row is None:
+                            raise KeyError(run_id)
+                        return _to_run(run_row)
+                    raise ValueError("Idempotency key reused with a different payload")
+
             row = session.get(RunRow, run_id)
             if row is None:
                 raise KeyError(run_id)
-            if row.status not in ("pending", "claimed"):
-                raise ValueError(f"Run {run_id} is already terminal (status={row.status})")
-            if row.agent_id is not None and row.agent_id != agent_id:
-                raise PermissionError(f"Run {run_id} is claimed by {row.agent_id}")
+            # M2.5: must be claimed by the reporting agent.
+            if row.status != "claimed":
+                raise ValueError(
+                    f"Run {run_id} is not claimed (status={row.status}); "
+                    "only claimed runs can complete"
+                )
+            if row.agent_id != agent_id:
+                raise PermissionError(f"Run {run_id} is claimed by {row.agent_id}, not {agent_id}")
+            if row.lease_expires_at is not None and row.lease_expires_at <= now.isoformat():
+                raise PermissionError("lease expired")
             row.status = "completed"
             row.agent_id = agent_id
             row.output_json = _dump_json(output)
@@ -269,6 +438,28 @@ class WorkRepository:
                     )
                 )
 
+            session.add(
+                EventRow(
+                    event_id=f"evt_{uuid.uuid4().hex}",
+                    run_id=run_id,
+                    agent_id=agent_id,
+                    event_type="completed",
+                    body=f"Completed with {len(artifacts)} artifact(s)",
+                    created_at=now.isoformat(),
+                )
+            )
+
+            if idempotency_key and payload_digest:
+                session.add(
+                    IdempotencyRow(
+                        idempotency_key=idempotency_key,
+                        run_id=run_id,
+                        operation_type="complete",
+                        payload_digest=payload_digest,
+                        created_at=now.isoformat(),
+                    )
+                )
+
             session.commit()
             return _to_run(row)
 
@@ -276,22 +467,67 @@ class WorkRepository:
         self,
         run_id: str,
         agent_id: str,
+        error_code: str | None,
         error_message: str | None,
+        retryable: bool,
         now: datetime,
+        idempotency_key: str | None = None,
+        payload_digest: str | None = None,
     ) -> RunRecord:
         with self._session_factory() as session:
+            if idempotency_key and payload_digest:
+                cached = session.get(IdempotencyRow, idempotency_key)
+                if cached is not None:
+                    if cached.run_id != run_id or cached.operation_type != "fail":
+                        raise ValueError("Idempotency key already used for a different operation")
+                    if cached.payload_digest == payload_digest:
+                        run_row = session.get(RunRow, run_id)
+                        if run_row is None:
+                            raise KeyError(run_id)
+                        return _to_run(run_row)
+                    raise ValueError("Idempotency key reused with a different payload")
+
             row = session.get(RunRow, run_id)
             if row is None:
                 raise KeyError(run_id)
-            if row.status not in ("pending", "claimed"):
-                raise ValueError(f"Run {run_id} is already terminal (status={row.status})")
-            if row.agent_id is not None and row.agent_id != agent_id:
-                raise PermissionError(f"Run {run_id} is claimed by {row.agent_id}")
-            row.status = "failed"
-            row.agent_id = agent_id
+            if row.status != "claimed":
+                raise ValueError(
+                    f"Run {run_id} is not claimed (status={row.status}); "
+                    "only claimed runs can fail"
+                )
+            if row.agent_id != agent_id:
+                raise PermissionError(f"Run {run_id} is claimed by {row.agent_id}, not {agent_id}")
+            if row.lease_expires_at is not None and row.lease_expires_at <= now.isoformat():
+                raise PermissionError("lease expired")
+            should_retry = retryable and row.attempt_number < row.max_attempts
+            row.status = "pending" if should_retry else "failed"
+            row.agent_id = None if should_retry else agent_id
+            prefix = f"[{error_code}] " if error_code else ""
             row.error_message = error_message
-            row.completed_at = now.isoformat()
+            row.completed_at = None if should_retry else now.isoformat()
             row.lease_expires_at = None
+            session.add(
+                EventRow(
+                    event_id=f"evt_{uuid.uuid4().hex}",
+                    run_id=run_id,
+                    agent_id=agent_id,
+                    event_type="retry_scheduled" if should_retry else "failed",
+                    body=prefix + (error_message or "No error message"),
+                    created_at=now.isoformat(),
+                )
+            )
+
+            if idempotency_key and payload_digest:
+                session.add(
+                    IdempotencyRow(
+                        idempotency_key=idempotency_key,
+                        run_id=run_id,
+                        operation_type="fail",
+                        payload_digest=payload_digest,
+                        created_at=now.isoformat(),
+                    )
+                )
+
             session.commit()
             return _to_run(row)
 
@@ -305,6 +541,16 @@ class WorkRepository:
             row.status = "cancelled"
             row.completed_at = now.isoformat()
             row.lease_expires_at = None
+            session.add(
+                EventRow(
+                    event_id=f"evt_{uuid.uuid4().hex}",
+                    run_id=run_id,
+                    agent_id=row.agent_id,
+                    event_type="cancelled",
+                    body="Cancelled manually",
+                    created_at=now.isoformat(),
+                )
+            )
             session.commit()
             return _to_run(row)
 

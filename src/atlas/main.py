@@ -4,13 +4,14 @@ import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from . import __version__
-from .agents.models import AgentRecord, AgentRegistration
+from .agents.models import AgentRecord, AgentRegistration, AgentRegistrationResponse
 from .agents.service import AgentService, create_agent_service
 from .config import Settings, get_settings
 from .dashboard import DashboardSnapshot, DashboardSnapshotCollector
@@ -142,6 +143,34 @@ def require_agent_auth(request: Request) -> None:
         )
 
 
+def require_scoped_agent_auth(request: Request) -> AgentRecord:
+    """Resolve the authenticated agent from their scoped credential."""
+    settings: Settings = request.app.state.settings
+    authorization = request.headers.get("Authorization", "")
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Bearer token required",
+        )
+    service = _agent_service(request)
+    agent = service.resolve_agent(token)
+    if agent is not None:
+        return agent
+    if verify_agent_token(token, settings.agents):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=(
+                "Shared token not accepted for work operations. "
+                "Register to obtain a scoped credential."
+            ),
+        )
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid agent credential",
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     collector = getattr(app.state, "sub2api_collector", None)
@@ -238,13 +267,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post(
         "/api/agents/register",
-        response_model=AgentRecord,
+        response_model=AgentRegistrationResponse,
         dependencies=[Depends(require_agent_auth)],
     )
     async def register_agent(
         request: Request,
         payload: AgentRegistration,
-    ) -> AgentRecord:
+    ) -> AgentRegistrationResponse:
+        """Register an agent and return a scoped credential for work operations."""
         return _agent_service(request).register_agent(payload)
 
     @app.post(
@@ -381,36 +411,32 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get(
         "/api/runs/next",
         response_model=RunRecord | None,
-        dependencies=[Depends(require_agent_auth)],
     )
     async def claim_next_run(
         request: Request,
-        agent_id: str,
-        capabilities: str | None = None,
+        agent: Annotated[AgentRecord, Depends(require_scoped_agent_auth)],
     ) -> RunRecord | None:
-        caps_list = None
-        if capabilities:
-            caps_list = [c.strip() for c in capabilities.split(",") if c.strip()]
-        return _work_service(request).claim_next(agent_id, caps_list)
+        return _work_service(request).claim_next(agent.agent_id, agent.capabilities)
 
     @app.post(
         "/api/runs/{run_id}/claim",
         response_model=RunRecord,
-        dependencies=[Depends(require_agent_auth)],
     )
     async def claim_run(
         request: Request,
         run_id: str,
-        agent_id: str,
+        agent: Annotated[AgentRecord, Depends(require_scoped_agent_auth)],
     ) -> RunRecord:
         try:
-            return _work_service(request).claim_by_id(run_id, agent_id)
+            return _work_service(request).claim_by_id(
+                run_id, agent.agent_id, agent.capabilities
+            )
         except KeyError as exc:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Run not found",
             ) from exc
-        except ValueError as exc:
+        except (ValueError, PermissionError) as exc:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=str(exc),
@@ -419,15 +445,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post(
         "/api/runs/{run_id}/heartbeat",
         response_model=RunRecord,
-        dependencies=[Depends(require_agent_auth)],
     )
     async def run_heartbeat(
         request: Request,
         run_id: str,
-        agent_id: str,
+        agent: Annotated[AgentRecord, Depends(require_scoped_agent_auth)],
     ) -> RunRecord:
         try:
-            return _work_service(request).heartbeat(run_id, agent_id)
+            return _work_service(request).heartbeat(run_id, agent.agent_id)
         except KeyError as exc:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -442,15 +467,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post(
         "/api/runs/{run_id}/complete",
         response_model=RunRecord,
-        dependencies=[Depends(require_agent_auth)],
     )
     async def complete_run(
         request: Request,
         run_id: str,
         payload: RunComplete,
+        agent: Annotated[AgentRecord, Depends(require_scoped_agent_auth)],
     ) -> RunRecord:
+        payload.agent_id = agent.agent_id
+        idempotency_key = request.headers.get("Idempotency-Key")
         try:
-            return _work_service(request).complete(run_id, payload)
+            return _work_service(request).complete(
+                run_id, payload, idempotency_key=idempotency_key
+            )
         except KeyError as exc:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -465,15 +494,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post(
         "/api/runs/{run_id}/fail",
         response_model=RunRecord,
-        dependencies=[Depends(require_agent_auth)],
     )
     async def fail_run(
         request: Request,
         run_id: str,
         payload: RunFail,
+        agent: Annotated[AgentRecord, Depends(require_scoped_agent_auth)],
     ) -> RunRecord:
+        payload.agent_id = agent.agent_id
+        idempotency_key = request.headers.get("Idempotency-Key")
         try:
-            return _work_service(request).fail(run_id, payload)
+            return _work_service(request).fail(
+                run_id, payload, idempotency_key=idempotency_key
+            )
         except KeyError as exc:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

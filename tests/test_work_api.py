@@ -1,8 +1,9 @@
-"""Work API tests — Milestone 2: Reliable work execution."""
+"""Work API tests — Phase 1 (M2.5) + P0-1 (idempotency)."""
 
 from __future__ import annotations
 
 import time
+import uuid
 
 import pytest
 from fastapi import FastAPI
@@ -25,8 +26,36 @@ def atlas_app(tmp_path) -> FastAPI:
 
 @pytest.fixture
 def agent_client(atlas_app: FastAPI) -> TestClient:
+    """Client authenticated with the shared token (for registration and project creation)."""
     client = TestClient(atlas_app)
     client.headers["Authorization"] = "Bearer test-token"
+    return client
+
+
+def _register_and_get_scoped(atlas_app: FastAPI, agent_id: str = "test-agent",
+    capabilities: list[str] | None = None,
+) -> tuple[TestClient, str]:
+    """Register an agent and return a client with its scoped token + the token string."""
+    client = TestClient(atlas_app)
+    client.headers["Authorization"] = "Bearer test-token"
+    caps = capabilities or ["testing"]
+    res = client.post("/api/agents/register", json={
+        "agent_id": agent_id,
+        "name": f"Agent {agent_id}",
+        "capabilities": caps,
+    })
+    assert res.status_code == 200, f"Register failed: {res.text}"
+    scoped_token = res.json()["scoped_token"]
+    assert scoped_token, "Expected scoped_token in registration response"
+    scoped = TestClient(atlas_app)
+    scoped.headers["Authorization"] = f"Bearer {scoped_token}"
+    return scoped, scoped_token
+
+
+@pytest.fixture
+def scoped_client(atlas_app: FastAPI) -> TestClient:
+    """Client authenticated with a scoped token (for work operations)."""
+    client, _ = _register_and_get_scoped(atlas_app)
     return client
 
 
@@ -39,15 +68,15 @@ def session_client(atlas_app: FastAPI) -> TestClient:
     return client
 
 
-def _create_project(agent_client: TestClient, project_id: str, name: str) -> dict:
-    res = agent_client.post("/api/projects", json={"project_id": project_id, "name": name})
+def _create_project(client: TestClient, project_id: str, name: str) -> dict:
+    res = client.post("/api/projects", json={"project_id": project_id, "name": name})
     assert res.status_code == 200, res.text
     return res.json()
 
 
-def _enqueue_run(agent_client: TestClient, project_id: str, job_name: str, **kwargs) -> dict:
+def _enqueue_run(client: TestClient, project_id: str, job_name: str, **kwargs) -> dict:
     payload = {"project_id": project_id, "job_name": job_name, **kwargs}
-    res = agent_client.post("/api/runs/enqueue", json=payload)
+    res = client.post("/api/runs/enqueue", json=payload)
     assert res.status_code == 200, res.text
     return res.json()
 
@@ -66,20 +95,21 @@ class TestProjects:
         assert res.status_code == 401
 
     def test_duplicate_project_id_fails(self, agent_client):
-        """project_id is a primary key - duplicates raise IntegrityError."""
         _create_project(agent_client, "dup", "First")
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017
             agent_client.post("/api/projects", json={"project_id": "dup", "name": "Second"})
+
+
 class TestRunLifecycle:
-    def test_enqueue_claim_complete(self, agent_client, session_client):
+    def test_enqueue_claim_complete(self, agent_client, scoped_client, session_client):
         _create_project(agent_client, "m2", "M2")
         run = _enqueue_run(agent_client, "m2", "hello-world", input={"msg": "hello"})
         run_id = run["run_id"]
         assert run["status"] == "pending"
         assert run["attempt_number"] == 0
 
-        # Claim
-        res = agent_client.post(f"/api/runs/{run_id}/claim?agent_id=test-agent")
+        # Claim via scoped client
+        res = scoped_client.post(f"/api/runs/{run_id}/claim")
         assert res.status_code == 200, res.text
         claimed = res.json()
         assert claimed["status"] == "claimed"
@@ -87,11 +117,11 @@ class TestRunLifecycle:
         assert claimed["attempt_number"] == 1
 
         # Heartbeat
-        res = agent_client.post(f"/api/runs/{run_id}/heartbeat?agent_id=test-agent")
+        res = scoped_client.post(f"/api/runs/{run_id}/heartbeat")
         assert res.status_code == 200
 
         # Complete with artifacts
-        res = agent_client.post(
+        res = scoped_client.post(
             f"/api/runs/{run_id}/complete",
             json={
                 "agent_id": "test-agent",
@@ -111,45 +141,60 @@ class TestRunLifecycle:
         assert res.status_code == 200
         assert res.json()["status"] == "completed"
 
-    def test_enqueue_claim_fail(self, agent_client):
+    def test_enqueue_claim_fail(self, agent_client, scoped_client):
         _create_project(agent_client, "m2", "M2")
         run = _enqueue_run(agent_client, "m2", "fail-job")
-        agent_client.post(f"/api/runs/{run['run_id']}/claim?agent_id=agent-f")
-        res = agent_client.post(
+        scoped_client.post(f"/api/runs/{run['run_id']}/claim")
+        res = scoped_client.post(
             f"/api/runs/{run['run_id']}/fail",
-            json={"agent_id": "agent-f", "error_message": "something broke"},
+            json={"agent_id": "test-agent", "error_message": "something broke"},
         )
         assert res.status_code == 200
         assert res.json()["status"] == "failed"
 
-    def test_cannot_claim_already_claimed(self, agent_client):
+    def test_cannot_claim_already_claimed(self, agent_client, scoped_client):
         _create_project(agent_client, "m2", "M2")
         run = _enqueue_run(agent_client, "m2", "busy")
-        agent_client.post(f"/api/runs/{run['run_id']}/claim?agent_id=a1")
-        res = agent_client.post(f"/api/runs/{run['run_id']}/claim?agent_id=a2")
+        scoped_client.post(f"/api/runs/{run['run_id']}/claim")
+        res = scoped_client.post(f"/api/runs/{run['run_id']}/claim")
         assert res.status_code == 409
 
-    def test_cannot_complete_with_wrong_agent(self, agent_client):
+    def test_cannot_complete_with_wrong_agent(self, agent_client, scoped_client, atlas_app):
+        """A second agent's scoped token cannot complete another agent's run."""
         _create_project(agent_client, "m2", "M2")
         run = _enqueue_run(agent_client, "m2", "owner")
-        agent_client.post(f"/api/runs/{run['run_id']}/claim?agent_id=owner")
-        res = agent_client.post(
+        scoped_client.post(f"/api/runs/{run['run_id']}/claim")
+
+        # Register a second agent to get a different scoped token.
+        intruder, _ = _register_and_get_scoped(atlas_app, agent_id="intruder", capabilities=[])
+
+        res = intruder.post(
             f"/api/runs/{run['run_id']}/complete",
             json={"agent_id": "intruder", "output": {}},
         )
         assert res.status_code == 409
 
-    def test_run_not_found(self, agent_client):
-        res = agent_client.post("/api/runs/nonexistent/claim?agent_id=a")
+    def test_cannot_complete_pending_run(self, agent_client, scoped_client):
+        """M2.5: pending runs cannot be completed — must be claimed first."""
+        _create_project(agent_client, "m2", "M2")
+        run = _enqueue_run(agent_client, "m2", "skip-claim")
+        res = scoped_client.post(
+            f"/api/runs/{run['run_id']}/complete",
+            json={"agent_id": "test-agent", "output": {}},
+        )
+        assert res.status_code == 409, f"Expected 409, got {res.status_code}: {res.text}"
+
+    def test_run_not_found(self, scoped_client):
+        res = scoped_client.post("/api/runs/nonexistent/claim")
         assert res.status_code == 404
 
-    def test_events_recorded(self, agent_client, session_client):
+    def test_events_recorded(self, agent_client, scoped_client, session_client):
         _create_project(agent_client, "m2", "M2")
         run = _enqueue_run(agent_client, "m2", "eventful")
-        agent_client.post(f"/api/runs/{run['run_id']}/claim?agent_id=evt-a")
-        agent_client.post(
+        scoped_client.post(f"/api/runs/{run['run_id']}/claim")
+        scoped_client.post(
             f"/api/runs/{run['run_id']}/complete",
-            json={"agent_id": "evt-a", "output": {}},
+            json={"agent_id": "test-agent", "output": {}},
         )
 
         res = session_client.get(f"/api/runs/{run['run_id']}/events")
@@ -160,14 +205,14 @@ class TestRunLifecycle:
         assert "claimed" in event_types
         assert "completed" in event_types
 
-    def test_artifacts(self, agent_client, session_client):
+    def test_artifacts(self, agent_client, scoped_client, session_client):
         _create_project(agent_client, "m2", "M2")
         run = _enqueue_run(agent_client, "m2", "artifact-producer")
-        agent_client.post(f"/api/runs/{run['run_id']}/claim?agent_id=art-a")
-        agent_client.post(
+        scoped_client.post(f"/api/runs/{run['run_id']}/claim")
+        scoped_client.post(
             f"/api/runs/{run['run_id']}/complete",
             json={
-                "agent_id": "art-a",
+                "agent_id": "test-agent",
                 "output": {},
                 "artifacts": [
                     {"name": "log.txt", "uri": "file:///tmp/log.txt", "content_type": "text/plain"},
@@ -185,76 +230,77 @@ class TestRunLifecycle:
 
 
 class TestClaimNext:
-    def test_claim_next_with_capabilities(self, agent_client):
+    def test_claim_next_with_capabilities(self, agent_client, atlas_app):
         _create_project(agent_client, "m2", "M2")
         _enqueue_run(agent_client, "m2", "needs-gpu", capabilities_required=["gpu"], priority=5)
         _enqueue_run(agent_client, "m2", "cpu-only", capabilities_required=[], priority=1)
 
-        res = agent_client.get("/api/runs/next?agent_id=gpu-agent&capabilities=gpu,cpu")
+        scoped, _ = _register_and_get_scoped(atlas_app, capabilities=["gpu", "cpu"])
+        res = scoped.get("/api/runs/next?capabilities=gpu,cpu")
         assert res.status_code == 200
         run = res.json()
         assert run is not None
         assert run["job_name"] == "needs-gpu"
 
-    def test_claim_next_no_matching_capabilities(self, agent_client):
+    def test_claim_next_no_matching_capabilities(self, agent_client, atlas_app):
         _create_project(agent_client, "m2", "M2")
         _enqueue_run(agent_client, "m2", "needs-gpu", capabilities_required=["gpu"])
 
-        res = agent_client.get("/api/runs/next?agent_id=cpu-agent&capabilities=cpu")
+        scoped, _ = _register_and_get_scoped(atlas_app, capabilities=["cpu"])
+        res = scoped.get("/api/runs/next?capabilities=cpu")
         assert res.status_code == 200
         assert res.json() is None
 
-    def test_claim_next_priority_order(self, agent_client):
+    def test_claim_next_priority_order(self, agent_client, scoped_client):
         _create_project(agent_client, "m2", "M2")
         _enqueue_run(agent_client, "m2", "low", priority=1)
         _enqueue_run(agent_client, "m2", "high", priority=10)
 
-        res = agent_client.get("/api/runs/next?agent_id=a")
+        res = scoped_client.get("/api/runs/next")
         run = res.json()
         assert run is not None
         assert run["job_name"] == "high"
 
-    def test_claim_next_returns_none_when_empty(self, agent_client):
+    def test_claim_next_returns_none_when_empty(self, agent_client, scoped_client):
         _create_project(agent_client, "m2", "M2")
-        res = agent_client.get("/api/runs/next?agent_id=a")
+        res = scoped_client.get("/api/runs/next")
         assert res.json() is None
 
 
 class TestLeaseExpiry:
-    def test_lease_expires_stale_claim(self, agent_client, session_client):
+    def test_lease_expires_stale_claim(self, agent_client, scoped_client):
         _create_project(agent_client, "m2", "M2")
         run = _enqueue_run(agent_client, "m2", "lease-test")
 
-        agent_client.post(f"/api/runs/{run['run_id']}/claim?agent_id=ghost")
+        scoped_client.post(f"/api/runs/{run['run_id']}/claim")
 
         # Wait for lease to expire
         time.sleep(6)
 
         # find_next_pending should expire the stale claim
-        res = agent_client.get("/api/runs/next?agent_id=new-agent")
+        res = scoped_client.get("/api/runs/next")
         assert res.status_code == 200
-        # The run should be available again
         claimed = res.json()
         assert claimed is not None
         assert claimed["job_name"] == "lease-test"
         assert claimed["attempt_number"] == 2
 
-    def test_cancel_run(self, agent_client, session_client):
+    def test_cancel_run(self, agent_client, scoped_client, session_client):
         _create_project(agent_client, "m2", "M2")
         run = _enqueue_run(agent_client, "m2", "cancel-me")
-        agent_client.post(f"/api/runs/{run['run_id']}/claim?agent_id=a")
+        scoped_client.post(f"/api/runs/{run['run_id']}/claim")
 
         res = session_client.post(f"/api/runs/{run['run_id']}/cancel")
         assert res.status_code == 200
         assert res.json()["status"] == "cancelled"
 
-    def test_cancel_terminal_run_fails(self, agent_client, session_client):
+    def test_cancel_terminal_run_fails(self, agent_client, scoped_client, session_client):
         _create_project(agent_client, "m2", "M2")
         run = _enqueue_run(agent_client, "m2", "done")
-        agent_client.post(f"/api/runs/{run['run_id']}/claim?agent_id=a")
-        agent_client.post(
+        scoped_client.post(f"/api/runs/{run['run_id']}/claim")
+        scoped_client.post(
             f"/api/runs/{run['run_id']}/complete",
-            json={"agent_id": "a", "output": {}},
+            json={"agent_id": "test-agent", "output": {}},
         )
 
         res = session_client.post(f"/api/runs/{run['run_id']}/cancel")
@@ -274,15 +320,15 @@ class TestListing:
         assert len(runs) >= 1
         assert all(r["project_id"] == "p1" for r in runs)
 
-    def test_list_runs_by_status(self, agent_client, session_client):
+    def test_list_runs_by_status(self, agent_client, scoped_client, session_client):
         _create_project(agent_client, "m2", "M2")
         r1 = _enqueue_run(agent_client, "m2", "j1")
         _enqueue_run(agent_client, "m2", "j2")
 
-        agent_client.post(f"/api/runs/{r1['run_id']}/claim?agent_id=a")
-        agent_client.post(
+        scoped_client.post(f"/api/runs/{r1['run_id']}/claim")
+        scoped_client.post(
             f"/api/runs/{r1['run_id']}/complete",
-            json={"agent_id": "a", "output": {}},
+            json={"agent_id": "test-agent", "output": {}},
         )
 
         res = session_client.get("/api/runs?project_id=m2&status_str=pending")
@@ -290,3 +336,347 @@ class TestListing:
         runs = res.json()
         pending = [r for r in runs if r["status"] == "pending"]
         assert len(pending) >= 1
+
+
+# ── P0-1: Idempotency key tests ──────────────────────────────
+
+class TestIdempotency:
+    def test_complete_is_idempotent_with_key(self, agent_client, scoped_client, session_client):
+        """Same idempotency key + same payload → returns cached result."""
+        _create_project(agent_client, "m2", "M2")
+        run = _enqueue_run(agent_client, "m2", "idem-test")
+        scoped_client.post(f"/api/runs/{run['run_id']}/claim")
+
+        key = f"idem-{uuid.uuid4().hex}"
+        payload = {"agent_id": "test-agent", "output": {"v": 1}}
+
+        # First request
+        headers = {"Idempotency-Key": key}
+        r1 = scoped_client.post(
+            f"/api/runs/{run['run_id']}/complete",
+            json=payload,
+            headers=headers,
+        )
+        assert r1.status_code == 200, r1.text
+        assert r1.json()["status"] == "completed"
+
+        # Second request with same key — should succeed and return same terminal state
+        r2 = scoped_client.post(
+            f"/api/runs/{run['run_id']}/complete",
+            json=payload,
+            headers=headers,
+        )
+        assert r2.status_code == 200, r2.text
+        assert r2.json()["status"] == "completed"
+        assert r2.json()["run_id"] == r1.json()["run_id"]
+
+    def test_complete_same_key_different_payload_conflicts(self, agent_client, scoped_client):
+        """Same idempotency key + different payload → 409."""
+        _create_project(agent_client, "m2", "M2")
+        run = _enqueue_run(agent_client, "m2", "idem-conflict")
+        scoped_client.post(f"/api/runs/{run['run_id']}/claim")
+
+        key = f"idem-{uuid.uuid4().hex}"
+
+        r1 = scoped_client.post(
+            f"/api/runs/{run['run_id']}/complete",
+            json={"agent_id": "test-agent", "output": {"v": 1}},
+            headers={"Idempotency-Key": key},
+        )
+        assert r1.status_code == 200
+
+        r2 = scoped_client.post(
+            f"/api/runs/{run['run_id']}/complete",
+            json={"agent_id": "test-agent", "output": {"v": 2}},
+            headers={"Idempotency-Key": key},
+        )
+        assert r2.status_code == 409
+
+    def test_fail_is_idempotent_with_key(self, agent_client, scoped_client):
+        """Same idempotency key for fail → cached result."""
+        _create_project(agent_client, "m2", "M2")
+        run = _enqueue_run(agent_client, "m2", "idem-fail")
+        scoped_client.post(f"/api/runs/{run['run_id']}/claim")
+
+        key = f"idem-{uuid.uuid4().hex}"
+        payload = {"agent_id": "test-agent", "error_message": "crash"}
+
+        r1 = scoped_client.post(
+            f"/api/runs/{run['run_id']}/fail",
+            json=payload,
+            headers={"Idempotency-Key": key},
+        )
+        assert r1.status_code == 200
+        assert r1.json()["status"] == "failed"
+
+        r2 = scoped_client.post(
+            f"/api/runs/{run['run_id']}/fail",
+            json=payload,
+            headers={"Idempotency-Key": key},
+        )
+        assert r2.status_code == 200
+        assert r2.json()["status"] == "failed"
+
+    def test_no_idempotency_key_backward_compat(self, agent_client, scoped_client):
+        """Without Idempotency-Key header, behavior is unchanged."""
+        _create_project(agent_client, "m2", "M2")
+        run = _enqueue_run(agent_client, "m2", "no-key")
+        scoped_client.post(f"/api/runs/{run['run_id']}/claim")
+
+        r = scoped_client.post(
+            f"/api/runs/{run['run_id']}/complete",
+            json={"agent_id": "test-agent", "output": {}},
+        )
+        assert r.status_code == 200
+        assert r.json()["status"] == "completed"
+
+class TestAtomicClaim:
+    def test_concurrent_claim_returns_one_winner(self, agent_client, atlas_app):
+        """Two agents claiming the same pending run -> exactly one winner."""
+        _create_project(agent_client, "m2", "M2")
+        run = _enqueue_run(agent_client, "m2", "race-target")
+
+        sc1, _ = _register_and_get_scoped(atlas_app, agent_id="agent-1")
+        sc2, _ = _register_and_get_scoped(atlas_app, agent_id="agent-2")
+
+        import concurrent.futures
+
+        def claim_one(client, label):
+            r = client.get("/api/runs/next")
+            if r.status_code == 200:
+                data = r.json()
+                if data is not None:
+                    data["_claimed_by"] = label
+                return data
+            return None
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
+            f1 = ex.submit(claim_one, sc1, "agent-1")
+            f2 = ex.submit(claim_one, sc2, "agent-2")
+            r1 = f1.result()
+            r2 = f2.result()
+
+        claimed = [r for r in (r1, r2) if r is not None]
+        assert len(claimed) == 1, (
+            f"Expected exactly 1 winner, got {len(claimed)}: r1={r1}, r2={r2}"
+        )
+        assert claimed[0]["run_id"] == run["run_id"]
+
+        login = TestClient(atlas_app)
+        login.post("/api/auth/login", json={"password": "test"})
+        events = login.get(f"/api/runs/{run['run_id']}/events").json()
+        claimed_events = [e for e in events if e["event_type"] == "claimed"]
+        assert len(claimed_events) == 1, (
+            f"Expected 1 claimed event, got {len(claimed_events)}"
+        )
+
+        run_data = login.get(f"/api/runs/{run['run_id']}").json()
+        assert run_data["attempt_number"] == 1
+
+
+class TestLeaseExpiryGuard:
+    def test_expired_lease_rejects_heartbeat(self, agent_client, atlas_app):
+        """Heartbeat on an expired lease must fail with 409."""
+        _create_project(agent_client, "m2", "M2")
+        run = _enqueue_run(agent_client, "m2", "lease-heartbeat")
+        sc, _ = _register_and_get_scoped(atlas_app)
+        sc.post(f"/api/runs/{run['run_id']}/claim")
+
+        # Wait for the 5-second lease to expire.
+        time.sleep(6)
+
+        r = sc.post(f"/api/runs/{run['run_id']}/heartbeat")
+        assert r.status_code == 409, f"Expected 409, got {r.status_code}: {r.text}"
+        assert "lease expired" in r.text.lower()
+
+    def test_expired_lease_rejects_complete(self, agent_client, atlas_app):
+        """Complete on an expired lease must fail with 409."""
+        _create_project(agent_client, "m2", "M2")
+        run = _enqueue_run(agent_client, "m2", "lease-complete")
+        sc, _ = _register_and_get_scoped(atlas_app)
+        sc.post(f"/api/runs/{run['run_id']}/claim")
+        time.sleep(6)
+
+        r = sc.post(
+            f"/api/runs/{run['run_id']}/complete",
+            json={"agent_id": "test-agent", "output": {}},
+        )
+        assert r.status_code == 409, f"Expected 409, got {r.status_code}: {r.text}"
+        assert "lease expired" in r.text.lower()
+
+    def test_expired_lease_rejects_fail(self, agent_client, atlas_app):
+        """Fail on an expired lease must fail with 409."""
+        _create_project(agent_client, "m2", "M2")
+        run = _enqueue_run(agent_client, "m2", "lease-fail")
+        sc, _ = _register_and_get_scoped(atlas_app)
+        sc.post(f"/api/runs/{run['run_id']}/claim")
+        time.sleep(6)
+
+        r = sc.post(
+            f"/api/runs/{run['run_id']}/fail",
+            json={"agent_id": "test-agent", "error_message": "crash"},
+        )
+        assert r.status_code == 409, f"Expected 409, got {r.status_code}: {r.text}"
+        assert "lease expired" in r.text.lower()
+
+
+class TestCredentialRotation:
+    def test_re_registration_returns_new_token(self, agent_client, atlas_app):
+        """Re-registering the same agent rotates the scoped credential."""
+        sc1, tok1 = _register_and_get_scoped(atlas_app, agent_id="rotate-me")
+        assert tok1, "first registration must return a token"
+
+        sc2, tok2 = _register_and_get_scoped(atlas_app, agent_id="rotate-me")
+        assert tok2, "re-registration must return a token"
+        assert tok2 != tok1, "token must be rotated"
+
+        _create_project(agent_client, "m2", "M2")
+        run = _enqueue_run(agent_client, "m2", "rotation-test")
+        r = sc2.post("/api/runs/" + run["run_id"] + "/claim")
+        assert r.status_code == 200, "new token rejected: " + r.text
+
+        r = sc1.post("/api/runs/" + run["run_id"] + "/heartbeat")
+        assert r.status_code in (401, 409), (
+            "old token should be rejected after rotation, got " + str(r.status_code)
+        )
+
+
+class TestExecutionHardeningClosure:
+    def test_direct_claim_has_one_concurrent_winner(self, agent_client, atlas_app):
+        _create_project(agent_client, "hardening", "Hardening")
+        run = _enqueue_run(agent_client, "hardening", "direct-race")
+        first, _ = _register_and_get_scoped(atlas_app, agent_id="direct-1")
+        second, _ = _register_and_get_scoped(atlas_app, agent_id="direct-2")
+
+        import concurrent.futures
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            responses = list(
+                executor.map(
+                    lambda client: client.post(f"/api/runs/{run['run_id']}/claim"),
+                    (first, second),
+                )
+            )
+
+        assert sorted(response.status_code for response in responses) == [200, 409]
+
+    def test_claim_next_ignores_client_capability_escalation(self, agent_client, atlas_app):
+        _create_project(agent_client, "hardening", "Hardening")
+        _enqueue_run(
+            agent_client,
+            "hardening",
+            "gpu-only",
+            capabilities_required=["gpu"],
+        )
+        cpu_client, _ = _register_and_get_scoped(
+            atlas_app, agent_id="cpu-agent", capabilities=["cpu"]
+        )
+
+        response = cpu_client.get("/api/runs/next?capabilities=gpu")
+
+        assert response.status_code == 200
+        assert response.json() is None
+
+    def test_agent_with_no_capabilities_cannot_claim_restricted_run(
+        self, agent_client, atlas_app
+    ):
+        _create_project(agent_client, "hardening", "Hardening")
+        _enqueue_run(
+            agent_client,
+            "hardening",
+            "gpu-only-empty-agent",
+            capabilities_required=["gpu"],
+        )
+        empty_client, _ = _register_and_get_scoped(
+            atlas_app, agent_id="empty-agent", capabilities=[]
+        )
+
+        response = empty_client.get("/api/runs/next")
+
+        assert response.status_code == 200
+        assert response.json() is None
+
+    def test_direct_claim_enforces_registered_capabilities(self, agent_client, atlas_app):
+        _create_project(agent_client, "hardening", "Hardening")
+        run = _enqueue_run(
+            agent_client,
+            "hardening",
+            "gpu-only",
+            capabilities_required=["gpu"],
+        )
+        cpu_client, _ = _register_and_get_scoped(
+            atlas_app, agent_id="cpu-agent", capabilities=["cpu"]
+        )
+
+        response = cpu_client.post(f"/api/runs/{run['run_id']}/claim")
+
+        assert response.status_code == 409
+        assert "lacks capabilities" in response.text
+
+    def test_retryable_failure_requeues_then_exhausts(
+        self, agent_client, scoped_client, session_client
+    ):
+        _create_project(agent_client, "hardening", "Hardening")
+        run = _enqueue_run(agent_client, "hardening", "flaky", max_attempts=2)
+
+        scoped_client.post(f"/api/runs/{run['run_id']}/claim")
+        first = scoped_client.post(
+            f"/api/runs/{run['run_id']}/fail",
+            json={
+                "agent_id": "ignored",
+                "error_code": "temporary",
+                "error_message": "try again",
+                "retryable": True,
+            },
+        )
+        assert first.status_code == 200, first.text
+        assert first.json()["status"] == "pending"
+        assert first.json()["agent_id"] is None
+
+        scoped_client.post(f"/api/runs/{run['run_id']}/claim")
+        final = scoped_client.post(
+            f"/api/runs/{run['run_id']}/fail",
+            json={
+                "agent_id": "ignored",
+                "error_code": "temporary",
+                "error_message": "still broken",
+                "retryable": True,
+            },
+        )
+        assert final.status_code == 200, final.text
+        assert final.json()["status"] == "failed"
+
+        events = session_client.get(f"/api/runs/{run['run_id']}/events").json()
+        assert [event["event_type"] for event in events].count("retry_scheduled") == 1
+        assert [event["event_type"] for event in events].count("failed") == 1
+
+    def test_cancel_creates_event(self, agent_client, scoped_client, session_client):
+        _create_project(agent_client, "hardening", "Hardening")
+        run = _enqueue_run(agent_client, "hardening", "cancel-event")
+        scoped_client.post(f"/api/runs/{run['run_id']}/claim")
+
+        response = session_client.post(f"/api/runs/{run['run_id']}/cancel")
+
+        assert response.status_code == 200
+        events = session_client.get(f"/api/runs/{run['run_id']}/events").json()
+        assert events[-1]["event_type"] == "cancelled"
+
+    def test_expired_final_attempt_becomes_failed(
+        self, agent_client, scoped_client, session_client
+    ):
+        _create_project(agent_client, "hardening", "Hardening")
+        run = _enqueue_run(
+            agent_client, "hardening", "lease-exhausted", max_attempts=1
+        )
+        scoped_client.post(f"/api/runs/{run['run_id']}/claim")
+        time.sleep(6)
+
+        response = scoped_client.get("/api/runs/next")
+
+        assert response.status_code == 200
+        assert response.json() is None
+        stored = session_client.get(f"/api/runs/{run['run_id']}").json()
+        assert stored["status"] == "failed"
+        assert stored["error_message"] == "lease expired; attempts exhausted"
+        events = session_client.get(f"/api/runs/{run['run_id']}/events").json()
+        assert events[-1]["event_type"] == "failed"

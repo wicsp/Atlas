@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from atlas.db.session import create_sqlite_session_factory
 
@@ -40,76 +42,61 @@ class WorkService:
     # ── Runs ──────────────────────────────────────────────────
 
     def enqueue_run(self, payload: RunCreate) -> RunRecord:
-        record = self._repository.create_run(payload, _now())
-        self._append_event(record.run_id, None, "enqueued", body="Run created")
-        return record
+        return self._repository.create_run(payload, _now())
 
     def claim_next(self, agent_id: str, capabilities: list[str] | None = None) -> RunRecord | None:
         now = _now()
-        run = self._repository.find_next_pending(capabilities, now)
-        if run is None:
-            return None
         lease = now + self._lease_ttl
-        claimed = self._repository.claim_run(run.run_id, agent_id, lease, now)
-        self._append_event(
-            claimed.run_id,
-            agent_id,
-            "claimed",
-            body=f"Claimed by {agent_id}, attempt {claimed.attempt_number}",
+        return self._repository.claim_next_atomic(
+            agent_id, lease, now, capabilities
         )
-        return claimed
 
-    def claim_by_id(self, run_id: str, agent_id: str) -> RunRecord:
+    def claim_by_id(
+        self, run_id: str, agent_id: str, capabilities: list[str]
+    ) -> RunRecord:
         now = _now()
         lease = now + self._lease_ttl
-        run = self._repository.claim_run(run_id, agent_id, lease, now)
-        self._append_event(
-            run.run_id,
-            agent_id,
-            "claimed",
-            body=f"Claimed by {agent_id}, attempt {run.attempt_number}",
-        )
-        return run
+        return self._repository.claim_run(run_id, agent_id, lease, now, capabilities)
 
     def heartbeat(self, run_id: str, agent_id: str) -> RunRecord:
         lease = _now() + self._lease_ttl
-        return self._repository.heartbeat_run(run_id, agent_id, lease)
+        return self._repository.heartbeat_run(run_id, agent_id, lease, _now())
 
-    def complete(self, run_id: str, payload: RunComplete) -> RunRecord:
-        run = self._repository.complete_run(
+    def complete(
+        self,
+        run_id: str,
+        payload: RunComplete,
+        idempotency_key: str | None = None,
+    ) -> RunRecord:
+        return self._repository.complete_run(
             run_id,
             payload.agent_id,
             payload.output,
             payload.artifacts,
             _now(),
+            idempotency_key=idempotency_key,
+            payload_digest=_payload_digest(payload) if idempotency_key else None,
         )
-        self._append_event(
-            run.run_id,
-            payload.agent_id,
-            "completed",
-            body=f"Completed with {len(payload.artifacts)} artifact(s)",
-        )
-        return run
 
-    def fail(self, run_id: str, payload: RunFail) -> RunRecord:
-        run = self._repository.fail_run(run_id, payload.agent_id, payload.error_message, _now())
-        self._append_event(
-            run.run_id,
+    def fail(
+        self,
+        run_id: str,
+        payload: RunFail,
+        idempotency_key: str | None = None,
+    ) -> RunRecord:
+        return self._repository.fail_run(
+            run_id,
             payload.agent_id,
-            "failed",
-            body=payload.error_message or "No error message",
+            payload.error_code,
+            payload.error_message,
+            payload.retryable,
+            _now(),
+            idempotency_key=idempotency_key,
+            payload_digest=_payload_digest(payload) if idempotency_key else None,
         )
-        return run
 
     def cancel(self, run_id: str, payload: RunCancel) -> RunRecord:
-        run = self._repository.cancel_run(run_id, _now())
-        self._append_event(
-            run.run_id,
-            payload.agent_id,
-            "cancelled",
-            body="Cancelled manually",
-        )
-        return run
+        return self._repository.cancel_run(run_id, _now())
 
     def get_run(self, run_id: str) -> RunRecord:
         return self._repository.get_run(run_id)
@@ -132,23 +119,15 @@ class WorkService:
     def list_artifacts(self, run_id: str) -> list[ArtifactRef]:
         return self._repository.list_artifacts(run_id)
 
-    # ── Helpers ────────────────────────────────────────────────
-
-    def _append_event(
-        self,
-        run_id: str,
-        agent_id: str | None,
-        event_type: str,
-        body: str,
-    ) -> None:
-        try:
-            self._repository.append_event(run_id, agent_id, event_type, body, _now())
-        except Exception:
-            pass  # non-fatal; event logging best-effort only
-
 
 def _now() -> datetime:
     return datetime.now(UTC)
+
+
+def _payload_digest(payload: Any) -> str:
+    """Produce a stable digest of a Pydantic model for idempotency."""
+    raw = payload.model_dump_json()
+    return hashlib.sha256(raw.encode()).hexdigest()
 
 
 def create_work_service(
