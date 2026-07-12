@@ -49,6 +49,19 @@ from .todos import (
     list_todos,
     update_todo,
 )
+from .work.models import (
+    ArtifactRef,
+    EventRecord,
+    ProjectCreate,
+    ProjectRecord,
+    RunCancel,
+    RunComplete,
+    RunCreate,
+    RunFail,
+    RunRecord,
+    RunStatus,
+)
+from .work.service import WorkService, create_work_service
 
 
 class HealthResponse(BaseModel):
@@ -94,6 +107,17 @@ def _message_service(request: Request) -> MessageService:
         settings: Settings = request.app.state.settings
         service = create_message_service(settings.agents.database_path)
         request.app.state.message_service = service
+    return service
+
+def _work_service(request: Request) -> WorkService:
+    service = getattr(request.app.state, "work_service", None)
+    if service is None:
+        settings: Settings = request.app.state.settings
+        service = create_work_service(
+            database_path=settings.work.database_path,
+            lease_ttl_seconds=settings.work.lease_ttl_seconds,
+        )
+        request.app.state.work_service = service
     return service
 
 
@@ -143,6 +167,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.todo_store_path = DEFAULT_TODO_STORE_PATH
     app.state.agent_service = None
     app.state.message_service = None
+    app.state.work_service = None
     app.state.sub2api_collector = (
         Sub2ApiSnapshotCollector(resolved_settings.sub2api)
         if resolved_settings.sub2api.enabled
@@ -326,6 +351,210 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 detail="Message not found",
             ) from exc
 
+
+    # ── Work API (Milestone 2) ──────────────────────────────────
+
+    @app.post(
+        "/api/projects",
+        response_model=ProjectRecord,
+        dependencies=[Depends(require_agent_auth)],
+    )
+    async def create_project(request: Request, payload: ProjectCreate) -> ProjectRecord:
+        return _work_service(request).create_project(payload)
+
+    @app.get(
+        "/api/projects",
+        response_model=list[ProjectRecord],
+        dependencies=[Depends(require_auth)],
+    )
+    async def list_projects(request: Request) -> list[ProjectRecord]:
+        return _work_service(request).list_projects()
+
+    @app.post(
+        "/api/runs/enqueue",
+        response_model=RunRecord,
+        dependencies=[Depends(require_agent_auth)],
+    )
+    async def enqueue_run(request: Request, payload: RunCreate) -> RunRecord:
+        return _work_service(request).enqueue_run(payload)
+
+    @app.get(
+        "/api/runs/next",
+        response_model=RunRecord | None,
+        dependencies=[Depends(require_agent_auth)],
+    )
+    async def claim_next_run(
+        request: Request,
+        agent_id: str,
+        capabilities: str | None = None,
+    ) -> RunRecord | None:
+        caps_list = None
+        if capabilities:
+            caps_list = [c.strip() for c in capabilities.split(",") if c.strip()]
+        return _work_service(request).claim_next(agent_id, caps_list)
+
+    @app.post(
+        "/api/runs/{run_id}/claim",
+        response_model=RunRecord,
+        dependencies=[Depends(require_agent_auth)],
+    )
+    async def claim_run(
+        request: Request,
+        run_id: str,
+        agent_id: str,
+    ) -> RunRecord:
+        try:
+            return _work_service(request).claim_by_id(run_id, agent_id)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Run not found",
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
+            ) from exc
+
+    @app.post(
+        "/api/runs/{run_id}/heartbeat",
+        response_model=RunRecord,
+        dependencies=[Depends(require_agent_auth)],
+    )
+    async def run_heartbeat(
+        request: Request,
+        run_id: str,
+        agent_id: str,
+    ) -> RunRecord:
+        try:
+            return _work_service(request).heartbeat(run_id, agent_id)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Run not found",
+            ) from exc
+        except (ValueError, PermissionError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
+            ) from exc
+
+    @app.post(
+        "/api/runs/{run_id}/complete",
+        response_model=RunRecord,
+        dependencies=[Depends(require_agent_auth)],
+    )
+    async def complete_run(
+        request: Request,
+        run_id: str,
+        payload: RunComplete,
+    ) -> RunRecord:
+        try:
+            return _work_service(request).complete(run_id, payload)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Run not found",
+            ) from exc
+        except (ValueError, PermissionError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
+            ) from exc
+
+    @app.post(
+        "/api/runs/{run_id}/fail",
+        response_model=RunRecord,
+        dependencies=[Depends(require_agent_auth)],
+    )
+    async def fail_run(
+        request: Request,
+        run_id: str,
+        payload: RunFail,
+    ) -> RunRecord:
+        try:
+            return _work_service(request).fail(run_id, payload)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Run not found",
+            ) from exc
+        except (ValueError, PermissionError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
+            ) from exc
+
+    @app.post(
+        "/api/runs/{run_id}/cancel",
+        response_model=RunRecord,
+        dependencies=[Depends(require_auth)],
+    )
+    async def cancel_run(request: Request, run_id: str) -> RunRecord:
+        try:
+            return _work_service(request).cancel(run_id, RunCancel())
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Run not found",
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
+            ) from exc
+
+    @app.get(
+        "/api/runs",
+        response_model=list[RunRecord],
+        dependencies=[Depends(require_auth)],
+    )
+    async def list_runs(
+        request: Request,
+        project_id: str | None = None,
+        status_str: str | None = None,
+        limit: int = 100,
+    ) -> list[RunRecord]:
+        run_status: RunStatus | None = status_str if status_str else None  # type: ignore[assignment]
+        return _work_service(request).list_runs(
+            project_id=project_id,
+            status=run_status,
+            limit=limit,
+        )
+
+    @app.get(
+        "/api/runs/{run_id}",
+        response_model=RunRecord,
+        dependencies=[Depends(require_auth)],
+    )
+    async def get_run(request: Request, run_id: str) -> RunRecord:
+        try:
+            return _work_service(request).get_run(run_id)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Run not found",
+            ) from exc
+
+    @app.get(
+        "/api/runs/{run_id}/events",
+        response_model=list[EventRecord],
+        dependencies=[Depends(require_auth)],
+    )
+    async def list_run_events(
+        request: Request,
+        run_id: str,
+        limit: int = 200,
+    ) -> list[EventRecord]:
+        return _work_service(request).list_events(run_id, limit=limit)
+
+    @app.get(
+        "/api/runs/{run_id}/artifacts",
+        response_model=list[ArtifactRef],
+        dependencies=[Depends(require_auth)],
+    )
+    async def list_run_artifacts(request: Request, run_id: str) -> list[ArtifactRef]:
+        return _work_service(request).list_artifacts(run_id)
     @app.get(
         "/api/system/summary",
         response_model=SystemSummary,

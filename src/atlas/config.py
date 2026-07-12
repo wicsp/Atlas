@@ -43,6 +43,18 @@ class AgentSettings(BaseModel):
         return PROJECT_ROOT / value
 
 
+class WorkSettings(BaseModel):
+    database_path: Path = PROJECT_ROOT / "data" / "atlas.sqlite3"
+    lease_ttl_seconds: int = Field(default=120, ge=1, le=3600)
+
+    @field_validator("database_path")
+    @classmethod
+    def resolve_database_path(cls, value: Path) -> Path:
+        if value.is_absolute():
+            return value
+        return PROJECT_ROOT / value
+
+
 class Sub2ApiSettings(BaseModel):
     enabled: bool = True
     docker_command: str = "docker"
@@ -119,6 +131,7 @@ class Settings(BaseModel):
     agents: AgentSettings = Field(default_factory=AgentSettings)
     sub2api: Sub2ApiSettings = Field(default_factory=Sub2ApiSettings)
     probe_history: ProbeHistorySettings = Field(default_factory=ProbeHistorySettings)
+    work: WorkSettings = Field(default_factory=WorkSettings)
     probes: list[ProbeTarget] = Field(default_factory=list)
     config_path: Path | None = None
 
@@ -184,6 +197,11 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
     if stale_after_seconds := os.getenv("ATLAS_SUB2API_STALE_AFTER_SECONDS"):
         sub2api_data["stale_after_seconds"] = stale_after_seconds
 
+
+    work_data = dict(data.get("work", {}))
+    if work_lease_ttl := os.getenv("ATLAS_WORK_LEASE_TTL_SECONDS"):
+        work_data["lease_ttl_seconds"] = work_lease_ttl
+
     probe_history_data = dict(data.get("probe_history", {}))
     if probe_history_database_path := os.getenv("ATLAS_PROBE_HISTORY_DATABASE_PATH"):
         probe_history_data["database_path"] = probe_history_database_path
@@ -201,6 +219,7 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
             agents=AgentSettings(**agents_data),
             sub2api=Sub2ApiSettings(**sub2api_data),
             probe_history=ProbeHistorySettings(**probe_history_data),
+            work=WorkSettings(**work_data),
             probes=[ProbeTarget(**item) for item in data.get("probes", [])],
             config_path=loaded_path,
         )
