@@ -1,6 +1,6 @@
 # RFC 0001: Connected Lumio Agent
 
-- **Status:** Proposed
+- **Status:** Implemented
 - **Owners:** Atlas and Lumio
 - **Target:** First cross-repository vertical slice
 - **Protocol:** `atlas-agent-v1`
