@@ -122,6 +122,22 @@ class RunFail(BaseModel):
         return value.strip()
 
 
+class ReconcileRequest(BaseModel):
+    attempt_id: str = Field(min_length=1, max_length=128)
+    claim_token: str = Field(min_length=1, max_length=256)
+    result_digest: str = Field(min_length=1, max_length=128)
+    bounded_output: dict[str, Any] = Field(default_factory=dict)
+    artifact_refs: list[ArtifactRefCreate] = Field(default_factory=list, max_length=100)
+    terminal_intent: Literal["complete", "fail"]
+    error_code: str | None = Field(default=None, max_length=128)
+    error_message: str | None = Field(default=None, max_length=10_000)
+
+    @field_validator("attempt_id", "claim_token", "result_digest", "terminal_intent")
+    @classmethod
+    def strip_fields(cls, value: str) -> str:
+        return value.strip()
+
+
 class RunCancel(BaseModel):
     agent_id: str | None = Field(default=None, max_length=128)
 

@@ -282,6 +282,264 @@ class TestClaimNext:
         res = scoped_client.get("/api/runs/next")
         assert res.json() is None
 
+class TestReconcile:
+    def test_reconcile_complete_accepted(self, agent_client, atlas_app):
+        """Reconcile completes a claimed run, even with expired lease."""
+        _create_project(agent_client, "m2", "M2")
+        run = _enqueue_run(agent_client, "m2", "reconcile-ok")
+        sc, _ = _register_and_get_scoped(atlas_app)
+        claim_res = sc.post(f"/api/runs/{run['run_id']}/claim")
+        cd = claim_res.json()
+        aid = cd["attempt_id"]
+        ct = cd["claim_token"]
+
+        r = sc.post(
+            f"/api/runs/{run['run_id']}/attempts/{aid}/reconcile",
+            json={
+                "attempt_id": aid,
+                "claim_token": ct,
+                "result_digest": "sha256:abc123",
+                "bounded_output": {"key": "val"},
+                "artifact_refs": [],
+                "terminal_intent": "complete",
+            },
+        )
+        assert r.status_code == 200, f"Expected 200, got {r.status_code}: {r.text}"
+        data = r.json()
+        assert data["status"] == "completed"
+        assert data["output"] == {"key": "val"}
+
+    def test_reconcile_fail_accepted(self, agent_client, atlas_app):
+        """Reconcile fails a claimed run."""
+        _create_project(agent_client, "m2", "M2")
+        run = _enqueue_run(agent_client, "m2", "reconcile-fail")
+        sc, _ = _register_and_get_scoped(atlas_app)
+        claim_res = sc.post(f"/api/runs/{run['run_id']}/claim")
+        cd = claim_res.json()
+        aid = cd["attempt_id"]
+        ct = cd["claim_token"]
+
+        r = sc.post(
+            f"/api/runs/{run['run_id']}/attempts/{aid}/reconcile",
+            json={
+                "attempt_id": aid,
+                "claim_token": ct,
+                "result_digest": "sha256:xyz",
+                "bounded_output": {},
+                "artifact_refs": [],
+                "terminal_intent": "fail",
+                "error_code": "E01",
+                "error_message": "task failed",
+            },
+        )
+        assert r.status_code == 200, f"Expected 200, got {r.status_code}: {r.text}"
+        data = r.json()
+        assert data["status"] == "failed"
+        assert "[E01] task failed" in (data["error_message"] or "")
+
+    def test_reconcile_idempotent_same_digest(self, agent_client, atlas_app):
+        """Repeating the same reconcile returns the accepted state."""
+        _create_project(agent_client, "m2", "M2")
+        run = _enqueue_run(agent_client, "m2", "reconcile-idem")
+        sc, _ = _register_and_get_scoped(atlas_app)
+        claim_res = sc.post(f"/api/runs/{run['run_id']}/claim")
+        cd = claim_res.json()
+        aid = cd["attempt_id"]
+        ct = cd["claim_token"]
+
+        payload = {
+            "attempt_id": aid,
+            "claim_token": ct,
+            "result_digest": "sha256:idem",
+            "bounded_output": {"v": 1},
+            "artifact_refs": [],
+            "terminal_intent": "complete",
+        }
+        r1 = sc.post(
+            f"/api/runs/{run['run_id']}/attempts/{aid}/reconcile",
+            json=payload,
+        )
+        assert r1.status_code == 200
+        assert r1.json()["status"] == "completed"
+
+        r2 = sc.post(
+            f"/api/runs/{run['run_id']}/attempts/{aid}/reconcile",
+            json=payload,
+        )
+        assert r2.status_code == 200
+        assert r2.json()["status"] == "completed"
+        assert r2.json()["run_id"] == r1.json()["run_id"]
+
+    def test_reconcile_result_conflict(self, agent_client, atlas_app):
+        """Same attempt, different digest → 409 result_conflict."""
+        _create_project(agent_client, "m2", "M2")
+        run = _enqueue_run(agent_client, "m2", "reconcile-conflict")
+        sc, _ = _register_and_get_scoped(atlas_app)
+        claim_res = sc.post(f"/api/runs/{run['run_id']}/claim")
+        cd = claim_res.json()
+        aid = cd["attempt_id"]
+        ct = cd["claim_token"]
+
+        base = {
+            "attempt_id": aid,
+            "claim_token": ct,
+            "bounded_output": {},
+            "artifact_refs": [],
+            "terminal_intent": "complete",
+        }
+        r1 = sc.post(
+            f"/api/runs/{run['run_id']}/attempts/{aid}/reconcile",
+            json={**base, "result_digest": "sha256:A"},
+        )
+        assert r1.status_code == 200
+
+        r2 = sc.post(
+            f"/api/runs/{run['run_id']}/attempts/{aid}/reconcile",
+            json={**base, "result_digest": "sha256:B"},
+        )
+        assert r2.status_code == 409
+        assert "result_conflict" in r2.text
+
+    def test_reconcile_attempt_superseded(self, agent_client, atlas_app):
+        """A successor attempt rejects the old reconcile."""
+        _create_project(agent_client, "m2", "M2")
+        run = _enqueue_run(agent_client, "m2", "reconcile-superseded")
+        sc, _ = _register_and_get_scoped(atlas_app)
+        # First claim
+        claim1 = sc.post(f"/api/runs/{run['run_id']}/claim")
+        cd1 = claim1.json()
+        aid1 = cd1["attempt_id"]
+        ct1 = cd1["claim_token"]
+        assert cd1["attempt_number"] == 1
+
+        # Second claim (new attempt supersedes first)
+        # Need to expire the lease first or claim directly by faking the run status
+        # Use claim_next_atomic which will expire stale claims
+        import time
+        time.sleep(6)  # lease TTL is 5s
+        claim2 = sc.get("/api/runs/next")
+        cd2 = claim2.json()
+        assert cd2 is not None
+        assert cd2["attempt_number"] == 2
+
+        # Now reconcile with the OLD attempt → superseded
+        r = sc.post(
+            f"/api/runs/{run['run_id']}/attempts/{aid1}/reconcile",
+            json={
+                "attempt_id": aid1,
+                "claim_token": ct1,
+                "result_digest": "sha256:old",
+                "bounded_output": {},
+                "artifact_refs": [],
+                "terminal_intent": "complete",
+            },
+        )
+        assert r.status_code == 409
+        assert "attempt_superseded" in r.text
+
+    def test_reconcile_expired_lease_accepted(self, agent_client, atlas_app):
+        """Reconcile accepts result even when lease has expired (no successor)."""
+        _create_project(agent_client, "m2", "M2")
+        run = _enqueue_run(agent_client, "m2", "reconcile-expired")
+        sc, _ = _register_and_get_scoped(atlas_app)
+        claim_res = sc.post(f"/api/runs/{run['run_id']}/claim")
+        cd = claim_res.json()
+        aid = cd["attempt_id"]
+        ct = cd["claim_token"]
+
+        # Wait for lease to expire
+        import time
+        time.sleep(6)
+
+        # Reconcile should still succeed — no successor attempt exists
+        r = sc.post(
+            f"/api/runs/{run['run_id']}/attempts/{aid}/reconcile",
+            json={
+                "attempt_id": aid,
+                "claim_token": ct,
+                "result_digest": "sha256:expired",
+                "bounded_output": {"late": True},
+                "artifact_refs": [],
+                "terminal_intent": "complete",
+            },
+        )
+        assert r.status_code == 200, f"Expected 200, got {r.status_code}: {r.text}"
+        data = r.json()
+        assert data["status"] == "completed"
+        assert data["output"] == {"late": True}
+
+    def test_reconcile_wrong_agent_rejected(self, agent_client, atlas_app):
+        """A different agent cannot reconcile someone else's attempt."""
+        _create_project(agent_client, "m2", "M2")
+        run = _enqueue_run(agent_client, "m2", "reconcile-wrong-agent")
+        sc1, _ = _register_and_get_scoped(atlas_app, agent_id="agent-a")
+        sc2, _ = _register_and_get_scoped(atlas_app, agent_id="agent-b")
+
+        claim_res = sc1.post(f"/api/runs/{run['run_id']}/claim")
+        cd = claim_res.json()
+        aid = cd["attempt_id"]
+        ct = cd["claim_token"]
+
+        r = sc2.post(
+            f"/api/runs/{run['run_id']}/attempts/{aid}/reconcile",
+            json={
+                "attempt_id": aid,
+                "claim_token": ct,
+                "result_digest": "sha256:x",
+                "bounded_output": {},
+                "artifact_refs": [],
+                "terminal_intent": "complete",
+            },
+        )
+        assert r.status_code in (403, 409)
+
+    def test_reconcile_invalid_claim_token(self, agent_client, atlas_app):
+        """A wrong claim token is rejected."""
+        _create_project(agent_client, "m2", "M2")
+        run = _enqueue_run(agent_client, "m2", "reconcile-bad-token")
+        sc, _ = _register_and_get_scoped(atlas_app)
+        claim_res = sc.post(f"/api/runs/{run['run_id']}/claim")
+        cd = claim_res.json()
+        aid = cd["attempt_id"]
+
+        r = sc.post(
+            f"/api/runs/{run['run_id']}/attempts/{aid}/reconcile",
+            json={
+                "attempt_id": aid,
+                "claim_token": "invalid-token",
+                "result_digest": "sha256:x",
+                "bounded_output": {},
+                "artifact_refs": [],
+                "terminal_intent": "complete",
+            },
+        )
+        assert r.status_code in (403, 409)
+
+    def test_reconcile_cancelled_run_rejected(self, agent_client, atlas_app, session_client):
+        """A cancelled run cannot be reconciled."""
+        _create_project(agent_client, "m2", "M2")
+        run = _enqueue_run(agent_client, "m2", "reconcile-cancelled")
+        sc, _ = _register_and_get_scoped(atlas_app)
+        claim_res = sc.post(f"/api/runs/{run['run_id']}/claim")
+        cd = claim_res.json()
+        aid = cd["attempt_id"]
+        ct = cd["claim_token"]
+
+        session_client.post(f"/api/runs/{run['run_id']}/cancel")
+
+        r = sc.post(
+            f"/api/runs/{run['run_id']}/attempts/{aid}/reconcile",
+            json={
+                "attempt_id": aid,
+                "claim_token": ct,
+                "result_digest": "sha256:x",
+                "bounded_output": {},
+                "artifact_refs": [],
+                "terminal_intent": "complete",
+            },
+        )
+        assert r.status_code == 409
+
 
 class TestLeaseExpiry:
     def test_lease_expires_stale_claim(self, agent_client, scoped_client):

@@ -13,6 +13,7 @@ from .models import (
     ExecutionAttemptRecord,
     ProjectCreate,
     ProjectRecord,
+    ReconcileRequest,
     RunCancel,
     RunComplete,
     RunCreate,
@@ -126,6 +127,17 @@ class WorkService:
         return self._repository.list_events(run_id, limit=limit)
 
     # ── Artifacts ─────────────────────────────────────────────
+
+    def reconcile(
+        self,
+        run_id: str,
+        agent_id: str,
+        request: ReconcileRequest,
+        idempotency_key: str | None = None,
+    ) -> RunRecord:
+        return self._repository.reconcile_attempt(
+            run_id, agent_id, request, _now(), idempotency_key=idempotency_key
+        )
 
     def list_attempts(self, run_id: str) -> list[ExecutionAttemptRecord]:
         return self._repository.list_attempts(run_id)

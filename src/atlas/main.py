@@ -56,6 +56,7 @@ from .work.models import (
     ExecutionAttemptRecord,
     ProjectCreate,
     ProjectRecord,
+    ReconcileRequest,
     RunCancel,
     RunComplete,
     RunCreate,
@@ -580,6 +581,39 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Run not found",
+            ) from exc
+
+    @app.post(
+        "/api/runs/{run_id}/attempts/{attempt_id}/reconcile",
+        response_model=RunRecord,
+    )
+    async def reconcile_attempt(
+        request: Request,
+        run_id: str,
+        attempt_id: str,
+        payload: ReconcileRequest,
+        agent: Annotated[AgentRecord, Depends(require_scoped_agent_auth)],
+    ) -> RunRecord:
+        payload.attempt_id = attempt_id
+        idempotency_key = request.headers.get("Idempotency-Key")
+        try:
+            return _work_service(request).reconcile(
+                run_id, agent.agent_id, payload, idempotency_key=idempotency_key
+            )
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=str(exc),
+            ) from exc
+        except PermissionError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=str(exc),
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
             ) from exc
 
     @app.get(
