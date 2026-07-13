@@ -14,7 +14,8 @@ Atlas ─────work/events──▶ protocol-compatible agents
 ```
 
 Provisioning is not a runtime library dependency. Atlas must run without Lumio, and Lumio should
-remain useful when Atlas is temporarily unavailable.
+remain useful when Atlas is unavailable. An active Atlas-assigned attempt tolerates only a transient
+interruption that ends within its remaining lease; local pi use does not inherit that limitation.
 
 ## Responsibility matrix
 
@@ -47,6 +48,26 @@ Atlas is the control plane. The data plane remains distributed:
 
 Atlas records stable IDs, content hashes, provenance, lifecycle state, and locations. It should not
 copy every payload into SQLite merely to make it visible in the console.
+
+## Reliability boundary
+
+Atlas and Lumio provide safe, bounded coordination rather than durable message delivery. A claimed
+attempt uses an immutable attempt ID, an in-memory claim token, an Atlas-owned lease, atomic state
+transitions, and narrow idempotent terminal reporting. Lumio may retry an ambiguous request while
+the lease remains valid, but it does not persist an outbox, claim credential, or report for replay
+after restart.
+
+Lease expiry is final for that attempt: heartbeat, complete, fail, and any late publication are
+rejected. Atlas may retry inexpensive work only through a successor attempt that fences the old
+one; expensive or non-idempotent work should use one attempt unless a user explicitly starts a new
+Run. Files already written by a handler remain under their normal data authority even if Atlas did
+not record completion. A local experiment result and an expired Atlas attempt can therefore both be
+true without requiring state reconciliation.
+
+The configured lease TTL is an upper bound, not a guaranteed outage window. Operational planning
+must subtract the already-consumed lease time, heartbeat interval, request timeout, clock skew, and
+scheduling margin. Requiring delivery after that boundary would be a new cross-repository feature
+and needs measured evidence plus a separate RFC.
 
 ## Core object vocabulary
 
@@ -138,4 +159,3 @@ backward compatible within a declared version or introduce a new version explici
 Each repository's README and `AGENTS.md` should link back to this boundary document. Repeated
 cross-boundary mistakes belong in the nearest repository's `AGENTS.md`; enforceable rules should
 also be covered by tests, schema validation, or deployment checks.
-

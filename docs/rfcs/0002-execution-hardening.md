@@ -1,52 +1,63 @@
 # RFC 0002: Execution Hardening
 
-- **Status:** Proposed
+- **Status:** Accepted; implementation in progress
+- **Decision date:** 2026-07-13
 - **Owners:** Atlas, Lumio, and nix-config
 - **Protocol:** `atlas-agent-v2`
 - **Gate:** Required before expanding the Bilibili slice or starting the academic-source workflow
 
 ## Summary
 
-Atlas and Lumio now demonstrate the complete control loop: a Lumio session registers and
-heartbeats, polls Atlas for work, claims leased runs, executes a Bilibili handler, and reports a
-result. Production data confirms that the loop works.
+Atlas and Lumio demonstrate the complete control loop: a Lumio session registers and heartbeats,
+polls Atlas for work, claims a leased run, executes a handler, and reports a result. This RFC makes
+that path a trustworthy execution boundary without turning Lumio into a durable message broker.
 
-The current implementation is a functional prototype, not yet a trustworthy execution boundary.
-It still uses one shared bearer token with client-asserted agent IDs, permits terminal transitions
-without a strict claimed owner, can treat an unsupported job as successful, passes user-controlled
-arguments through a shell command string, and stores transcript content in run output.
+The reliability policy is **safety without durable delivery**:
 
-This RFC hardens that existing slice. It does not add a generic distributed system or a new user
-feature. The purpose is to make the current execution path safe, recoverable, testable, and
-consistent with [System Boundaries](../system/boundaries.md).
+- transient Atlas failures are tolerated while the current execution lease remains valid;
+- every claim has an immutable execution-attempt identity and an in-memory claim token;
+- retries of one terminal report are idempotent and bounded by the lease;
+- once the lease expires, the old attempt loses all publication rights and its late report is
+  abandoned;
+- useful files already written by the handler remain local artifacts and are not deleted merely
+  because Atlas did not record completion;
+- Lumio does not persist an outbox, claim credentials, or work reports for restart replay.
+
+This deliberately accepts that Atlas can show a failed or retried Run while a useful local artifact
+still exists. Atlas is the control plane; it is not the authority for experiment outputs or acquired
+content bytes.
 
 ## User outcome
 
 After this RFC:
 
 - an authenticated worker cannot impersonate another agent;
-- a run is executed at most by its current lease owner;
-- duplicate requests and temporary Atlas failures do not create false completion states;
-- completed work survives a long Atlas outage in a durable Lumio outbox until it can be reconciled;
+- concurrent pollers cannot both own the same execution attempt;
+- an expired or superseded attempt cannot overwrite current state;
+- ambiguous terminal responses can be retried safely while the lease is valid;
+- a long Atlas outage produces visible lease expiry, retry, or failure rather than a hidden
+  recovery queue;
 - unsupported jobs fail visibly instead of succeeding silently;
 - captured URLs and other user input never become shell syntax;
 - transcripts and generated resources are stored outside Atlas SQLite and referenced as artifacts;
-- Atlas remains a control plane, while Lumio remains the execution and acquisition layer;
 - machine-generated Resources remain separate from human-authored KnowledgeComments.
 
-## Current evidence and gaps
+## Current implementation position
 
-Observed on 2026-07-12:
+As of the decision date:
 
-- RFC 0001 is implemented and live Lumio sessions heartbeat successfully.
-- Atlas has Project, Run, Event, ArtifactRef, lease, retry, cancellation, and polling primitives.
-- Lumio has work polling and a working `bilibili-summary` handler.
-- Production contains completed smoke runs and completed Bilibili runs.
-- Atlas has 106 passing tests, but Ruff still reports one broad-exception assertion.
-- Lumio has no focused fake-Atlas tests, and `npm run check` is not self-contained.
-- The Bilibili handler currently stores transcript text directly in `runs.output_json`.
+- scoped agent credentials and server-derived identity are implemented;
+- atomic claim, terminal idempotency, transactional Events, shell-free execution, typed handler
+  results, and external transcript artifacts are implemented;
+- Atlas has an `ExecutionAttempt` record and returns an `attempt_id` plus `claim_token` on claim;
+- an experimental public Reconcile API was implemented while durable outbox delivery was being
+  considered;
+- Lumio has bounded terminal-report retries, but still needs lease-deadline-aware handling of
+  transient heartbeat and report failures.
 
-These facts prove utility, but they do not satisfy the execution safety invariants below.
+The Reconcile API is not part of the accepted contract. It is experimental overdesign and must be
+removed before this RFC is marked Implemented. Its internal transactional and compare-and-set ideas
+remain applicable to ordinary claim, heartbeat, complete, and fail transitions.
 
 ## Safety invariants
 
@@ -54,47 +65,68 @@ The implementation must preserve all of these invariants:
 
 1. **Server-derived identity:** route handlers derive the acting agent from authenticated server
    state. Query parameters and JSON bodies never establish identity.
-2. **Fenced ownership:** only the authenticated owner of the current execution attempt can
-   heartbeat, complete, fail, or reconcile a run; a successor attempt permanently fences older
-   attempts.
-3. **Claim before execution:** a pending run cannot transition directly to completed or failed.
-4. **Atomic claim:** concurrent pollers cannot both obtain ownership of the same run.
-5. **Idempotent reporting:** retrying an accepted terminal report returns the accepted state;
-   conflicting reports fail explicitly.
-6. **Visible failure:** unsupported jobs, lost leases, rejected results, and exhausted retries never
+2. **Fenced ownership:** only the authenticated owner of the current execution attempt, presenting
+   its claim token, can heartbeat, complete, or fail the Run. A successor attempt permanently
+   fences every older attempt.
+3. **Claim before execution:** a pending Run cannot transition directly to completed or failed.
+4. **Atomic claim:** claim, attempt creation, token-digest storage, and the claimed Event commit in
+   one transaction. Concurrent pollers produce at most one winner.
+5. **Strict lease guard:** heartbeat, complete, and fail require an unexpired lease according to
+   Atlas time. Expiry immediately removes publication authority, even before a cleanup sweep runs.
+6. **Narrow idempotent reporting:** replaying the same terminal operation with the same
+   `Idempotency-Key` and payload returns the accepted state without duplicate Events or
+   ArtifactRefs. A conflicting terminal intent or payload returns a stable `409`.
+7. **Visible failure:** unsupported jobs, lost leases, rejected reports, and exhausted retries never
    appear as successful work.
-7. **No shell interpretation:** user-controlled values are passed as argument vectors, not shell
+8. **No shell interpretation:** user-controlled values are passed as argument vectors, not shell
    command strings.
-8. **Bounded control-plane payloads:** large content is stored in external files or object storage
+9. **Bounded control-plane payloads:** large content is stored in external files or object storage
    and represented in Atlas by ArtifactRef.
-9. **Transactional history:** the state transition and its Event are committed together or both
-   fail.
-10. **Knowledge separation:** automated output may create a Source or Resource, but never writes
-    human KnowledgeComment prose.
-11. **Durable result handoff:** Lumio does not discard completed work merely because Atlas is
-    unavailable; it persists a private result bundle before attempting publication.
+10. **Transactional history:** a state transition and its Event commit together or both fail.
+11. **Knowledge separation:** automated output may create a Source or Resource, but never writes
+   human KnowledgeComment prose.
+12. **Bounded recovery:** retry state and the raw claim token exist only in the active Lumio process.
+   A Lumio restart does not replay an earlier attempt.
+
+## Implementation disposition
+
+| Mechanism | Decision | Why |
+| --- | --- | --- |
+| Scoped agent credential and `AgentPrincipal` | Keep | Prevents client-asserted identity and cross-agent impersonation. |
+| `ExecutionAttempt`, `attempt_id`, and per-claim `claim_token` | Keep, simplified | Provides cheap execution identity and fencing. The token is memory-only in Lumio; Atlas stores only its digest. |
+| Atomic claim and transactional Event | Keep | Prevents duplicate ownership and false history under concurrency. |
+| Lease heartbeat and guards on heartbeat/complete/fail | Keep | Bounds ownership and prevents stale workers from publishing. |
+| Same-key terminal idempotency | Keep, narrow | Handles an accepted request whose response was lost without creating a general deduplication platform. |
+| Retry after transient network or 5xx failures | Keep, bounded | Covers ordinary short interruptions while the lease is still valid. |
+| External ArtifactRefs and handler-owned files | Keep | Preserves useful bytes without putting large data in SQLite. |
+| Public Reconcile API accepting an expired attempt | Remove | There is no outbox consumer, it contradicts final lease expiry, and it expands the state machine and attack surface. |
+| Durable Lumio outbox and persisted claim token | Do not implement | The operational value does not justify filesystem transactions, secret persistence, replay, retention, and conflict handling. |
+| Startup scanning and automatic report replay | Do not implement | A restarted Lumio process has no authority to revive an expired attempt. |
+| Superseded-result retention and state merging | Do not implement | Local artifacts may remain, but Atlas does not merge or promote a stale result. |
+| Generic `EXPIRED` Run state | Do not add now | Attempt expiry can return a retryable Run to pending or fail an exhausted Run; add a new Run state only for a measured user need. |
 
 ## Scope
 
 ### Included
 
-- per-agent or per-session credentials;
-- an authenticated `AgentPrincipal` resolved by Atlas;
-- protocol migration from `atlas-agent-v1` to `atlas-agent-v2`;
-- strict and atomic run state transitions;
-- idempotent claim and terminal reporting behavior;
+- scoped agent or session credentials and an authenticated `AgentPrincipal`;
+- protocol migration to `atlas-agent-v2`;
+- immutable execution-attempt identity and per-claim fencing token;
+- strict, atomic Run transitions and transactional Events;
+- idempotent terminal reporting within a live lease;
+- lease-deadline-aware, in-memory retry for transient Atlas failures;
 - explicit capability routing and unsupported-job behavior;
 - asynchronous, shell-free subprocess execution in Lumio;
-- lease-loss, cancellation, retry, and Atlas-restart recovery;
-- durable Lumio result outbox and long-outage reconciliation;
-- stable execution-attempt identity and successor-attempt fencing;
-- typed handler results containing bounded output, ArtifactRefs, or a structured error;
-- transcript and generated-resource artifact storage;
-- deterministic checks and focused tests in both repositories;
-- minimal secret and environment provisioning changes in nix-config.
+- typed handler results with bounded output and ArtifactRefs;
+- external transcript and generated-resource storage;
+- focused fake-server, concurrency, lease-loss, cancellation, and redaction tests;
+- minimal secret and environment provisioning changes in nix-config;
+- removal of the experimental Reconcile API.
 
 ### Excluded
 
+- durable delivery after lease expiry;
+- persisted outbox bundles, persisted claim credentials, restart replay, and result reconciliation;
 - WebSocket or push scheduling;
 - multi-user authorization or organization-level RBAC;
 - arbitrary remote prompt execution;
@@ -106,21 +138,21 @@ The implementation must preserve all of these invariants:
 
 ## Authentication and identity
 
-The shared `atlas-agent-v1` token may remain temporarily for registration and heartbeat during
-migration, but it must not authorize work execution after this RFC is deployed.
+The shared `atlas-agent-v1` token may remain temporarily for registration during migration, but it
+must not authorize work execution after this RFC is deployed.
 
 The `atlas-agent-v2` flow is:
 
 1. nix-config provisions a bootstrap credential for a known node or worker principal.
-2. Lumio registers an interactive session using that credential and a non-secret session nonce.
+2. Lumio registers a session using that credential and a non-secret session nonce.
 3. Atlas creates the canonical agent ID, binds it to the authenticated principal, and returns a
    scoped session credential.
 4. Atlas stores only a secure digest of the scoped credential.
-5. Subsequent heartbeat, inbox, claim, run-heartbeat, complete, and fail requests authenticate the
-   scoped credential.
-6. A FastAPI dependency resolves an `AgentPrincipal`; services receive its canonical agent ID
-   instead of accepting an agent ID from query or body data.
-7. A rejected or expired scoped credential causes Lumio to re-register with bounded backoff.
+5. Subsequent work operations authenticate the scoped credential.
+6. A FastAPI dependency resolves an `AgentPrincipal`; services use its canonical agent ID rather
+   than trusting an ID in a URL or JSON body.
+7. A rejected scoped credential causes Lumio to re-register with bounded backoff. This credential
+   lifecycle is distinct from recovering an expired execution attempt.
 
 Interactive pi sessions may continue using identities shaped like:
 
@@ -129,49 +161,11 @@ Interactive pi sessions may continue using identities shaped like:
 ```
 
 A persistent worker uses a separate principal and lifecycle. Secrets never appear in URLs, process
-arguments, logs, events, metadata, or Git.
+arguments, logs, Events, metadata, or Git.
 
-## Run state and lease contract
+## Execution-attempt and claim-token contract
 
-The allowed lifecycle is:
-
-```text
-pending -> claimed -> completed
-                   -> failed
-        -> cancelled
-claimed -> pending      when a lease expires and attempts remain
-        -> failed       when the final allowed attempt expires
-        -> cancelled
-```
-
-Required behavior:
-
-- `claim-next` selects and claims in one database transaction.
-- Required capabilities must be a subset of the authenticated agent capabilities.
-- Normal `complete` and `fail` require `status=claimed`, an unexpired lease, the authenticated
-  owner, and the current execution-attempt identity.
-- A run heartbeat extends only the caller's current lease.
-- Cancellation prevents later completion and is visible to a running Lumio handler.
-- Every state transition appends its Event in the same transaction.
-- Attempt exhaustion produces a stable terminal failure reason.
-- Claim and terminal operations accept an idempotency key or equivalent request identity.
-- Repeating the same accepted operation returns the existing state; a conflicting operation
-  returns `409` with a stable machine-readable error code.
-
-Lease expiry does not mean that locally completed bytes must be deleted. It ends the right to use
-the normal terminal-report endpoint. A worker with a durable result must use the reconciliation
-contract below. Atlas may accept an expired attempt only when the same attempt is still current and
-no successor attempt has been created.
-
-## Offline result durability and reconciliation
-
-Atlas may be unavailable longer than a lease while Lumio is executing an expensive acquisition or
-analysis job. The system must preserve useful work without allowing a stale worker to overwrite a
-newer execution.
-
-### Execution attempt identity
-
-Every successful claim creates or returns an immutable execution attempt containing at least:
+Every successful claim creates an immutable execution attempt containing at least:
 
 ```text
 attempt_id
@@ -179,92 +173,115 @@ run_id
 attempt_number
 agent_id
 claim_token_digest
-status                 active | accepted | failed | superseded | cancelled
+status
 lease_expires_at
 created_at
 finished_at
-result_digest
+result_digest             optional audit field
 ```
 
-The raw claim token is returned once to the worker and persisted only in a separately permissioned
-outbox credential file; Atlas stores a secure digest. `attempt_number` alone is not an authorization
-credential. Creating a successor attempt atomically marks the previous attempt `superseded` and
-permanently prevents the older attempt from publishing a terminal result.
+Atlas returns the raw claim token once with the claim response and stores only its digest. Lumio
+keeps the raw token in memory for the active attempt. It must not write the token to an outbox,
+manifest, log, Event, artifact, or environment file. Releasing the active attempt releases the
+token; a restarted process does not recover it.
 
-### Lumio durable outbox
+`attempt_number` is not an authorization credential. A successor claim creates a new attempt and
+token, marks or treats the older attempt as superseded, and permanently prevents the older attempt
+from heartbeat or terminal publication.
 
-Before reporting success or a locally final failure, Lumio writes a result bundle under the
-configured private data root:
+## Run state and lease contract
+
+The existing Run lifecycle remains:
 
 ```text
-<atlas-data-root>/outbox/<run-id>/<attempt-id>/
-  manifest.json
-  result.json
-  artifacts/
-  checksums.json
+pending -> claimed -> completed
+                   -> failed
+        -> cancelled
+claimed -> pending      when its attempt lease expires and attempts remain
+        -> failed       when its final allowed attempt expires
+        -> cancelled
 ```
 
-The bundle requirements are:
+Lease expiry applies to an attempt even when the Run is later retried. Atlas may create a successor
+attempt only through a new atomic claim. A late result from the older attempt is discarded rather
+than reconciled.
 
-- write to a temporary directory, fsync files and directory metadata, then rename atomically;
-- directories use mode `0700` and files use mode `0600` by default;
-- `manifest.json` contains protocol version, run ID, attempt ID, agent ID, timestamps, artifact
-  metadata, and content hashes, but no bootstrap token, scoped token, cookies, or raw claim token;
-- the separately permissioned claim-token file is read only for reconciliation and is deleted after
-  the bundle reaches a resolved retention state;
-- a bundle remains `pending` until Atlas explicitly accepts, rejects as superseded, or an operator
-  resolves it;
-- shutdown, network failure, and process restart must not erase a pending bundle;
-- cleanup is retention-based and never deletes the only copy of an unresolved result.
+Required behavior:
 
-### Reconciliation API
+- `claim-next` selects a compatible Run, changes it to claimed, creates the attempt and claim token,
+  and appends the Event in one transaction;
+- required capabilities are a subset of the authenticated agent capabilities;
+- heartbeat, complete, and fail check Run status, agent owner, attempt identity, claim-token digest,
+  and lease deadline;
+- normal complete and fail reject an expired lease with a stable `409 lease_expired` response;
+- cancellation prevents later completion and is visible to a running Lumio handler;
+- attempt exhaustion produces a stable terminal failure reason;
+- the accepted terminal request, Event, idempotency record, output, ArtifactRefs, and attempt state
+  commit transactionally;
+- a complete/expiry or claim/claim race is resolved by Atlas-side conditional updates or equivalent
+  serialized transactions, never by an unconditional ORM read-then-write transition.
 
-After Atlas becomes reachable, Lumio submits the persisted bundle through an idempotent operation,
-for example:
+Retryable, inexpensive, and idempotent work may use `max_attempts > 1`. Expensive,
+non-idempotent, or externally managed experiment jobs should use `max_attempts=1` so a lost lease
+cannot automatically launch a duplicate experiment. Retrying such work is an explicit new Run.
+
+## Reliability budget and expiration
+
+A configured lease TTL is not an outage guarantee. In particular, a 120-second TTL does not mean
+that the system can always survive a full 120-second Atlas outage. At the moment an interruption
+starts, part of that lease may already have elapsed.
+
+The usable recovery budget is approximately:
 
 ```text
-POST /api/runs/<run-id>/attempts/<attempt-id>/reconcile
-Authorization: Bearer <scoped-agent-credential>
-Idempotency-Key: <stable-outbox-operation-id>
-
-claim_token
-result_digest
-bounded_output
-artifact_refs
-terminal_intent        complete | fail
+current lease_expires_at
+  - current time
+  - request timeout
+  - clock-skew and scheduling-jitter margin
 ```
 
-Atlas evaluates reconciliation and the competing claim path in serialized database transactions:
+With periodic heartbeats, a conservative planning estimate after the last successful heartbeat is:
 
-1. Authenticate the agent and verify the claim-token digest.
-2. Reject if the run is cancelled or the attempt belongs to another agent.
-3. Return the existing accepted state when the same attempt and result digest were already
-   accepted.
-4. Return `409 attempt_superseded` when a successor attempt exists; never revive the old attempt.
-5. Return `409 result_conflict` when the attempt was accepted with a different digest.
-6. If the attempt is still current and no successor exists, accept the result even when its lease
-   expired, committing the Run state, Attempt state, Events, idempotency record, and ArtifactRefs in
-   one transaction.
-7. Return a stable retryable error when Atlas cannot determine the outcome; Lumio keeps the bundle
-   pending and retries with the same idempotency key.
+```text
+lease TTL - heartbeat interval - request timeout - safety margin
+```
 
-An expired attempt must never use an unconditional ORM read-then-write transition. Acceptance uses
-a compare-and-set condition on the run status, current attempt ID, agent ID, and absence of a
-successor. A concurrent re-claim and reconcile therefore produce exactly one winner.
+If a full 120-second interruption must be tolerated, the TTL must be greater than 120 seconds plus
+those margins; for example, a measured 180-to-240-second TTL with a 30-second heartbeat may be a
+reasonable starting point. This is configuration guidance, not a new protocol requirement.
 
-### Superseded and conflicting results
+Lumio behavior is:
 
-Atlas rejection does not immediately delete local bytes. Lumio marks the bundle `superseded` or
-`conflicting`, records the Atlas decision, and retains it for a configured period. Identical content
-hashes may be deduplicated. Expensive or unique conflicting results remain available for explicit
-human review; they are never silently promoted to KnowledgeComments.
+1. A successful claim establishes the current `lease_expires_at` deadline.
+2. A successful heartbeat replaces that deadline with the returned value.
+3. A network error, timeout, or 5xx is ambiguous. Lumio keeps the handler running and retries in
+   memory with bounded backoff while the deadline has safe time remaining.
+4. A `401`, `403`, or lease/state `409` is definitive. Lumio signals lease loss immediately.
+5. When the local deadline plus safety margin is reached, Lumio signals lease loss, stops all
+   terminal-report retries, forgets the attempt credential, and never calls a reconciliation path.
+6. An Atlas-controlled child process should honor the abort signal. A separately managed experiment
+   process is outside the lease lifecycle; its own repository and output directory remain
+   authoritative even when Atlas loses observability.
+7. A locally completed file may remain even when the report is abandoned. Lumio records at most a
+   concise runtime diagnostic; it does not persist a replayable control-plane bundle.
+
+## Terminal reporting
+
+Success and failure use the normal complete and fail endpoints only. Lumio generates one stable
+`Idempotency-Key` for that terminal operation and reuses the same key and identical payload after an
+ambiguous response. Heartbeats continue while a terminal report is being retried.
+
+Retries stop when Atlas accepts the report, Atlas returns a definitive client or state error, the
+lease deadline is reached, or Lumio shuts down. There is no Reconcile fallback. If a request may
+have been accepted but its response is lost and the lease then expires, Lumio reports the local
+outcome as unknown or abandoned; Atlas remains authoritative for whether it committed the request.
 
 ## Lumio execution contract
 
-Lumio maintains a registry of explicitly supported jobs. It advertises those names as
-capabilities and must never claim work outside that set.
+Lumio maintains a registry of explicitly supported jobs and advertises those names as capabilities.
+It must never intentionally claim work outside that set.
 
-Handlers return a typed result instead of mutating `RunRecord` with private fields:
+Handlers return a typed result:
 
 ```ts
 type HandlerResult =
@@ -283,19 +300,17 @@ type HandlerResult =
 
 Additional requirements:
 
-- unknown job names are not claimed; a defensive post-claim check fails them as
-  `unsupported_job`;
+- a defensive post-claim check reports `unsupported_job` while the lease is live;
 - enqueue requests include `capabilities_required` explicitly;
 - subprocesses use `execFile` or `spawn` with argument arrays and `shell: false`;
-- subprocess execution is asynchronous so the event loop can maintain the run lease;
-- timeout, cancellation, and shutdown terminate the child process and clean sensitive temp files;
-- Lumio reports local success only after Atlas accepts the terminal transition;
-- ambiguous network failures retry the same idempotent request instead of assuming success;
-- lease loss stops publication of results and produces one concise diagnostic;
-- Atlas unavailability after local completion writes a durable outbox bundle instead of discarding
-  the result or pretending that Atlas accepted it;
-- startup scans pending outbox bundles and reconciles them with bounded backoff;
-- a superseded outbox result is retained for review or cleanup and cannot overwrite its successor.
+- subprocess execution is asynchronous so the event loop can maintain the lease;
+- cancellation, shutdown, definitive lease loss, and lease expiry signal the handler to stop;
+- generated artifacts are written atomically where appropriate before their ArtifactRefs are
+  reported;
+- ambiguous terminal failures retry only in memory with the same idempotency key and live lease;
+- a single ambiguous heartbeat failure does not immediately abort a handler;
+- no code creates an outbox, persists a claim token, scans old reports at startup, or calls
+  Reconcile.
 
 ## Artifact and Resource boundary
 
@@ -312,63 +327,68 @@ Source metadata
   -> optional empty human-comment template
 ```
 
-Artifact storage must use a configured data root with private default permissions, atomic writes,
-content hashes, stable URIs, and cleanup rules. Atlas owns metadata and lifecycle state; it does not
-become the authority for the content bytes.
+Artifact storage uses a configured data root with private default permissions, atomic writes,
+content hashes, and stable URIs. Handler-specific provenance manifests are allowed, but they are
+content records rather than Lumio outbox entries and are never used to replay an expired report.
+Atlas owns metadata and lifecycle state; it does not become the authority for the bytes.
 
 ## Repository responsibilities
 
 ### Atlas
 
-- define `AgentPrincipal` and scoped credential persistence;
-- remove client-controlled identity from work service calls;
-- implement atomic claims and strict terminal transitions;
-- commit Events transactionally with transitions;
-- add stable error codes and HTTP mappings;
+- resolve authenticated agent identity and scoped credentials;
+- create and fence execution attempts with memory-only client claim tokens;
+- implement atomic claims and strict live-lease terminal transitions;
+- commit Events and ArtifactRefs transactionally with transitions;
+- provide narrow idempotency and stable error codes;
 - enforce output and event-body size limits;
-- expose idempotent work APIs and migration-compatible protocol metadata;
-- persist execution attempts and implement fenced, transactional reconciliation;
-- test concurrency, impersonation, lease expiry, retries, and Atlas restart.
+- remove the experimental Reconcile route, request model, service/repository path, and tests;
+- test concurrency, impersonation, lease expiry, duplicate terminal requests, and Atlas restart.
 
 ### Lumio
 
 - implement v2 registration and scoped credential refresh;
-- replace shell-string subprocess execution;
-- make the poller capability-safe and result-aware;
-- introduce typed handler results and ArtifactRefs;
-- implement the private durable outbox, startup recovery, and retention states;
-- move transcript bytes out of run output;
+- keep attempt credentials only in active-process memory;
+- handle transient heartbeat failures until the remaining lease budget is exhausted;
+- retry ambiguous terminal requests with one idempotency key and no disk persistence;
+- stop reporting immediately after definitive lease loss or local deadline expiry;
+- keep the poller capability-safe and handlers result-aware;
+- use asynchronous, shell-free subprocess execution;
+- store transcript and generated Resource bytes outside Run output;
 - add fake-Atlas and fake-subprocess tests;
-- make the repository check command deterministic and offline after dependencies are installed.
+- keep the repository check command deterministic and offline after dependencies are installed.
 
 ### nix-config
 
 - provision the bootstrap credential through agenix or the existing secret store;
 - provide artifact-root and endpoint paths without committing secrets;
-- provide the private outbox root and retention configuration;
 - keep interactive Lumio sessions distinct from persistent workers;
-- build/evaluate affected hosts before switching;
+- configure lease and heartbeat values with an explicit measured safety margin;
+- build or evaluate affected hosts before switching;
 - remove the v1 shared execution credential only after v2 acceptance passes.
 
 ## Verification
 
 ### Required automated cases
 
-- two agents race for one run and exactly one becomes owner;
+- concurrent agents race for one Run and exactly one attempt becomes owner;
 - one authenticated agent cannot act as another agent by changing a URL or JSON field;
-- complete/fail on a pending, expired, cancelled, or foreign run is rejected;
-- repeated identical completion is safe and a conflicting completion returns `409`;
+- a wrong token, old attempt, pending Run, cancelled Run, or expired lease cannot complete or fail;
+- heartbeat extends only the current, unexpired attempt;
+- one transient heartbeat network failure within the lease does not abort the handler, and a later
+  success updates its deadline;
+- a definitive lease/state `409` aborts the Atlas-controlled handler and prevents publication;
+- a repeated identical completion with the same key is safe, creates no duplicate Event or
+  ArtifactRef, and a conflicting report returns `409`;
+- a lost terminal response is retried with the same idempotency key only while the lease is live;
+- retries stop at lease expiry and no outbox directory, claim-token file, or startup replay appears;
+- a Lumio restart does not replay an earlier terminal report;
 - unknown and capability-mismatched jobs are never reported successful;
 - a shell-metacharacter URL is delivered literally to the child process;
-- a long-running subprocess continues to renew its lease;
-- cancellation and shutdown terminate the child and remove cookie files;
-- Atlas restart during execution recovers through re-registration and idempotent reporting;
-- Atlas outage beyond the lease preserves the local bundle and later accepts it only when its
-  attempt has not been superseded;
-- a reconciliation and successor claim race produces one winner and never two accepted results;
-- an Atlas or Lumio restart with pending outbox bundles resumes reconciliation without data loss;
+- cancellation and shutdown terminate Atlas-controlled children and clean sensitive temp files;
 - transcript bytes are absent from `runs.output_json` and present behind a valid ArtifactRef;
-- secrets are absent from Git, process arguments, logs, Events, and metadata;
+- local artifacts remain readable after an abandoned report;
+- secrets are absent from Git, process arguments, logs, Events, metadata, and artifacts;
 - AI output cannot populate a human KnowledgeComment body.
 
 ### Repository checks
@@ -380,44 +400,37 @@ formatting, evaluation, and the affected-host build without switching first.
 ### End-to-end acceptance
 
 1. Start two Lumio sessions with different scoped credentials.
-2. Enqueue one capability-constrained Bilibili run.
-3. Confirm exactly one session owns and heartbeats the lease.
-4. Restart Atlas while the handler is active.
-5. Confirm the same run reaches one terminal state with one accepted output.
-6. Confirm the transcript and summary are private external artifacts with hashes and provenance.
-7. Stop the session and confirm credentials, child processes, and sensitive temp files are cleaned.
-
-### Long-outage acceptance
-
-1. Claim a run and record its attempt ID and claim token.
-2. Stop Atlas long enough for the lease to expire while Lumio finishes locally.
-3. Confirm the complete result and artifacts survive a Lumio restart in a private pending outbox
-   bundle.
-4. Start Atlas and reconcile before any successor claim; confirm exactly one accepted completion.
-5. Repeat the scenario, but create a successor attempt before reconciliation; confirm the old
-   attempt receives `attempt_superseded`, cannot change the Run, and remains locally retained.
-6. Race successor claim against reconciliation repeatedly; confirm one transactional winner, one
-   terminal Run state, and no duplicate Events or ArtifactRefs.
+2. Enqueue one capability-constrained Bilibili Run and confirm exactly one session owns it.
+3. Introduce a short Atlas interruption that ends with safe time remaining in the current lease.
+4. Confirm Lumio does not abort on the first ambiguous heartbeat failure, renews the lease after
+   Atlas returns, and reaches exactly one terminal state.
+5. Repeat with Atlas unavailable beyond the remaining lease budget.
+6. Confirm Lumio abandons the old attempt, makes no late complete/fail/Reconcile request, writes no
+   outbox, and does not replay the report after restart.
+7. Confirm any transcript or other artifact already written remains private, readable, hashed, and
+   separate from Atlas SQLite.
+8. Allow Atlas to retry an inexpensive Run and confirm the successor attempt fences the old token.
+9. Run an expensive case with `max_attempts=1` and confirm lease loss does not launch a duplicate.
 
 ## Rollout order
 
-1. Freeze new workflow and console features.
-2. Add failing Atlas security and state-machine tests.
-3. Implement Atlas identity, atomic transition, Event, and idempotency changes.
-4. Add Lumio fake-server and subprocess tests.
-5. Implement the v2 Lumio client, poller, and typed handlers.
-6. Move the Bilibili transcript to artifact storage.
-7. Add execution-attempt fencing, the Lumio durable outbox, and reconciliation.
-8. Update nix-config secrets, artifact/outbox paths, and retention without switching.
-9. Run repository checks plus the short-restart, long-outage, and successor-race acceptance tests.
-10. Deploy Atlas first, Lumio second, and nix-config last with rollback revisions recorded.
-11. Mark this RFC Implemented before expanding Milestone 3 or starting Milestone 4.
+1. Record this reliability decision and freeze new workflow and console features.
+2. Remove the experimental Atlas Reconcile API and its tests.
+3. Add Atlas tests that require lease checks on normal complete and fail, then enforce them.
+4. Add Lumio fake-server tests for transient heartbeat failure, definitive lease loss, expiry, and
+   same-key terminal retry.
+5. Implement lease-deadline-aware in-memory retry and explicit abandonment in Lumio.
+6. Verify handler artifact writes and remove any outbox or persisted-attempt placeholders.
+7. Update only the necessary nix-config lease, heartbeat, endpoint, secret, and artifact settings.
+8. Run repository checks plus the short-interruption and expiry acceptance cases.
+9. Deploy Atlas first, Lumio second, and nix-config last with rollback revisions recorded.
+10. Mark this RFC Implemented before expanding Milestone 3 or starting Milestone 4.
 
 ## Stop-the-line rule
 
-Until every acceptance check in this RFC passes:
+Until the accepted checks in this RFC pass:
 
 - do not add paper, Zotero, arXiv, embedding, or RAG execution;
 - do not add arbitrary command or prompt jobs;
 - do not build Atlas Console on top of the unstable work contract;
-- do not treat the current M2/M3 prototype as a trusted remote-execution system.
+- do not treat the current execution path as a trusted remote-execution system.

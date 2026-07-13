@@ -5,20 +5,25 @@ backlogs.
 
 ## Current state and immediate risks
 
-As observed after the first Atlas/Lumio execution slice on 2026-07-12:
+As observed after the execution-hardening work on 2026-07-13:
 
-- Atlas has 106 passing tests and one remaining Ruff failure in the work API tests.
-- `atlas.service` now runs `atlas.main:app` on port 8000 as an active, enabled systemd user service;
-  production contains live Lumio heartbeats and completed work runs.
-- A detached `4b79af1` rollback worktree and a SQLite-consistent pre-cutover backup are the recovery
-  anchors for Milestone 0.
-- The old `atlas_console` process has been retired and is not a valid rollback target.
-- RFC 0001 is implemented; Lumio also has prototype M2 work polling and an M3 Bilibili handler.
-- Lumio has no focused fake-Atlas tests, and its check command is not yet self-contained.
+- `atlas.service` runs `atlas.main:app` on port 8000 and production contains live Lumio heartbeats
+  and completed work Runs.
+- A detached `4b79af1` rollback worktree and a SQLite-consistent pre-cutover backup remain the
+  Milestone 0 recovery anchors; the old `atlas_console` process is retired.
+- RFC 0001 is implemented. Atlas and Lumio use scoped v2 work credentials, typed handler results,
+  shell-free execution, bounded output, and external transcript artifacts.
+- Atlas now creates a fenced `ExecutionAttempt` and per-claim token, performs atomic claim, and
+  supports idempotent terminal reports.
+- An experimental Reconcile API was added while durable outbox delivery was being considered. RFC
+  0002 now rejects that complexity: the endpoint must be removed and must not be consumed by Lumio.
+- Lumio has initial focused Atlas tests and a self-contained check command. It still needs
+  lease-deadline-aware handling of transient heartbeat failures and explicit abandonment at expiry.
 - nix-config provisions the Atlas endpoint, node identity, and agenix-managed token file.
 
-The immediate risk is no longer connectivity. It is trusting a prototype execution contract before
-identity, lease ownership, idempotency, shell safety, and artifact boundaries are enforced.
+The immediate risk is semantic mismatch: normal complete/fail must enforce live leases, while Lumio
+must tolerate a transient failure within the remaining lease without persisting recovery state.
+Atlas and Lumio must not imply that work will be delivered after an attempt expires.
 
 ## Milestone 0: Stable baselines
 
@@ -83,28 +88,46 @@ requirements prove otherwise.
 
 ## Milestone 2.5: Execution Hardening
 
+**Status:** In progress; reliability scope simplified on 2026-07-13.
+
 Implement [RFC 0002](rfcs/0002-execution-hardening.md).
 
 **Outcome:** The existing Atlas/Lumio execution loop becomes a trustworthy boundary before more
 sources, workers, or user interfaces depend on it.
 
-This is a stop-the-line gate, not a new platform feature. It requires:
+This is a stop-the-line gate, not a durable-delivery platform. Its policy is safety without durable
+delivery: retry transient failures only while the current lease remains valid, then abandon the old
+attempt while preserving any handler-owned local artifact.
+
+It requires:
 
 - per-agent or per-session credentials with server-derived identity;
-- atomic claim and strict lease-owner transitions;
-- idempotent terminal reporting and transactional Events;
-- durable Lumio outbox for results completed while Atlas is unavailable;
-- execution-attempt fencing and safe reconciliation after lease expiry;
+- atomic claim plus a lightweight `ExecutionAttempt`, `attempt_id`, and memory-only claim token;
+- strict lease guards on heartbeat, complete, and fail;
+- narrow same-key terminal idempotency and transactional Events;
+- lease-deadline-aware, in-memory retry for transient Atlas failures;
+- irreversible attempt expiry and successor-attempt fencing;
 - explicit capability routing and visible unsupported-job failure;
 - asynchronous shell-free subprocess execution;
 - bounded run output with transcripts and generated Resources stored as ArtifactRefs;
-- fake-server, concurrency, restart, lease-loss, cancellation, and redaction tests;
+- fake-server, concurrency, transient-outage, expiry, cancellation, and redaction tests;
 - deterministic green checks in Atlas, Lumio, and nix-config.
 
-**Exit criteria:** Every RFC 0002 acceptance check passes, deployed revisions and protocol versions
-are recorded, and the current Bilibili slice survives a two-agent race, a short Atlas restart, and
-an outage beyond its lease without false success, lost local results, stale-attempt overwrite,
-duplicate completion, leaked secrets, or transcript bytes in SQLite.
+M2.5 explicitly does not include a durable Lumio outbox, persisted claim token, startup replay,
+superseded-result merge, or a public API that accepts reports after lease expiry. The experimental
+Reconcile endpoint is removed; ordinary claim and terminal transitions still use transactional
+guards internally.
+
+**Exit criteria:** Every accepted RFC 0002 check passes, deployed revisions and protocol versions
+are recorded, and the Bilibili slice:
+
+- produces one owner in a two-agent race;
+- survives a transient Atlas interruption that ends within the remaining lease budget;
+- abandons an attempt cleanly when that budget expires, without a late report, outbox, or restart
+  replay;
+- retries an ambiguous terminal response with the same key and without duplicate state;
+- preserves any already-written local artifact without putting transcript bytes or secrets in
+  SQLite.
 
 ## Milestone 3: Bilibili vertical slice
 
