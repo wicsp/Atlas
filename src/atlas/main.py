@@ -53,6 +53,7 @@ from .todos import (
 from .work.models import (
     ArtifactRef,
     EventRecord,
+    ExecutionAttemptRecord,
     ProjectCreate,
     ProjectRecord,
     RunCancel,
@@ -410,27 +411,39 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get(
         "/api/runs/next",
-        response_model=RunRecord | None,
     )
     async def claim_next_run(
         request: Request,
         agent: Annotated[AgentRecord, Depends(require_scoped_agent_auth)],
-    ) -> RunRecord | None:
-        return _work_service(request).claim_next(agent.agent_id, agent.capabilities)
+    ):
+        result = _work_service(request).claim_next(agent.agent_id, agent.capabilities)
+        if result is None:
+            return None
+        run, attempt_id, claim_token = result
+        return {
+            **run.model_dump(),
+            "attempt_id": attempt_id,
+            "claim_token": claim_token,
+        }
 
     @app.post(
         "/api/runs/{run_id}/claim",
-        response_model=RunRecord,
     )
     async def claim_run(
         request: Request,
         run_id: str,
         agent: Annotated[AgentRecord, Depends(require_scoped_agent_auth)],
-    ) -> RunRecord:
+    ):
         try:
-            return _work_service(request).claim_by_id(
+            result = _work_service(request).claim_by_id(
                 run_id, agent.agent_id, agent.capabilities
             )
+            run, attempt_id, claim_token = result
+            return {
+                **run.model_dump(),
+                "attempt_id": attempt_id,
+                "claim_token": claim_token,
+            }
         except KeyError as exc:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -568,6 +581,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Run not found",
             ) from exc
+
+    @app.get(
+        "/api/runs/{run_id}/attempts",
+        response_model=list[ExecutionAttemptRecord],
+        dependencies=[Depends(require_auth)],
+    )
+    async def list_run_attempts(request: Request, run_id: str) -> list[ExecutionAttemptRecord]:
+        return _work_service(request).list_attempts(run_id)
 
     @app.get(
         "/api/runs/{run_id}/events",

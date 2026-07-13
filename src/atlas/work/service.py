@@ -10,6 +10,7 @@ from atlas.db.session import create_sqlite_session_factory
 from .models import (
     ArtifactRef,
     EventRecord,
+    ExecutionAttemptRecord,
     ProjectCreate,
     ProjectRecord,
     RunCancel,
@@ -44,19 +45,25 @@ class WorkService:
     def enqueue_run(self, payload: RunCreate) -> RunRecord:
         return self._repository.create_run(payload, _now())
 
-    def claim_next(self, agent_id: str, capabilities: list[str] | None = None) -> RunRecord | None:
+    def claim_next(self, agent_id: str, capabilities: list[str] | None = None) -> (
+        tuple[RunRecord, str, str] | None
+    ):
         now = _now()
         lease = now + self._lease_ttl
-        return self._repository.claim_next_atomic(
+        result = self._repository.claim_next_atomic(
             agent_id, lease, now, capabilities
         )
+        if result is None:
+            return None
+        return result.run, result.attempt_id, result.claim_token
 
     def claim_by_id(
         self, run_id: str, agent_id: str, capabilities: list[str]
-    ) -> RunRecord:
+    ) -> tuple[RunRecord, str, str]:
         now = _now()
         lease = now + self._lease_ttl
-        return self._repository.claim_run(run_id, agent_id, lease, now, capabilities)
+        result = self._repository.claim_run(run_id, agent_id, lease, now, capabilities)
+        return result.run, result.attempt_id, result.claim_token
 
     def heartbeat(self, run_id: str, agent_id: str) -> RunRecord:
         lease = _now() + self._lease_ttl
@@ -70,6 +77,8 @@ class WorkService:
     ) -> RunRecord:
         return self._repository.complete_run(
             run_id,
+            payload.attempt_id,
+            payload.claim_token,
             payload.agent_id,
             payload.output,
             payload.artifacts,
@@ -86,6 +95,8 @@ class WorkService:
     ) -> RunRecord:
         return self._repository.fail_run(
             run_id,
+            payload.attempt_id,
+            payload.claim_token,
             payload.agent_id,
             payload.error_code,
             payload.error_message,
@@ -115,6 +126,9 @@ class WorkService:
         return self._repository.list_events(run_id, limit=limit)
 
     # ── Artifacts ─────────────────────────────────────────────
+
+    def list_attempts(self, run_id: str) -> list[ExecutionAttemptRecord]:
+        return self._repository.list_attempts(run_id)
 
     def list_artifacts(self, run_id: str) -> list[ArtifactRef]:
         return self._repository.list_artifacts(run_id)

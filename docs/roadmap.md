@@ -93,6 +93,8 @@ This is a stop-the-line gate, not a new platform feature. It requires:
 - per-agent or per-session credentials with server-derived identity;
 - atomic claim and strict lease-owner transitions;
 - idempotent terminal reporting and transactional Events;
+- durable Lumio outbox for results completed while Atlas is unavailable;
+- execution-attempt fencing and safe reconciliation after lease expiry;
 - explicit capability routing and visible unsupported-job failure;
 - asynchronous shell-free subprocess execution;
 - bounded run output with transcripts and generated Resources stored as ArtifactRefs;
@@ -100,8 +102,9 @@ This is a stop-the-line gate, not a new platform feature. It requires:
 - deterministic green checks in Atlas, Lumio, and nix-config.
 
 **Exit criteria:** Every RFC 0002 acceptance check passes, deployed revisions and protocol versions
-are recorded, and the current Bilibili slice survives a two-agent race plus an Atlas restart without
-false success, duplicate completion, leaked secrets, or transcript bytes in SQLite.
+are recorded, and the current Bilibili slice survives a two-agent race, a short Atlas restart, and
+an outage beyond its lease without false success, lost local results, stale-attempt overwrite,
+duplicate completion, leaked secrets, or transcript bytes in SQLite.
 
 ## Milestone 3: Bilibili vertical slice
 
@@ -175,4 +178,3 @@ For each milestone:
 
 Avoid parallel expansion of the three repositories. Parallel work is useful only when the protocol
 is already accepted and each repository task has a non-overlapping boundary.
-

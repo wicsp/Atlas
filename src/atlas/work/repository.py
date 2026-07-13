@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import secrets
 import uuid
 from datetime import datetime
 from typing import Any
@@ -14,6 +16,7 @@ from .models import (
     ArtifactRef,
     ArtifactRefCreate,
     EventRecord,
+    ExecutionAttemptRecord,
     ProjectCreate,
     ProjectRecord,
     RunCreate,
@@ -85,6 +88,31 @@ class IdempotencyRow(Base):
     operation_type: Mapped[str] = mapped_column(String(32))
     payload_digest: Mapped[str] = mapped_column(String(128))
     created_at: Mapped[str] = mapped_column(String(64))
+
+
+class ExecutionAttemptRow(Base):
+    __tablename__ = "execution_attempts"
+
+    attempt_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    run_id: Mapped[str] = mapped_column(String(128), index=True)
+    attempt_number: Mapped[int] = mapped_column(Integer)
+    agent_id: Mapped[str] = mapped_column(String(128))
+    claim_token_digest: Mapped[str] = mapped_column(String(128))
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    lease_expires_at: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[str] = mapped_column(String(64))
+    finished_at: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    result_digest: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
+
+class ClaimResult:
+    """Result of a successful claim operation."""
+    __slots__ = ("run", "attempt_id", "claim_token")
+
+    def __init__(self, run: RunRecord, attempt_id: str, claim_token: str) -> None:
+        self.run = run
+        self.attempt_id = attempt_id
+        self.claim_token = claim_token
 
 
 class WorkRepository:
@@ -309,7 +337,35 @@ class WorkRepository:
                 )
             )
 
-            return _to_run(claimed)
+            # Supersede previous active attempts for this run.
+            session.execute(
+                update(ExecutionAttemptRow)
+                .where(ExecutionAttemptRow.run_id == claimed.run_id)
+                .where(ExecutionAttemptRow.status == "active")
+                .values(status="superseded", finished_at=now.isoformat())
+            )
+
+            # Create execution attempt with claim token.
+            claim_token = secrets.token_urlsafe(32)
+            attempt_id = f"attempt_{uuid.uuid4().hex}"
+            session.add(
+                ExecutionAttemptRow(
+                    attempt_id=attempt_id,
+                    run_id=claimed.run_id,
+                    attempt_number=claimed.attempt_number,
+                    agent_id=agent_id,
+                    claim_token_digest=_claim_token_digest(claim_token),
+                    status="active",
+                    lease_expires_at=lease_expires_at.isoformat(),
+                    created_at=now.isoformat(),
+                )
+            )
+
+            return ClaimResult(
+                run=_to_run(claimed),
+                attempt_id=attempt_id,
+                claim_token=claim_token,
+            )
 
     def claim_run(
         self,
@@ -318,7 +374,7 @@ class WorkRepository:
         lease_expires_at: datetime,
         now: datetime,
         capabilities: list[str],
-    ) -> RunRecord:
+    ) -> ClaimResult:
         with self._session_factory() as session, session.begin():
             row = session.get(RunRow, run_id)
             if row is None:
@@ -357,7 +413,36 @@ class WorkRepository:
                     created_at=now.isoformat(),
                 )
             )
-            return _to_run(claimed)
+
+            # Supersede previous active attempts for this run.
+            session.execute(
+                update(ExecutionAttemptRow)
+                .where(ExecutionAttemptRow.run_id == run_id)
+                .where(ExecutionAttemptRow.status == "active")
+                .values(status="superseded", finished_at=now.isoformat())
+            )
+
+            # Create execution attempt with claim token.
+            claim_token = secrets.token_urlsafe(32)
+            attempt_id = f"attempt_{uuid.uuid4().hex}"
+            session.add(
+                ExecutionAttemptRow(
+                    attempt_id=attempt_id,
+                    run_id=run_id,
+                    attempt_number=claimed.attempt_number,
+                    agent_id=agent_id,
+                    claim_token_digest=_claim_token_digest(claim_token),
+                    status="active",
+                    lease_expires_at=lease_expires_at.isoformat(),
+                    created_at=now.isoformat(),
+                )
+            )
+
+            return ClaimResult(
+                run=_to_run(claimed),
+                attempt_id=attempt_id,
+                claim_token=claim_token,
+            )
 
     def heartbeat_run(
         self,
@@ -383,6 +468,8 @@ class WorkRepository:
     def complete_run(
         self,
         run_id: str,
+        attempt_id: str,
+        claim_token: str,
         agent_id: str,
         output: dict[str, Any],
         artifacts: list[ArtifactRefCreate],
@@ -416,8 +503,17 @@ class WorkRepository:
                 )
             if row.agent_id != agent_id:
                 raise PermissionError(f"Run {run_id} is claimed by {row.agent_id}, not {agent_id}")
-            if row.lease_expires_at is not None and row.lease_expires_at <= now.isoformat():
-                raise PermissionError("lease expired")
+            # Verify claim token.
+            attempt_row = session.get(ExecutionAttemptRow, attempt_id)
+            if attempt_row is None:
+                raise PermissionError(f"Attempt {attempt_id} not found for run {run_id}")
+            if attempt_row.run_id != run_id:
+                raise PermissionError(f"Attempt {attempt_id} does not belong to run {run_id}")
+            if attempt_row.status != "active":
+                raise PermissionError(f"Attempt {attempt_id} is {attempt_row.status}, not active")
+            expected_digest = _claim_token_digest(claim_token)
+            if not secrets.compare_digest(attempt_row.claim_token_digest, expected_digest):
+                raise PermissionError("Invalid claim token")
             row.status = "completed"
             row.agent_id = agent_id
             row.output_json = _dump_json(output)
@@ -460,12 +556,22 @@ class WorkRepository:
                     )
                 )
 
+            # Update execution attempt.
+            result_digest = hashlib.sha256(
+                json.dumps(output, sort_keys=True).encode()
+            ).hexdigest()
+            attempt_row.status = "accepted"
+            attempt_row.finished_at = now.isoformat()
+            attempt_row.result_digest = result_digest
+
             session.commit()
             return _to_run(row)
 
     def fail_run(
         self,
         run_id: str,
+        attempt_id: str,
+        claim_token: str,
         agent_id: str,
         error_code: str | None,
         error_message: str | None,
@@ -497,8 +603,17 @@ class WorkRepository:
                 )
             if row.agent_id != agent_id:
                 raise PermissionError(f"Run {run_id} is claimed by {row.agent_id}, not {agent_id}")
-            if row.lease_expires_at is not None and row.lease_expires_at <= now.isoformat():
-                raise PermissionError("lease expired")
+            # Verify claim token.
+            attempt_row = session.get(ExecutionAttemptRow, attempt_id)
+            if attempt_row is None:
+                raise PermissionError(f"Attempt {attempt_id} not found for run {run_id}")
+            if attempt_row.run_id != run_id:
+                raise PermissionError(f"Attempt {attempt_id} does not belong to run {run_id}")
+            if attempt_row.status != "active":
+                raise PermissionError(f"Attempt {attempt_id} is {attempt_row.status}, not active")
+            expected_digest = _claim_token_digest(claim_token)
+            if not secrets.compare_digest(attempt_row.claim_token_digest, expected_digest):
+                raise PermissionError("Invalid claim token")
             should_retry = retryable and row.attempt_number < row.max_attempts
             row.status = "pending" if should_retry else "failed"
             row.agent_id = None if should_retry else agent_id
@@ -527,6 +642,14 @@ class WorkRepository:
                         created_at=now.isoformat(),
                     )
                 )
+
+            # Update execution attempt.
+            result_digest = hashlib.sha256(
+                f"fail:{error_message or ''}".encode()
+            ).hexdigest()
+            attempt_row.status = "failed"
+            attempt_row.finished_at = now.isoformat()
+            attempt_row.result_digest = result_digest
 
             session.commit()
             return _to_run(row)
@@ -577,6 +700,16 @@ class WorkRepository:
             session.commit()
             return _to_event(row)
 
+    def list_attempts(self, run_id: str) -> list[ExecutionAttemptRecord]:
+        """Return all execution attempts for a run, ordered by creation time."""
+        with self._session_factory() as session:
+            rows = session.scalars(
+                select(ExecutionAttemptRow)
+                .where(ExecutionAttemptRow.run_id == run_id)
+                .order_by(ExecutionAttemptRow.created_at)
+            ).all()
+            return [_to_attempt(row) for row in rows]
+
     def list_events(self, run_id: str, limit: int = 200) -> list[EventRecord]:
         with self._session_factory() as session:
             rows = session.scalars(
@@ -625,6 +758,25 @@ def _capabilities_match(required_json: str, agent_capabilities: list[str]) -> bo
         return True
     agent_set = set(agent_capabilities)
     return all(c in agent_set for c in required)
+
+
+def _claim_token_digest(token: str) -> str:
+    """SHA256 digest of a claim token for database storage."""
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _to_attempt(row: ExecutionAttemptRow) -> ExecutionAttemptRecord:
+    return ExecutionAttemptRecord(
+        attempt_id=row.attempt_id,
+        run_id=row.run_id,
+        attempt_number=row.attempt_number,
+        agent_id=row.agent_id,
+        status=row.status,  # type: ignore[arg-type]
+        lease_expires_at=_parse_datetime(row.lease_expires_at),
+        created_at=datetime.fromisoformat(row.created_at),
+        finished_at=_parse_datetime(row.finished_at),
+        result_digest=row.result_digest,
+    )
 
 
 # ── Row → Record converters ───────────────────────────────

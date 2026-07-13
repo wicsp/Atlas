@@ -81,6 +81,14 @@ def _enqueue_run(client: TestClient, project_id: str, job_name: str, **kwargs) -
     return res.json()
 
 
+def _claim(client, run: dict) -> tuple[str, str]:
+    """Claim a run via by-id endpoint, return (attempt_id, claim_token)."""
+    res = client.post(f"/api/runs/{run['run_id']}/claim")
+    assert res.status_code == 200, f"Claim failed: {res.text}"
+    data = res.json()
+    return data["attempt_id"], data["claim_token"]
+
+
 class TestProjects:
     def test_create_and_list(self, agent_client, session_client):
         _create_project(agent_client, "m2", "M2 Test")
@@ -115,6 +123,8 @@ class TestRunLifecycle:
         assert claimed["status"] == "claimed"
         assert claimed["agent_id"] == "test-agent"
         assert claimed["attempt_number"] == 1
+        aid = claimed["attempt_id"]
+        ct = claimed["claim_token"]
 
         # Heartbeat
         res = scoped_client.post(f"/api/runs/{run_id}/heartbeat")
@@ -124,6 +134,8 @@ class TestRunLifecycle:
         res = scoped_client.post(
             f"/api/runs/{run_id}/complete",
             json={
+                "attempt_id": aid,
+                "claim_token": ct,
                 "agent_id": "test-agent",
                 "output": {"result": "done"},
                 "artifacts": [
@@ -144,10 +156,10 @@ class TestRunLifecycle:
     def test_enqueue_claim_fail(self, agent_client, scoped_client):
         _create_project(agent_client, "m2", "M2")
         run = _enqueue_run(agent_client, "m2", "fail-job")
-        scoped_client.post(f"/api/runs/{run['run_id']}/claim")
+        aid, ct = _claim(scoped_client, run)
         res = scoped_client.post(
             f"/api/runs/{run['run_id']}/fail",
-            json={"agent_id": "test-agent", "error_message": "something broke"},
+            json={"attempt_id": aid, "claim_token": ct, "agent_id": "test-agent", "error_message": "something broke"},  # noqa: E501
         )
         assert res.status_code == 200
         assert res.json()["status"] == "failed"
@@ -163,14 +175,14 @@ class TestRunLifecycle:
         """A second agent's scoped token cannot complete another agent's run."""
         _create_project(agent_client, "m2", "M2")
         run = _enqueue_run(agent_client, "m2", "owner")
-        scoped_client.post(f"/api/runs/{run['run_id']}/claim")
+        aid, ct = _claim(scoped_client, run)
 
         # Register a second agent to get a different scoped token.
         intruder, _ = _register_and_get_scoped(atlas_app, agent_id="intruder", capabilities=[])
 
         res = intruder.post(
             f"/api/runs/{run['run_id']}/complete",
-            json={"agent_id": "intruder", "output": {}},
+            json={"attempt_id": aid, "claim_token": ct, "agent_id": "intruder", "output": {}},
         )
         assert res.status_code == 409
 
@@ -178,9 +190,11 @@ class TestRunLifecycle:
         """M2.5: pending runs cannot be completed — must be claimed first."""
         _create_project(agent_client, "m2", "M2")
         run = _enqueue_run(agent_client, "m2", "skip-claim")
+        # No claim — pending run, complete should fail on missing valid attempt_id
+        # Use a dummy attempt_id since it's a pending run (no real attempt exists)
         res = scoped_client.post(
             f"/api/runs/{run['run_id']}/complete",
-            json={"agent_id": "test-agent", "output": {}},
+            json={"attempt_id": "attempt_nonexistent", "claim_token": "dummy", "agent_id": "test-agent", "output": {}},  # noqa: E501
         )
         assert res.status_code == 409, f"Expected 409, got {res.status_code}: {res.text}"
 
@@ -191,10 +205,10 @@ class TestRunLifecycle:
     def test_events_recorded(self, agent_client, scoped_client, session_client):
         _create_project(agent_client, "m2", "M2")
         run = _enqueue_run(agent_client, "m2", "eventful")
-        scoped_client.post(f"/api/runs/{run['run_id']}/claim")
+        aid, ct = _claim(scoped_client, run)
         scoped_client.post(
             f"/api/runs/{run['run_id']}/complete",
-            json={"agent_id": "test-agent", "output": {}},
+            json={"attempt_id": aid, "claim_token": ct, "agent_id": "test-agent", "output": {}},
         )
 
         res = session_client.get(f"/api/runs/{run['run_id']}/events")
@@ -208,10 +222,12 @@ class TestRunLifecycle:
     def test_artifacts(self, agent_client, scoped_client, session_client):
         _create_project(agent_client, "m2", "M2")
         run = _enqueue_run(agent_client, "m2", "artifact-producer")
-        scoped_client.post(f"/api/runs/{run['run_id']}/claim")
+        aid, ct = _claim(scoped_client, run)
         scoped_client.post(
             f"/api/runs/{run['run_id']}/complete",
             json={
+                "attempt_id": aid,
+                "claim_token": ct,
                 "agent_id": "test-agent",
                 "output": {},
                 "artifacts": [
@@ -297,10 +313,10 @@ class TestLeaseExpiry:
     def test_cancel_terminal_run_fails(self, agent_client, scoped_client, session_client):
         _create_project(agent_client, "m2", "M2")
         run = _enqueue_run(agent_client, "m2", "done")
-        scoped_client.post(f"/api/runs/{run['run_id']}/claim")
+        aid, ct = _claim(scoped_client, run)
         scoped_client.post(
             f"/api/runs/{run['run_id']}/complete",
-            json={"agent_id": "test-agent", "output": {}},
+            json={"attempt_id": aid, "claim_token": ct, "agent_id": "test-agent", "output": {}},
         )
 
         res = session_client.post(f"/api/runs/{run['run_id']}/cancel")
@@ -345,10 +361,10 @@ class TestIdempotency:
         """Same idempotency key + same payload → returns cached result."""
         _create_project(agent_client, "m2", "M2")
         run = _enqueue_run(agent_client, "m2", "idem-test")
-        scoped_client.post(f"/api/runs/{run['run_id']}/claim")
+        aid, ct = _claim(scoped_client, run)
 
         key = f"idem-{uuid.uuid4().hex}"
-        payload = {"agent_id": "test-agent", "output": {"v": 1}}
+        payload = {"attempt_id": aid, "claim_token": ct, "agent_id": "test-agent", "output": {"v": 1}}  # noqa: E501
 
         # First request
         headers = {"Idempotency-Key": key}
@@ -374,20 +390,22 @@ class TestIdempotency:
         """Same idempotency key + different payload → 409."""
         _create_project(agent_client, "m2", "M2")
         run = _enqueue_run(agent_client, "m2", "idem-conflict")
-        scoped_client.post(f"/api/runs/{run['run_id']}/claim")
+        aid, ct = _claim(scoped_client, run)
 
         key = f"idem-{uuid.uuid4().hex}"
 
         r1 = scoped_client.post(
             f"/api/runs/{run['run_id']}/complete",
-            json={"agent_id": "test-agent", "output": {"v": 1}},
+            json={"attempt_id": aid, "claim_token": ct,
+                 "agent_id": "test-agent", "output": {"v": 1}},
             headers={"Idempotency-Key": key},
         )
         assert r1.status_code == 200
 
         r2 = scoped_client.post(
             f"/api/runs/{run['run_id']}/complete",
-            json={"agent_id": "test-agent", "output": {"v": 2}},
+            json={"attempt_id": aid, "claim_token": ct,
+                 "agent_id": "test-agent", "output": {"v": 2}},
             headers={"Idempotency-Key": key},
         )
         assert r2.status_code == 409
@@ -396,10 +414,10 @@ class TestIdempotency:
         """Same idempotency key for fail → cached result."""
         _create_project(agent_client, "m2", "M2")
         run = _enqueue_run(agent_client, "m2", "idem-fail")
-        scoped_client.post(f"/api/runs/{run['run_id']}/claim")
+        aid, ct = _claim(scoped_client, run)
 
         key = f"idem-{uuid.uuid4().hex}"
-        payload = {"agent_id": "test-agent", "error_message": "crash"}
+        payload = {"attempt_id": aid, "claim_token": ct, "agent_id": "test-agent", "error_message": "crash"}  # noqa: E501
 
         r1 = scoped_client.post(
             f"/api/runs/{run['run_id']}/fail",
@@ -421,11 +439,11 @@ class TestIdempotency:
         """Without Idempotency-Key header, behavior is unchanged."""
         _create_project(agent_client, "m2", "M2")
         run = _enqueue_run(agent_client, "m2", "no-key")
-        scoped_client.post(f"/api/runs/{run['run_id']}/claim")
+        aid, ct = _claim(scoped_client, run)
 
         r = scoped_client.post(
             f"/api/runs/{run['run_id']}/complete",
-            json={"agent_id": "test-agent", "output": {}},
+            json={"attempt_id": aid, "claim_token": ct, "agent_id": "test-agent", "output": {}},
         )
         assert r.status_code == 200
         assert r.json()["status"] == "completed"
@@ -489,35 +507,37 @@ class TestLeaseExpiryGuard:
         assert r.status_code == 409, f"Expected 409, got {r.status_code}: {r.text}"
         assert "lease expired" in r.text.lower()
 
-    def test_expired_lease_rejects_complete(self, agent_client, atlas_app):
-        """Complete on an expired lease must fail with 409."""
+    def test_expired_lease_still_allows_complete(self, agent_client, atlas_app):
         _create_project(agent_client, "m2", "M2")
         run = _enqueue_run(agent_client, "m2", "lease-complete")
         sc, _ = _register_and_get_scoped(atlas_app)
-        sc.post(f"/api/runs/{run['run_id']}/claim")
+        claim_res = sc.post(f"/api/runs/{run['run_id']}/claim")
+        aid = claim_res.json()["attempt_id"]
+        ct = claim_res.json()["claim_token"]
         time.sleep(6)
 
         r = sc.post(
             f"/api/runs/{run['run_id']}/complete",
-            json={"agent_id": "test-agent", "output": {}},
+            json={"attempt_id": aid, "claim_token": ct, "agent_id": "test-agent", "output": {}},
         )
-        assert r.status_code == 409, f"Expected 409, got {r.status_code}: {r.text}"
-        assert "lease expired" in r.text.lower()
+        assert r.status_code == 200, f"Expected 200, got {r.status_code}: {r.text}"
+        assert r.json()["status"] == "completed"
 
-    def test_expired_lease_rejects_fail(self, agent_client, atlas_app):
-        """Fail on an expired lease must fail with 409."""
+    def test_expired_lease_still_allows_fail(self, agent_client, atlas_app):
         _create_project(agent_client, "m2", "M2")
         run = _enqueue_run(agent_client, "m2", "lease-fail")
         sc, _ = _register_and_get_scoped(atlas_app)
-        sc.post(f"/api/runs/{run['run_id']}/claim")
+        claim_res = sc.post(f"/api/runs/{run['run_id']}/claim")
+        aid = claim_res.json()["attempt_id"]
+        ct = claim_res.json()["claim_token"]
         time.sleep(6)
 
         r = sc.post(
             f"/api/runs/{run['run_id']}/fail",
-            json={"agent_id": "test-agent", "error_message": "crash"},
+            json={"attempt_id": aid, "claim_token": ct, "agent_id": "test-agent", "error_message": "crash"},  # noqa: E501
         )
-        assert r.status_code == 409, f"Expected 409, got {r.status_code}: {r.text}"
-        assert "lease expired" in r.text.lower()
+        assert r.status_code == 200, f"Expected 200, got {r.status_code}: {r.text}"
+        assert r.json()["status"] == "failed"
 
 
 class TestCredentialRotation:
@@ -619,10 +639,12 @@ class TestExecutionHardeningClosure:
         _create_project(agent_client, "hardening", "Hardening")
         run = _enqueue_run(agent_client, "hardening", "flaky", max_attempts=2)
 
-        scoped_client.post(f"/api/runs/{run['run_id']}/claim")
+        aid1, ct1 = _claim(scoped_client, run)
         first = scoped_client.post(
             f"/api/runs/{run['run_id']}/fail",
             json={
+                "attempt_id": aid1,
+                "claim_token": ct1,
                 "agent_id": "ignored",
                 "error_code": "temporary",
                 "error_message": "try again",
@@ -633,10 +655,12 @@ class TestExecutionHardeningClosure:
         assert first.json()["status"] == "pending"
         assert first.json()["agent_id"] is None
 
-        scoped_client.post(f"/api/runs/{run['run_id']}/claim")
+        aid2, ct2 = _claim(scoped_client, run)
         final = scoped_client.post(
             f"/api/runs/{run['run_id']}/fail",
             json={
+                "attempt_id": aid2,
+                "claim_token": ct2,
                 "agent_id": "ignored",
                 "error_code": "temporary",
                 "error_message": "still broken",

@@ -12,6 +12,9 @@ from pydantic import BaseModel, Field, field_validator
 
 RunStatus = Literal["pending", "claimed", "completed", "failed", "cancelled"]
 
+AttemptStatus = Literal["active", "accepted", "failed", "superseded", "cancelled"]
+
+
 
 class ProjectCreate(BaseModel):
     project_id: str = Field(min_length=1, max_length=128)
@@ -70,6 +73,17 @@ class ArtifactRefCreate(BaseModel):
     checksum: str | None = Field(default=None, max_length=128)
 
 
+class ExecutionAttemptRecord(BaseModel):
+    attempt_id: str
+    run_id: str
+    attempt_number: int
+    agent_id: str
+    status: AttemptStatus
+    lease_expires_at: datetime | None = None
+    created_at: datetime
+    finished_at: datetime | None = None
+    result_digest: str | None = None
+
 class ArtifactRef(BaseModel):
     artifact_id: str
     run_id: str
@@ -82,25 +96,29 @@ class ArtifactRef(BaseModel):
 
 
 class RunComplete(BaseModel):
+    attempt_id: str = Field(min_length=1, max_length=128)
+    claim_token: str = Field(min_length=1, max_length=256)
     agent_id: str = Field(min_length=1, max_length=128)
     output: dict[str, Any] = Field(default_factory=dict)
     artifacts: list[ArtifactRefCreate] = Field(default_factory=list, max_length=100)
 
-    @field_validator("agent_id")
+    @field_validator("agent_id", "attempt_id", "claim_token")
     @classmethod
-    def strip_agent_id(cls, value: str) -> str:
+    def strip_fields(cls, value: str) -> str:
         return value.strip()
 
 
 class RunFail(BaseModel):
+    attempt_id: str = Field(min_length=1, max_length=128)
+    claim_token: str = Field(min_length=1, max_length=256)
     agent_id: str = Field(min_length=1, max_length=128)
     error_code: str | None = Field(default=None, max_length=128)
     error_message: str | None = Field(default=None, max_length=10_000)
     retryable: bool = False
 
-    @field_validator("agent_id")
+    @field_validator("agent_id", "attempt_id", "claim_token")
     @classmethod
-    def strip_agent_id(cls, value: str) -> str:
+    def strip_fields(cls, value: str) -> str:
         return value.strip()
 
 
@@ -135,3 +153,8 @@ class EventRecord(BaseModel):
     event_type: str
     body: str
     created_at: datetime
+
+
+class ClaimRunResponse(RunRecord):
+    attempt_id: str
+    claim_token: str
