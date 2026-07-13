@@ -127,7 +127,10 @@ class TestRunLifecycle:
         ct = claimed["claim_token"]
 
         # Heartbeat
-        res = scoped_client.post(f"/api/runs/{run_id}/heartbeat")
+        res = scoped_client.post(
+            f"/api/runs/{run_id}/heartbeat",
+            json={"attempt_id": aid, "claim_token": ct},
+        )
         assert res.status_code == 200
 
         # Complete with artifacts
@@ -756,16 +759,22 @@ class TestLeaseExpiryGuard:
         _create_project(agent_client, "m2", "M2")
         run = _enqueue_run(agent_client, "m2", "lease-heartbeat")
         sc, _ = _register_and_get_scoped(atlas_app)
-        sc.post(f"/api/runs/{run['run_id']}/claim")
+        claim_res = sc.post(f"/api/runs/{run['run_id']}/claim").json()
+        aid = claim_res["attempt_id"]
+        ct = claim_res["claim_token"]
 
         # Wait for the 5-second lease to expire.
         time.sleep(6)
 
-        r = sc.post(f"/api/runs/{run['run_id']}/heartbeat")
+        r = sc.post(
+            f"/api/runs/{run['run_id']}/heartbeat",
+            json={"attempt_id": aid, "claim_token": ct},
+        )
         assert r.status_code == 409, f"Expected 409, got {r.status_code}: {r.text}"
         assert "lease expired" in r.text.lower()
 
-    def test_expired_lease_still_allows_complete(self, agent_client, atlas_app):
+    def test_expired_lease_rejects_complete(self, agent_client, atlas_app):
+        """RFC 0002: complete on expired lease must be rejected."""
         _create_project(agent_client, "m2", "M2")
         run = _enqueue_run(agent_client, "m2", "lease-complete")
         sc, _ = _register_and_get_scoped(atlas_app)
@@ -778,10 +787,11 @@ class TestLeaseExpiryGuard:
             f"/api/runs/{run['run_id']}/complete",
             json={"attempt_id": aid, "claim_token": ct, "agent_id": "test-agent", "output": {}},
         )
-        assert r.status_code == 200, f"Expected 200, got {r.status_code}: {r.text}"
-        assert r.json()["status"] == "completed"
+        assert r.status_code == 409, f"Expected 409, got {r.status_code}: {r.text}"
+        assert "lease expired" in r.text.lower()
 
-    def test_expired_lease_still_allows_fail(self, agent_client, atlas_app):
+    def test_expired_lease_rejects_fail(self, agent_client, atlas_app):
+        """RFC 0002: fail on expired lease must be rejected."""
         _create_project(agent_client, "m2", "M2")
         run = _enqueue_run(agent_client, "m2", "lease-fail")
         sc, _ = _register_and_get_scoped(atlas_app)
@@ -794,8 +804,8 @@ class TestLeaseExpiryGuard:
             f"/api/runs/{run['run_id']}/fail",
             json={"attempt_id": aid, "claim_token": ct, "agent_id": "test-agent", "error_message": "crash"},  # noqa: E501
         )
-        assert r.status_code == 200, f"Expected 200, got {r.status_code}: {r.text}"
-        assert r.json()["status"] == "failed"
+        assert r.status_code == 409, f"Expected 409, got {r.status_code}: {r.text}"
+        assert "lease expired" in r.text.lower()
 
 
 class TestCredentialRotation:
@@ -813,8 +823,11 @@ class TestCredentialRotation:
         r = sc2.post("/api/runs/" + run["run_id"] + "/claim")
         assert r.status_code == 200, "new token rejected: " + r.text
 
-        r = sc1.post("/api/runs/" + run["run_id"] + "/heartbeat")
-        assert r.status_code in (401, 409), (
+        r = sc1.post(
+            "/api/runs/" + run["run_id"] + "/heartbeat",
+            json={"attempt_id": "dummy-aid", "claim_token": "dummy-token"},
+        )
+        assert r.status_code in (401, 409, 422), (
             "old token should be rejected after rotation, got " + str(r.status_code)
         )
 

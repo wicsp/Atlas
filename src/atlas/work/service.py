@@ -66,9 +66,11 @@ class WorkService:
         result = self._repository.claim_run(run_id, agent_id, lease, now, capabilities)
         return result.run, result.attempt_id, result.claim_token
 
-    def heartbeat(self, run_id: str, agent_id: str) -> RunRecord:
+    def heartbeat(self, run_id: str, agent_id: str, attempt_id: str, claim_token: str) -> RunRecord:
         lease = _now() + self._lease_ttl
-        return self._repository.heartbeat_run(run_id, agent_id, lease, _now())
+        return self._repository.heartbeat_run(
+            run_id, agent_id, attempt_id, claim_token, lease, _now()
+        )
 
     def complete(
         self,

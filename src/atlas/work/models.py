@@ -108,6 +108,16 @@ class RunComplete(BaseModel):
         return value.strip()
 
 
+class HeartbeatCreate(BaseModel):
+    attempt_id: str = Field(min_length=1, max_length=128)
+    claim_token: str = Field(min_length=1, max_length=256)
+
+    @field_validator("attempt_id", "claim_token")
+    @classmethod
+    def strip_fields(cls, value: str) -> str:
+        return value.strip()
+
+
 class RunFail(BaseModel):
     attempt_id: str = Field(min_length=1, max_length=128)
     claim_token: str = Field(min_length=1, max_length=256)

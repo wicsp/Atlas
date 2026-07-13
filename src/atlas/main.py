@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi import Body, Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -54,6 +54,7 @@ from .work.models import (
     ArtifactRef,
     EventRecord,
     ExecutionAttemptRecord,
+    HeartbeatCreate,
     ProjectCreate,
     ProjectRecord,
     ReconcileRequest,
@@ -463,10 +464,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def run_heartbeat(
         request: Request,
         run_id: str,
+        payload: Annotated[HeartbeatCreate, Body()],
         agent: Annotated[AgentRecord, Depends(require_scoped_agent_auth)],
     ) -> RunRecord:
         try:
-            return _work_service(request).heartbeat(run_id, agent.agent_id)
+            return _work_service(request).heartbeat(
+                run_id, agent.agent_id, payload.attempt_id, payload.claim_token
+            )
         except KeyError as exc:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

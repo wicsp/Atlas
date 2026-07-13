@@ -449,6 +449,8 @@ class WorkRepository:
         self,
         run_id: str,
         agent_id: str,
+        attempt_id: str,
+        claim_token: str,
         lease_expires_at: datetime,
         now: datetime,
     ) -> RunRecord:
@@ -462,6 +464,19 @@ class WorkRepository:
                 raise PermissionError(f"Run {run_id} is claimed by {row.agent_id}")
             if row.lease_expires_at is not None and row.lease_expires_at <= now.isoformat():
                 raise PermissionError("lease expired")
+
+            # Validate attempt ownership — only the claiming attempt's owner may heartbeat.
+            attempt_row = session.get(ExecutionAttemptRow, attempt_id)
+            if attempt_row is None:
+                raise PermissionError(f"Attempt {attempt_id} not found for run {run_id}")
+            if attempt_row.run_id != run_id:
+                raise PermissionError(f"Attempt {attempt_id} does not belong to run {run_id}")
+            if attempt_row.status != "active":
+                raise PermissionError(f"Attempt {attempt_id} is {attempt_row.status}, not active")
+            expected_digest = _claim_token_digest(claim_token)
+            if not secrets.compare_digest(attempt_row.claim_token_digest, expected_digest):
+                raise PermissionError("Invalid claim token")
+
             row.lease_expires_at = lease_expires_at.isoformat()
             session.commit()
             return _to_run(row)
@@ -515,6 +530,12 @@ class WorkRepository:
             expected_digest = _claim_token_digest(claim_token)
             if not secrets.compare_digest(attempt_row.claim_token_digest, expected_digest):
                 raise PermissionError("Invalid claim token")
+
+            # RFC 0002: reject complete/fail on expired lease.
+            # Only reconcile accepts expired-lease results (outbox recovery).
+            if row.lease_expires_at is not None and row.lease_expires_at <= now.isoformat():
+                raise PermissionError("lease expired; use reconcile for outbox recovery")
+
             row.status = "completed"
             row.agent_id = agent_id
             row.output_json = _dump_json(output)
@@ -615,6 +636,11 @@ class WorkRepository:
             expected_digest = _claim_token_digest(claim_token)
             if not secrets.compare_digest(attempt_row.claim_token_digest, expected_digest):
                 raise PermissionError("Invalid claim token")
+
+            # RFC 0002: reject complete/fail on expired lease.
+            if row.lease_expires_at is not None and row.lease_expires_at <= now.isoformat():
+                raise PermissionError("lease expired; use reconcile for outbox recovery")
+
             should_retry = retryable and row.attempt_number < row.max_attempts
             row.status = "pending" if should_retry else "failed"
             row.agent_id = None if should_retry else agent_id
