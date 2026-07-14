@@ -19,7 +19,6 @@ from .models import (
     ExecutionAttemptRecord,
     ProjectCreate,
     ProjectRecord,
-    ReconcileRequest,
     RunCreate,
     RunRecord,
     RunStatus,
@@ -532,9 +531,8 @@ class WorkRepository:
                 raise PermissionError("Invalid claim token")
 
             # RFC 0002: reject complete/fail on expired lease.
-            # Only reconcile accepts expired-lease results (outbox recovery).
             if row.lease_expires_at is not None and row.lease_expires_at <= now.isoformat():
-                raise PermissionError("lease expired; use reconcile for outbox recovery")
+                raise PermissionError("lease expired")
 
             row.status = "completed"
             row.agent_id = agent_id
@@ -639,7 +637,7 @@ class WorkRepository:
 
             # RFC 0002: reject complete/fail on expired lease.
             if row.lease_expires_at is not None and row.lease_expires_at <= now.isoformat():
-                raise PermissionError("lease expired; use reconcile for outbox recovery")
+                raise PermissionError("lease expired")
 
             should_retry = retryable and row.attempt_number < row.max_attempts
             row.status = "pending" if should_retry else "failed"
@@ -726,164 +724,6 @@ class WorkRepository:
             session.add(row)
             session.commit()
             return _to_event(row)
-
-    def reconcile_attempt(
-        self,
-        run_id: str,
-        agent_id: str,
-        request: ReconcileRequest,
-        now: datetime,
-        idempotency_key: str | None = None,
-    ) -> RunRecord:
-        """Reconcile a durable outbox result with CAS semantics (RFC 0002 step 2).
-
-        Accepts results even with an expired lease when no successor attempt exists.
-        """
-        with self._session_factory() as session, session.begin():
-            # Idempotency check.
-            if idempotency_key:
-                cached = session.get(IdempotencyRow, idempotency_key)
-                if cached is not None:
-                    if cached.run_id != run_id or cached.operation_type != "reconcile":
-                        raise ValueError(
-                            "Idempotency key already used for a different operation"
-                        )
-                    # Same key, replay the current state.
-                    run_row = session.get(RunRow, run_id)
-                    if run_row is None:
-                        raise KeyError(run_id)
-                    return _to_run(run_row)
-
-            # Load run and attempt.
-            run_row = session.get(RunRow, run_id)
-            if run_row is None:
-                raise KeyError(run_id)
-
-            attempt_row = session.get(ExecutionAttemptRow, request.attempt_id)
-            if attempt_row is None:
-                raise PermissionError(
-                    f"Attempt {request.attempt_id} not found for run {run_id}"
-                )
-            if attempt_row.run_id != run_id:
-                raise PermissionError(
-                    f"Attempt {request.attempt_id} does not belong to run {run_id}"
-                )
-
-            # Verify claim token.
-            expected_digest = _claim_token_digest(request.claim_token)
-            if not secrets.compare_digest(attempt_row.claim_token_digest, expected_digest):
-                raise PermissionError("Invalid claim token")
-
-            # Agent must match the attempt owner.
-            if attempt_row.agent_id != agent_id:
-                raise PermissionError(
-                    f"Attempt {request.attempt_id} belongs to {attempt_row.agent_id}, "
-                    f"not {agent_id}"
-                )
-
-            # Run must not be cancelled.
-            if run_row.status == "cancelled":
-                raise ValueError("Run is cancelled; cannot reconcile")
-
-            # Idempotency: same attempt already accepted with same digest.
-            if (
-                attempt_row.status == "accepted"
-                and attempt_row.result_digest == request.result_digest
-            ):
-                return _to_run(run_row)
-
-            # Conflict: same attempt already accepted with different digest.
-            if attempt_row.status == "accepted":
-                raise ValueError("result_conflict: attempt already accepted with different digest")
-
-            # Superseded: a successor attempt exists.
-            successor = session.scalars(
-                select(ExecutionAttemptRow)
-                .where(ExecutionAttemptRow.run_id == run_id)
-                .where(ExecutionAttemptRow.attempt_id != request.attempt_id)
-                .where(
-                    ExecutionAttemptRow.status.in_(["active", "accepted", "failed"])
-                )
-                .limit(1)
-            ).first()
-            if successor is not None:
-                raise ValueError(
-                    f"attempt_superseded: successor attempt {successor.attempt_id} exists"
-                )
-
-            # Accept the result (even with expired lease — no successor exists).
-            if request.terminal_intent == "complete":
-                run_row.status = "completed"
-                run_row.output_json = _dump_json(request.bounded_output)
-                run_row.completed_at = now.isoformat()
-                run_row.lease_expires_at = None
-                run_row.agent_id = agent_id
-                attempt_row.status = "accepted"
-                attempt_row.finished_at = now.isoformat()
-                attempt_row.result_digest = request.result_digest
-
-                for art in request.artifact_refs:
-                    session.add(
-                        ArtifactRow(
-                            artifact_id=f"art_{uuid.uuid4().hex}",
-                            run_id=run_id,
-                            name=art.name,
-                            uri=art.uri,
-                            content_type=art.content_type,
-                            size_bytes=art.size_bytes,
-                            checksum=art.checksum,
-                            created_at=now.isoformat(),
-                        )
-                    )
-
-                session.add(
-                    EventRow(
-                        event_id=f"evt_{uuid.uuid4().hex}",
-                        run_id=run_id,
-                        agent_id=agent_id,
-                        event_type="completed",
-                        body=f"Completed via reconcile ({len(request.artifact_refs)} artifact(s))",
-                        created_at=now.isoformat(),
-                    )
-                )
-
-            else:  # fail
-                run_row.status = "failed"
-                run_row.error_message = (
-                    f"[{request.error_code}] {request.error_message}"
-                    if request.error_code
-                    else request.error_message
-                )
-                run_row.completed_at = now.isoformat()
-                run_row.lease_expires_at = None
-                run_row.agent_id = agent_id
-                attempt_row.status = "failed"
-                attempt_row.finished_at = now.isoformat()
-                attempt_row.result_digest = request.result_digest
-
-                session.add(
-                    EventRow(
-                        event_id=f"evt_{uuid.uuid4().hex}",
-                        run_id=run_id,
-                        agent_id=agent_id,
-                        event_type="failed",
-                        body=request.error_message or "Reconciled failure",
-                        created_at=now.isoformat(),
-                    )
-                )
-
-            if idempotency_key:
-                session.add(
-                    IdempotencyRow(
-                        idempotency_key=idempotency_key,
-                        run_id=run_id,
-                        operation_type="reconcile",
-                        payload_digest=request.result_digest,
-                        created_at=now.isoformat(),
-                    )
-                )
-
-            return _to_run(run_row)
 
     def list_attempts(self, run_id: str) -> list[ExecutionAttemptRecord]:
         """Return all execution attempts for a run, ordered by creation time."""
