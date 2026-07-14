@@ -1,6 +1,6 @@
 # RFC 0002: Execution Hardening
 
-- **Status:** Accepted; implementation in progress
+- **Status:** Implemented
 - **Decision date:** 2026-07-13
 - **Owners:** Atlas, Lumio, and nix-config
 - **Protocol:** `atlas-agent-v2`
