@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -20,7 +22,10 @@ class AgentService:
         now: datetime | None = None,
     ) -> AgentRegistrationResponse:
         current_time = now or datetime.now(UTC)
-        record, scoped_token = self._repository.upsert(registration, current_time)
+        canonical_registration = registration.model_copy(
+            update={"agent_id": _canonical_agent_id(registration)}
+        )
+        record, scoped_token = self._repository.upsert(canonical_registration, current_time)
         agent = self._with_online_status(record, now=current_time)
         return AgentRegistrationResponse(
             agent_id=agent.agent_id,
@@ -48,6 +53,26 @@ class AgentService:
         return agent.model_copy(
             update={"online": now - agent.last_seen_at <= self._heartbeat_ttl},
         )
+
+
+def _canonical_agent_id(registration: AgentRegistration) -> str:
+    """Derive an opaque v3 ID while keeping legacy registrations compatible."""
+    metadata = registration.metadata
+    identity = {
+        "node_id": metadata.get("node_id"),
+        "agent_kind": metadata.get("agent_kind"),
+        "executor": metadata.get("executor"),
+        "runtime": metadata.get("runtime"),
+        "instance_id": metadata.get("instance_id"),
+    }
+    if metadata.get("protocol_version") != "atlas-agent-v3":
+        return registration.agent_id
+    if not all(isinstance(value, str) and value.strip() for value in identity.values()):
+        return registration.agent_id
+    digest = hashlib.sha256(
+        json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    return f"agt_{digest[:24]}"
 
 
 def create_agent_service(database_path: Path, heartbeat_ttl_seconds: int) -> AgentService:

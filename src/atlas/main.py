@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import Body, Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -14,6 +14,18 @@ from . import __version__
 from .agents.models import AgentRecord, AgentRegistration, AgentRegistrationResponse
 from .agents.service import AgentService, create_agent_service
 from .config import Settings, get_settings
+from .content.models import (
+    KnowledgeRefCreate,
+    KnowledgeRefRecord,
+    ResourceKind,
+    ResourceRecord,
+    ResourceReviewUpdate,
+    ReviewStatus,
+    SourceKind,
+    SourceRecord,
+    SourceUpsert,
+)
+from .content.service import ContentService, create_content_service
 from .dashboard import DashboardSnapshot, DashboardSnapshotCollector
 from .messages.models import MessageAck, MessageClaim, MessageCreate, MessageRecord
 from .messages.service import MessageService, MessageStateError, create_message_service
@@ -84,6 +96,12 @@ class DeleteResponse(BaseModel):
     deleted: bool
 
 
+class ResourceBundle(BaseModel):
+    resource: ResourceRecord
+    source: SourceRecord
+    artifact: ArtifactRef
+
+
 def _todo_store_path(request: Request) -> Path:
     return request.app.state.todo_store_path
 
@@ -121,6 +139,15 @@ def _work_service(request: Request) -> WorkService:
             lease_ttl_seconds=settings.work.lease_ttl_seconds,
         )
         request.app.state.work_service = service
+    return service
+
+
+def _content_service(request: Request) -> ContentService:
+    service = getattr(request.app.state, "content_service", None)
+    if service is None:
+        settings: Settings = request.app.state.settings
+        service = create_content_service(settings.work.database_path)
+        request.app.state.content_service = service
     return service
 
 
@@ -173,6 +200,23 @@ def require_scoped_agent_auth(request: Request) -> AgentRecord:
     )
 
 
+def require_control_auth(request: Request) -> None:
+    """Accept an operator session or the provisioned personal control credential."""
+    settings: Settings = request.app.state.settings
+    session_token = request.cookies.get(SESSION_COOKIE_NAME)
+    if verify_session_token(session_token, settings.auth):
+        return
+
+    authorization = request.headers.get("Authorization", "")
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() == "bearer" and verify_agent_token(token, settings.agents):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Control authentication required",
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     collector = getattr(app.state, "sub2api_collector", None)
@@ -199,6 +243,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.agent_service = None
     app.state.message_service = None
     app.state.work_service = None
+    app.state.content_service = None
     app.state.sub2api_collector = (
         Sub2ApiSnapshotCollector(resolved_settings.sub2api)
         if resolved_settings.sub2api.enabled
@@ -292,6 +337,158 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Agent not found",
             ) from exc
+
+    # ── Content API (RFC 0003) ─────────────────────────────────
+
+    @app.post(
+        "/api/sources",
+        response_model=SourceRecord,
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def upsert_source(request: Request, payload: SourceUpsert) -> SourceRecord:
+        try:
+            return _content_service(request).upsert_source(payload)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
+            ) from exc
+
+    @app.get(
+        "/api/sources",
+        response_model=list[SourceRecord],
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def list_sources(
+        request: Request,
+        kind: SourceKind | None = None,
+        limit: int = Query(default=100, ge=1, le=500),
+    ) -> list[SourceRecord]:
+        return _content_service(request).list_sources(kind=kind, limit=limit)
+
+    @app.get(
+        "/api/sources/{source_id}",
+        response_model=SourceRecord,
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def get_source(request: Request, source_id: str) -> SourceRecord:
+        try:
+            return _content_service(request).get_source(source_id)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Source not found",
+            ) from exc
+
+    @app.get(
+        "/api/resources",
+        response_model=list[ResourceRecord],
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def list_resources(
+        request: Request,
+        source_id: str | None = None,
+        kind: ResourceKind | None = None,
+        review_status: ReviewStatus | None = None,
+        limit: int = Query(default=100, ge=1, le=500),
+    ) -> list[ResourceRecord]:
+        return _content_service(request).list_resources(
+            source_id=source_id,
+            kind=kind,
+            review_status=review_status,
+            limit=limit,
+        )
+
+    @app.get(
+        "/api/resources/{resource_id}",
+        response_model=ResourceRecord,
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def get_resource(request: Request, resource_id: str) -> ResourceRecord:
+        try:
+            return _content_service(request).get_resource(resource_id)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Resource not found",
+            ) from exc
+
+    @app.get(
+        "/api/resources/{resource_id}/bundle",
+        response_model=ResourceBundle,
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def get_resource_bundle(request: Request, resource_id: str) -> ResourceBundle:
+        try:
+            resource = _content_service(request).get_resource(resource_id)
+            source = _content_service(request).get_source(resource.source_id)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Resource or Source not found",
+            ) from exc
+        artifact = next(
+            (
+                candidate
+                for candidate in _work_service(request).list_artifacts(
+                    resource.produced_by_run_id
+                )
+                if candidate.artifact_id == resource.artifact_id
+            ),
+            None,
+        )
+        if artifact is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Resource artifact reference is missing",
+            )
+        return ResourceBundle(resource=resource, source=source, artifact=artifact)
+
+    @app.patch(
+        "/api/resources/{resource_id}/review",
+        response_model=ResourceRecord,
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def update_resource_review(
+        request: Request,
+        resource_id: str,
+        payload: ResourceReviewUpdate,
+    ) -> ResourceRecord:
+        try:
+            return _content_service(request).update_resource_review(resource_id, payload)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Resource not found",
+            ) from exc
+
+    @app.post(
+        "/api/knowledge-refs",
+        response_model=KnowledgeRefRecord,
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def upsert_knowledge_ref(
+        request: Request,
+        payload: KnowledgeRefCreate,
+    ) -> KnowledgeRefRecord:
+        try:
+            return _content_service(request).upsert_knowledge_ref(payload)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Referenced record not found: {exc.args[0]}",
+            ) from exc
+
+    @app.get(
+        "/api/knowledge-refs",
+        response_model=list[KnowledgeRefRecord],
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def list_knowledge_refs(
+        request: Request,
+        limit: int = Query(default=100, ge=1, le=500),
+    ) -> list[KnowledgeRefRecord]:
+        return _content_service(request).list_knowledge_refs(limit=limit)
 
     @app.post(
         "/api/messages",
@@ -719,6 +916,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         "/api/todos",
         response_model=list[TodoItem],
         dependencies=[Depends(require_auth)],
+        deprecated=True,
     )
     async def get_todos(request: Request) -> list[TodoItem]:
         return list_todos(_todo_store_path(request))
@@ -727,6 +925,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         "/api/todos",
         response_model=TodoItem,
         dependencies=[Depends(require_auth)],
+        deprecated=True,
     )
     async def create_todo_item(request: Request, payload: TodoCreateRequest) -> TodoItem:
         return create_todo(payload, _todo_store_path(request))
@@ -735,6 +934,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         "/api/todos/{todo_id}",
         response_model=TodoItem,
         dependencies=[Depends(require_auth)],
+        deprecated=True,
     )
     async def update_todo_item(
         request: Request,
@@ -753,6 +953,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         "/api/todos/{todo_id}",
         response_model=DeleteResponse,
         dependencies=[Depends(require_auth)],
+        deprecated=True,
     )
     async def delete_todo_item(request: Request, todo_id: str) -> DeleteResponse:
         try:

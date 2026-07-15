@@ -91,3 +91,40 @@ def test_heartbeat_unknown_agent_raises_not_found(tmp_path: Path) -> None:
         assert exc.args == ("missing-agent",)
     else:
         raise AssertionError("Expected missing heartbeat target to raise KeyError")
+
+
+def test_v3_registration_derives_opaque_identity_from_separate_fields(tmp_path: Path) -> None:
+    service = make_service(tmp_path)
+    now = datetime(2026, 7, 15, 9, 0, tzinfo=UTC)
+    metadata = {
+        "protocol_version": "atlas-agent-v3",
+        "node_id": "macsp",
+        "agent_kind": "interactive",
+        "executor": "lumio",
+        "runtime": "pi",
+        "instance_id": "pi-session-1",
+    }
+
+    first = service.register_agent(
+        AgentRegistration(
+            agent_id="client-value-is-not-canonical",
+            name="Lumio session",
+            metadata=metadata,
+        ),
+        now=now,
+    )
+    second = service.register_agent(
+        AgentRegistration(
+            agent_id="a-different-client-value",
+            name="Lumio session",
+            metadata=metadata,
+        ),
+        now=now + timedelta(seconds=1),
+    )
+
+    assert first.agent_id.startswith("agt_")
+    assert first.agent_id == second.agent_id
+    listed = service.list_agents(now=now + timedelta(seconds=1))
+    assert [agent.agent_id for agent in listed] == [first.agent_id]
+    assert listed[0].metadata["runtime"] == "pi"
+    assert listed[0].metadata["executor"] == "lumio"

@@ -53,3 +53,4 @@ class AgentRecord(BaseModel):
 class AgentRegistrationResponse(BaseModel):
     agent_id: str
     scoped_token: str
+    protocol_version: str = "atlas-agent-v3"

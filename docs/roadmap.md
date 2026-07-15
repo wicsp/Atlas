@@ -5,25 +5,26 @@ backlogs.
 
 ## Current state and immediate risks
 
-As observed after the execution-hardening work on 2026-07-13:
+As observed during RFC 0003 implementation on 2026-07-15:
 
 - `atlas.service` runs `atlas.main:app` on port 8000 and production contains live Lumio heartbeats
   and completed work Runs.
 - A detached `4b79af1` rollback worktree and a SQLite-consistent pre-cutover backup remain the
   Milestone 0 recovery anchors; the old `atlas_console` process is retired.
-- RFC 0001 is implemented. Atlas and Lumio use scoped v2 work credentials, typed handler results,
-  shell-free execution, bounded output, and external transcript artifacts.
-- Atlas now creates a fenced `ExecutionAttempt` and per-claim token, performs atomic claim, and
-  supports idempotent terminal reports.
-- An experimental Reconcile API was added while durable outbox delivery was being considered. RFC
-  0002 now rejects that complexity: the endpoint must be removed and must not be consumed by Lumio.
-- Lumio has initial focused Atlas tests and a self-contained check command. It still needs
-  lease-deadline-aware handling of transient heartbeat failures and explicit abandonment at expiry.
-- nix-config provisions the Atlas endpoint, node identity, and agenix-managed token file.
+- RFC 0001 and RFC 0002 are implemented. Atlas/Lumio use fenced attempts, scoped credentials,
+  strict leases, narrow terminal idempotency, bounded in-memory retry, shell-free execution, and
+  external ArtifactRefs. The rejected Reconcile API and durable outbox are absent.
+- RFC 0003 defines Source, Resource, and metadata-only KnowledgeRef records. A v3 Run completion
+  publishes Source enrichment, ArtifactRefs, Resources, terminal state, and Event atomically.
+- Lumio produces content-addressed Bilibili transcript and AI-summary artifacts, then rebuilds
+  generated Resource Cards in Vortex Next. Human Knowledge comments remain separate and manual.
+- nix-config provisions Atlas endpoint, node identity, artifact root, Obsidian vault path, and the
+  agenix-managed control credential.
 
-The immediate risk is semantic mismatch: normal complete/fail must enforce live leases, while Lumio
-must tolerate a transient failure within the remaining lease without persisting recovery state.
-Atlas and Lumio must not imply that work will be delivered after an attempt expires.
+The immediate operational risk is byte locality: Atlas can reference a Mac-local `file://` artifact
+that AMAX or a future mobile Console cannot read directly. This is accepted for the first personal
+slice; measured cross-node review demand should drive a later artifact-store RFC. v3 Lumio must not
+be deployed before v3 Atlas acknowledges the protocol.
 
 ## Milestone 0: Stable baselines
 
@@ -70,13 +71,13 @@ See [RFC 0001](rfcs/0001-connected-lumio-agent.md) for the accepted contract and
 
 ## Milestone 2: Reliable work execution
 
-**Status:** Functional prototype; blocked on Execution Hardening.
+**Status:** Implemented for the current Run-execution slice.
 
 **Outcome:** Atlas can represent actionable work independently of a specific agent runtime.
 
 Introduce only the domain behavior required by the first real pipeline:
 
-- Project and WorkItem;
+- Project (durable WorkItem remains deferred until a real actionable-work UI needs it);
 - Job and Run separation;
 - append-only Events;
 - ArtifactRef instead of large message bodies;
@@ -88,7 +89,7 @@ requirements prove otherwise.
 
 ## Milestone 2.5: Execution Hardening
 
-**Status:** In progress; reliability scope simplified on 2026-07-13.
+**Status:** Implemented on 2026-07-13.
 
 Implement [RFC 0002](rfcs/0002-execution-hardening.md).
 
@@ -131,25 +132,28 @@ are recorded, and the Bilibili slice:
 
 ## Milestone 3: Bilibili vertical slice
 
-**Status:** Prototype capture and transcript execution works; expansion is blocked on Milestone 2.5.
+**Status:** RFC 0003 implementation complete; production smoke verification in progress.
 
 **Outcome:** A captured Bilibili URL becomes a reviewable AI Resource with traceable source data.
 
 ```text
-iPhone or Mac capture
-  -> Atlas inbox
-  -> Mac Lumio obtains metadata/subtitles
-  -> Mac or AMAX produces a summary Resource
-  -> Atlas exposes processing state and artifact references
-  -> the user reviews the original and may write a human comment
+iPhone or Mac capture API
+  -> Atlas Source + Run
+  -> Mac Lumio obtains metadata/subtitles and uses the active Pi model
+  -> Atlas atomically publishes transcript and summary Resources
+  -> Lumio rebuilds a generated Obsidian Resource Card
+  -> the user reviews the original and may create a human Knowledge Comment
 ```
 
 The transcript and summary are Resources, not human knowledge. The human-comment body is never
 generated or silently promoted by AI.
 
+See [RFC 0003](rfcs/0003-source-resource-review-loop.md) for the accepted domain, protocol,
+Obsidian boundary, and verification record.
+
 ## Milestone 4: Academic source workflow
 
-**Status:** Blocked until Milestone 2.5 is complete and the Bilibili Resource boundary is accepted.
+**Status:** Ready for a focused RFC; not started.
 
 **Outcome:** Papers can be discovered and triaged without duplicating Zotero's authority.
 

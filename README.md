@@ -39,12 +39,20 @@ Atlas is one part of a three-repository personal infrastructure system:
   knowledge rules.
 - [RFC 0001: Connected Lumio Agent](docs/rfcs/0001-connected-lumio-agent.md): the first
   cross-repository implementation slice.
+- [RFC 0002: Execution Hardening](docs/rfcs/0002-execution-hardening.md): fenced leases and bounded
+  in-memory reliability.
+- [RFC 0003: Source, Resource, and Human Review Loop](docs/rfcs/0003-source-resource-review-loop.md):
+  the Bilibili-to-Obsidian content boundary.
 - [Roadmap](docs/roadmap.md): ordered milestones and current stabilization work.
 - [Backend control-plane design](docs/superpowers/specs/2026-07-06-atlas-backend-control-plane-design.md):
   the existing backend architecture.
 
 Cross-repository development should follow an accepted RFC and proceed in this order: Atlas
 protocol, Lumio execution, `nix-config` deployment, then one end-to-end verification.
+
+Atlas stores Source/Resource provenance and metadata-only KnowledgeRefs. Transcript, summary, PDF,
+and experiment bytes remain external ArtifactRefs; human Knowledge prose remains in the user's
+Obsidian vault and is never accepted by Atlas APIs.
 
 ## Configuration
 

@@ -84,6 +84,8 @@ class WorkService:
             payload.agent_id,
             payload.output,
             payload.artifacts,
+            payload.source_updates,
+            payload.resources,
             _now(),
             idempotency_key=idempotency_key,
             payload_digest=_payload_digest(payload) if idempotency_key else None,

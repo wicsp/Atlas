@@ -102,10 +102,13 @@ class TestProjects:
         res = client.post("/api/projects", json={"project_id": "x", "name": "X"})
         assert res.status_code == 401
 
-    def test_duplicate_project_id_fails(self, agent_client):
+    def test_duplicate_project_id_is_an_idempotent_upsert(self, agent_client):
         _create_project(agent_client, "dup", "First")
-        with pytest.raises(Exception):  # noqa: B017
-            agent_client.post("/api/projects", json={"project_id": "dup", "name": "Second"})
+        response = agent_client.post(
+            "/api/projects", json={"project_id": "dup", "name": "Second"}
+        )
+        assert response.status_code == 200
+        assert response.json()["name"] == "Second"
 
 
 class TestRunLifecycle:

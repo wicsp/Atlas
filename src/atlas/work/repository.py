@@ -10,6 +10,8 @@ from typing import Any
 from sqlalchemy import Integer, String, Text, select, update
 from sqlalchemy.orm import Mapped, Session, mapped_column, sessionmaker
 
+from atlas.content.models import ResourceCreate, SourceUpdate
+from atlas.content.repository import apply_source_updates, publish_resources
 from atlas.db.base import Base
 
 from .models import (
@@ -122,15 +124,20 @@ class WorkRepository:
     # ── Projects ──────────────────────────────────────────────
 
     def create_project(self, payload: ProjectCreate, now: datetime) -> ProjectRecord:
-        with self._session_factory() as session:
-            row = ProjectRow(
-                project_id=payload.project_id,
-                name=payload.name,
-                description=payload.description,
-                created_at=now.isoformat(),
-            )
-            session.add(row)
-            session.commit()
+        with self._session_factory() as session, session.begin():
+            row = session.get(ProjectRow, payload.project_id)
+            if row is None:
+                row = ProjectRow(
+                    project_id=payload.project_id,
+                    name=payload.name,
+                    description=payload.description,
+                    created_at=now.isoformat(),
+                )
+                session.add(row)
+            else:
+                row.name = payload.name
+                row.description = payload.description
+            session.flush()
             return _to_project(row)
 
     def list_projects(self) -> list[ProjectRecord]:
@@ -488,6 +495,8 @@ class WorkRepository:
         agent_id: str,
         output: dict[str, Any],
         artifacts: list[ArtifactRefCreate],
+        source_updates: list[SourceUpdate],
+        resources: list[ResourceCreate],
         now: datetime,
         idempotency_key: str | None = None,
         payload_digest: str | None = None,
@@ -534,16 +543,13 @@ class WorkRepository:
             if row.lease_expires_at is not None and row.lease_expires_at <= now.isoformat():
                 raise PermissionError("lease expired")
 
-            row.status = "completed"
-            row.agent_id = agent_id
-            row.output_json = _dump_json(output)
-            row.completed_at = now.isoformat()
-            row.lease_expires_at = None
-
+            artifacts_by_name: dict[str, str] = {}
             for art in artifacts:
+                artifact_id = f"art_{uuid.uuid4().hex}"
+                artifacts_by_name[art.name] = artifact_id
                 session.add(
                     ArtifactRow(
-                        artifact_id=f"art_{uuid.uuid4().hex}",
+                        artifact_id=artifact_id,
                         run_id=run_id,
                         name=art.name,
                         uri=art.uri,
@@ -554,13 +560,27 @@ class WorkRepository:
                     )
                 )
 
+            # RFC 0003: Source enrichment, ArtifactRefs, and Resource publication
+            # are part of the same transaction as the terminal Run state.
+            apply_source_updates(session, source_updates, now)
+            publish_resources(session, run_id, artifacts_by_name, resources, now)
+
+            row.status = "completed"
+            row.agent_id = agent_id
+            row.output_json = _dump_json(output)
+            row.completed_at = now.isoformat()
+            row.lease_expires_at = None
+
             session.add(
                 EventRow(
                     event_id=f"evt_{uuid.uuid4().hex}",
                     run_id=run_id,
                     agent_id=agent_id,
                     event_type="completed",
-                    body=f"Completed with {len(artifacts)} artifact(s)",
+                    body=(
+                        f"Completed with {len(artifacts)} artifact(s) and "
+                        f"{len(resources)} resource(s)"
+                    ),
                     created_at=now.isoformat(),
                 )
             )

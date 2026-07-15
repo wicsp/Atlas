@@ -32,6 +32,7 @@ interruption that ends within its remaining lease; local pi use does not inherit
 | Secret values | No | No | No; reference secret store only |
 | Large files | Artifact references only | Produce/consume | Provision storage paths |
 | Human-authored knowledge | Link/index only | May open an empty capture UI | Provision applications/paths |
+| Source/Resource provenance | Own metadata and lifecycle | Acquire/derive/project | Provision paths only |
 
 ## Control plane and data plane
 
@@ -82,6 +83,8 @@ These objects are deliberately distinct:
 - **Source**: external original material such as a paper, video, webpage, dataset, or code revision.
 - **Resource**: derived assistance such as a transcript, AI summary, extraction, or comparison.
 - **KnowledgeComment**: a human-authored observation with source anchors and revision relations.
+- **KnowledgeRef**: Atlas metadata pointing to a KnowledgeComment URI and its evidence IDs; it has
+  no prose field.
 - **Node**: a device or host.
 - **Agent**: a process capable of interacting with Atlas.
 
@@ -117,6 +120,11 @@ They may not:
 - label AI-authored content as `authored_by: human`;
 - overwrite an older human position to hide its history;
 - turn vector similarity into a confirmed semantic relationship.
+
+For RFC 0003, `Resources/**` in Vortex Next is a rebuildable Lumio projection. `Knowledge/**` is
+human-owned. Lumio may create an empty KnowledgeComment template only after `/atlas:comment`; the
+same path is then protected from overwrite. Atlas accepts only `note_id`, URI, evidence IDs, and an
+optional revision reference in KnowledgeRef requests, and rejects unknown prose fields.
 
 Confirmed knowledge relations use explicit types such as `supports`, `contradicts`, `revises`,
 `extends`, `questions`, and `inspired_by`. AI can propose; a human confirms.

@@ -8,7 +8,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from atlas.content.models import ResourceCreate, SourceUpdate
 
 RunStatus = Literal["pending", "claimed", "completed", "failed", "cancelled"]
 
@@ -96,16 +98,30 @@ class ArtifactRef(BaseModel):
 
 
 class RunComplete(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     attempt_id: str = Field(min_length=1, max_length=128)
     claim_token: str = Field(min_length=1, max_length=256)
     agent_id: str = Field(min_length=1, max_length=128)
     output: dict[str, Any] = Field(default_factory=dict)
     artifacts: list[ArtifactRefCreate] = Field(default_factory=list, max_length=100)
+    source_updates: list[SourceUpdate] = Field(default_factory=list, max_length=100)
+    resources: list[ResourceCreate] = Field(default_factory=list, max_length=100)
 
     @field_validator("agent_id", "attempt_id", "claim_token")
     @classmethod
     def strip_fields(cls, value: str) -> str:
         return value.strip()
+
+    @model_validator(mode="after")
+    def artifact_names_are_unique(self) -> RunComplete:
+        names = [artifact.name for artifact in self.artifacts]
+        if len(names) != len(set(names)):
+            raise ValueError("artifact names must be unique within one completion")
+        resource_ids = [resource.resource_id for resource in self.resources]
+        if len(resource_ids) != len(set(resource_ids)):
+            raise ValueError("resource IDs must be unique within one completion")
+        return self
 
 
 class HeartbeatCreate(BaseModel):

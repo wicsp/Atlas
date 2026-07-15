@@ -78,6 +78,7 @@ def test_agent_can_register_and_heartbeat(tmp_path: Path) -> None:
     assert registered["agent_id"] == "mac-dev"
     assert "scoped_token" in registered
     assert registered["scoped_token"].startswith("at2_")
+    assert registered["protocol_version"] == "atlas-agent-v3"
 
     assert heartbeat_response.status_code == 200
     # Heartbeat returns full AgentRecord.
