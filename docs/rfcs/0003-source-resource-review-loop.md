@@ -5,7 +5,7 @@
 - **Implemented:** 2026-07-15
 - **Owners:** Atlas, Lumio, and nix-config
 - **Protocol:** `atlas-agent-v3`
-- **Milestone:** 3.0
+- **Milestone:** 3.0, with implemented 3.1 projection-lifecycle addendum
 
 ## Summary
 
@@ -57,8 +57,9 @@ After this RFC:
    Resource with `generated: true` and generator metadata.
 6. **Knowledge prose is human-owned.** Atlas' KnowledgeRef API has no content/body field and rejects
    unknown fields. Lumio creates structure only; it never supplies comment prose.
-7. **Obsidian projections are disposable.** Resource Cards may be overwritten from their canonical
-   Resource artifact. Human comments are never overwritten by projection code.
+7. **Obsidian projections are disposable.** Resource Cards may be replaced from their canonical
+   Resource artifact when content or review metadata changes. Identical cards are not rewritten.
+   Human comments are never overwritten or removed by projection code.
 8. **Review state is metadata, not truth.** `pending`, `reviewed`, and `dismissed` describe the
    user's review action. They do not promote a Resource into Knowledge.
 9. **No hidden RAG authority.** Embeddings and indexes are excluded; any later index must be
@@ -198,10 +199,10 @@ not mark a metadata-only capture as a successful summary.
 
 ## Obsidian boundary
 
-The new vault starts without migrating the old Vortex structure:
+The current vault starts without migrating the backup structure:
 
 ```text
-Vortex Next/
+Vortex/
   Knowledge/
     Inbox/
     Comments/
@@ -219,8 +220,24 @@ Vortex Next/
 
 - `Resources/**` may be generated or replaced by Lumio.
 - `Knowledge/**` is user-authored. Lumio may create a new empty template only when explicitly asked.
-- The old Vortex remains a backup/reference source and is not bulk imported.
+- Vortexbackup remains a backup/reference source and is not bulk imported.
 - Zotero remains authoritative for bibliography and PDFs; this RFC adds no second paper database.
+
+### Milestone 3.1 projection lifecycle addendum
+
+Atlas review metadata is authoritative for the disposable Resource Card projection:
+
+- after a successful Pi/Atlas registration, Lumio reconciles every summary Resource;
+- `/atlas:reconcile` runs the same operation explicitly and reports each outcome;
+- `pending` and `reviewed` Resources have cards whose frontmatter matches Atlas;
+- `dismissed` Resources have no card; restoring one to `pending` rebuilds it;
+- projection compares complete file content and leaves identical files untouched;
+- `/atlas:comment` refreshes the reviewed card immediately after registering the KnowledgeRef;
+- Atlas rejects dismissal when a KnowledgeRef still cites the Resource.
+
+These operations own only `Resources/Cards/**`. They never edit, replace, or delete anything under
+`Knowledge/**`. Dismissal is reversible review metadata, not hard deletion of the Resource or its
+artifact.
 
 ## Scope
 
@@ -234,7 +251,7 @@ Vortex Next/
 - Bilibili transcript plus active-Pi-model summary Resources;
 - content-addressed summary artifacts;
 - generated Obsidian Resource Cards and blank human-comment templates;
-- a clean Vortex Next skeleton and nix-config environment provisioning;
+- a clean Vortex skeleton and nix-config environment provisioning;
 - focused unit, API, projection, and real end-to-end smoke tests;
 - removal of Lumio's copied generic Todo extension, while retaining Plan mode's ephemeral steps;
 - opaque Atlas agent identity derived from separate executor/runtime/session metadata.
@@ -278,7 +295,7 @@ RFC 0003 is complete only when all of the following pass:
 
 ## Deployment and rollback
 
-Deployment order is Atlas, Lumio, nix-config, then Vortex Next bootstrap. Before deployment, make a
+Deployment order is Atlas, Lumio, nix-config, then Vortex bootstrap. Before deployment, make a
 SQLite-consistent database backup. New tables are additive, so rollback to v2 code leaves them
 unused. A v3 Lumio must not run against v2 Atlas because Resource declarations could otherwise be
 discarded.
@@ -304,7 +321,7 @@ discarded.
     `agt_219d2003739f5e6703753729` with job `bilibili-summary-v3`
   - transcript Resource: `res_6d9dda584551b698a31a6101796dd5ae`
   - summary Resource: `res_8df166177823f500e9b7f7abb65b7ad7`
-  - card: `Vortex Next/Resources/Cards/res_8df166177823f500e9b7f7abb65b7ad7.md`
+  - card: `Vortex/Resources/Cards/res_8df166177823f500e9b7f7abb65b7ad7.md`
   - completion Event reports two ArtifactRefs and two Resources; Run output is 483 bytes of
     bounded metadata, while the 4,639-byte transcript and 2,856-byte summary remain mode-0600
     external files whose SHA-256 values match Atlas.

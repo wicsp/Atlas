@@ -23,6 +23,10 @@ from .models import (
 )
 
 
+class ReferencedResourceDismissalError(ValueError):
+    """Raised when a Resource is still evidence for human-authored Knowledge."""
+
+
 class SourceRow(Base):
     __tablename__ = "sources"
 
@@ -155,6 +159,21 @@ class ContentRepository:
             row = session.get(ResourceRow, resource_id)
             if row is None:
                 raise KeyError(resource_id)
+            if review_status == "dismissed":
+                referenced_by = next(
+                    (
+                        knowledge_ref
+                        for knowledge_ref in session.scalars(select(KnowledgeRefRow)).all()
+                        if resource_id
+                        in _load_json(knowledge_ref.resource_ids_json, [])
+                    ),
+                    None,
+                )
+                if referenced_by is not None:
+                    raise ReferencedResourceDismissalError(
+                        f"Resource {resource_id} is referenced by KnowledgeRef "
+                        f"{referenced_by.knowledge_ref_id}"
+                    )
             row.review_status = review_status
             row.updated_at = now.isoformat()
             session.flush()

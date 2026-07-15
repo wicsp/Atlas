@@ -16,8 +16,10 @@ As observed during RFC 0003 implementation on 2026-07-15:
   external ArtifactRefs. The rejected Reconcile API and durable outbox are absent.
 - RFC 0003 defines Source, Resource, and metadata-only KnowledgeRef records. A v3 Run completion
   publishes Source enrichment, ArtifactRefs, Resources, terminal state, and Event atomically.
-- Lumio produces content-addressed Bilibili transcript and AI-summary artifacts, then rebuilds
-  generated Resource Cards in Vortex Next. Human Knowledge comments remain separate and manual.
+- Lumio produces content-addressed Bilibili transcript and AI-summary artifacts, then reconciles
+  generated Resource Cards in Vortex. Human Knowledge comments remain separate and manual.
+- Successful Pi startup runs Resource Card reconciliation. The same operation is available through
+  `/atlas:reconcile`; unchanged cards are not rewritten, and dismissed cards are absent.
 - nix-config provisions Atlas endpoint, node identity, artifact root, Obsidian vault path, and the
   agenix-managed control credential.
 
@@ -150,6 +152,18 @@ generated or silently promoted by AI.
 
 See [RFC 0003](rfcs/0003-source-resource-review-loop.md) for the accepted domain, protocol,
 Obsidian boundary, deployed revisions, and real Source-to-Resource-to-card verification record.
+
+### Milestone 3.1: Review projection lifecycle
+
+**Status:** Implemented on 2026-07-15.
+
+- `/atlas:comment` registers a metadata-only KnowledgeRef, marks the Resource reviewed, and updates
+  its generated card immediately.
+- `/atlas:dismiss` hides an unreferenced Resource and removes only its rebuildable card;
+  Knowledge-referenced Resources are protected with a conflict response.
+- `/atlas:restore` returns a dismissed Resource to pending and rebuilds its card.
+- Startup and manual reconciliation converge every summary card to Atlas review metadata without
+  modifying human-authored files under `Knowledge/**`.
 
 ## Milestone 4: Academic source workflow
 

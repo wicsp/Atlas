@@ -287,6 +287,55 @@ def test_resource_review_state_is_explicit(
     assert reviewed.status_code == 200, reviewed.text
     assert reviewed.json()["review_status"] == "reviewed"
 
+    dismissed = control_client.patch(
+        f"/api/resources/{resource_id}/review", json={"review_status": "dismissed"}
+    )
+    assert dismissed.status_code == 200, dismissed.text
+    assert dismissed.json()["review_status"] == "dismissed"
+
+    restored = control_client.patch(
+        f"/api/resources/{resource_id}/review", json={"review_status": "pending"}
+    )
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["review_status"] == "pending"
+
+
+def test_resource_referenced_by_human_knowledge_cannot_be_dismissed(
+    control_client: TestClient,
+    scoped_client: TestClient,
+) -> None:
+    source = _source(control_client)
+    claimed = _claimed_run(control_client, scoped_client, source["source_id"])
+    payload = _completion_payload(claimed, source["source_id"])
+    completed = scoped_client.post(
+        f"/api/runs/{claimed['run_id']}/complete", json=payload
+    )
+    assert completed.status_code == 200, completed.text
+    resource_id = payload["resources"][1]["resource_id"]
+
+    reviewed = control_client.patch(
+        f"/api/resources/{resource_id}/review", json={"review_status": "reviewed"}
+    )
+    assert reviewed.status_code == 200, reviewed.text
+    knowledge_ref = control_client.post(
+        "/api/knowledge-refs",
+        json={
+            "note_id": "Knowledge/Comments/kept-evidence",
+            "uri": "obsidian://open?vault=Vortex&file=Knowledge%2FComments%2Fkept-evidence",
+            "resource_ids": [resource_id],
+        },
+    )
+    assert knowledge_ref.status_code == 200, knowledge_ref.text
+
+    rejected = control_client.patch(
+        f"/api/resources/{resource_id}/review", json={"review_status": "dismissed"}
+    )
+    assert rejected.status_code == 409, rejected.text
+    assert "KnowledgeRef" in rejected.json()["detail"]
+    current = control_client.get(f"/api/resources/{resource_id}")
+    assert current.status_code == 200
+    assert current.json()["review_status"] == "reviewed"
+
 
 def test_knowledge_ref_rejects_prose_and_derives_source_relation(
     control_client: TestClient,
@@ -305,7 +354,7 @@ def test_knowledge_ref_rejects_prose_and_derives_source_relation(
         "/api/knowledge-refs",
         json={
             "note_id": "Knowledge/Comments/comment-1",
-            "uri": "obsidian://open?vault=Vortex%20Next&file=Knowledge%2FComments%2Fcomment-1",
+            "uri": "obsidian://open?vault=Vortex&file=Knowledge%2FComments%2Fcomment-1",
             "resource_ids": [resource_id],
             "body": "An AI must never be able to place this prose in Knowledge.",
         },
@@ -316,7 +365,7 @@ def test_knowledge_ref_rejects_prose_and_derives_source_relation(
         "/api/knowledge-refs",
         json={
             "note_id": "Knowledge/Comments/comment-1",
-            "uri": "obsidian://open?vault=Vortex%20Next&file=Knowledge%2FComments%2Fcomment-1",
+            "uri": "obsidian://open?vault=Vortex&file=Knowledge%2FComments%2Fcomment-1",
             "resource_ids": [resource_id],
         },
     )
@@ -337,7 +386,7 @@ def test_knowledge_ref_upsert_preserves_identity(
     source = _source(control_client)
     payload = {
         "note_id": "Knowledge/Comments/source-only",
-        "uri": "obsidian://open?vault=Vortex%20Next&file=Knowledge%2FComments%2Fsource-only",
+        "uri": "obsidian://open?vault=Vortex&file=Knowledge%2FComments%2Fsource-only",
         "source_ids": [source["source_id"]],
     }
     first = control_client.post("/api/knowledge-refs", json=payload)

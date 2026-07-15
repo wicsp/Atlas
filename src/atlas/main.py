@@ -25,6 +25,7 @@ from .content.models import (
     SourceRecord,
     SourceUpsert,
 )
+from .content.repository import ReferencedResourceDismissalError
 from .content.service import ContentService, create_content_service
 from .dashboard import DashboardSnapshot, DashboardSnapshotCollector
 from .messages.models import MessageAck, MessageClaim, MessageCreate, MessageRecord
@@ -460,6 +461,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Resource not found",
+            ) from exc
+        except ReferencedResourceDismissalError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
             ) from exc
 
     @app.post(

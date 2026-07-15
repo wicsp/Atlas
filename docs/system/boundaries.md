@@ -121,7 +121,7 @@ They may not:
 - overwrite an older human position to hide its history;
 - turn vector similarity into a confirmed semantic relationship.
 
-For RFC 0003, `Resources/**` in Vortex Next is a rebuildable Lumio projection. `Knowledge/**` is
+For RFC 0003, `Resources/**` in Vortex is a rebuildable Lumio projection. `Knowledge/**` is
 human-owned. Lumio may create an empty KnowledgeComment template only after `/atlas:comment`; the
 same path is then protected from overwrite. Atlas accepts only `note_id`, URI, evidence IDs, and an
 optional revision reference in KnowledgeRef requests, and rejects unknown prose fields.
