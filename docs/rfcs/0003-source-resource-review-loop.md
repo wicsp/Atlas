@@ -326,6 +326,23 @@ discarded.
     bounded metadata, while the 4,639-byte transcript and 2,856-byte summary remain mode-0600
     external files whose SHA-256 values match Atlas.
 
-The old Vortex vault was not migrated or written by this implementation. No Knowledge Comment was
+Vortexbackup was not migrated or written by this implementation. No Knowledge Comment was
 created during the production smoke test; the explicit command and non-overwrite boundary are
 covered by Lumio tests, so validation did not manufacture a human-owned note.
+
+### Milestone 3.1 verification record
+
+- Atlas revision: `0de04cb`; `atlas.service` was restarted at this revision and health reports
+  `0.2.1`.
+- Lumio revision: `b13557f`; package version `0.2.1`, Pi `0.80.6`.
+- nix-config vault-path revision: `769c33a` (`Vortex`, with `Vortexbackup` retained separately).
+- Atlas checks: `uv run pytest -q` — 132 passed on AMAX; `uv run ruff check .` — passed.
+- Lumio checks: `npm run check` — 31 passed plus compatibility checks; the complete extension
+  entrypoint bundled successfully with esbuild.
+- Real reconciliation used reviewed Resource `res_6d7db30074dad8619cfcd5a82fdae9f9` and its
+  existing human comment. The generated card changed from stale `pending` frontmatter to
+  `reviewed`. The comment retained SHA-1 `6ce02c1eab3ab298b4a31b85fa58119776e1d260` and the
+  same modification time. A second Pi startup plus manual `/atlas:reconcile` left all three
+  Resource Card modification times unchanged.
+- Dismiss/restore behavior and the KnowledgeRef conflict guard were verified in isolated Lumio and
+  Atlas tests; production Resources were not dismissed merely for validation.
