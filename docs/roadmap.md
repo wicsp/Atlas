@@ -132,7 +132,7 @@ are recorded, and the Bilibili slice:
 
 ## Milestone 3: Bilibili vertical slice
 
-**Status:** RFC 0003 implementation complete; production smoke verification in progress.
+**Status:** Implemented on 2026-07-15.
 
 **Outcome:** A captured Bilibili URL becomes a reviewable AI Resource with traceable source data.
 
@@ -149,7 +149,7 @@ The transcript and summary are Resources, not human knowledge. The human-comment
 generated or silently promoted by AI.
 
 See [RFC 0003](rfcs/0003-source-resource-review-loop.md) for the accepted domain, protocol,
-Obsidian boundary, and verification record.
+Obsidian boundary, deployed revisions, and real Source-to-Resource-to-card verification record.
 
 ## Milestone 4: Academic source workflow
 

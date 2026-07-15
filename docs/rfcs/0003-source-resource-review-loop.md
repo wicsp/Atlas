@@ -1,7 +1,8 @@
 # RFC 0003: Source, Resource, and Human Review Loop
 
-- **Status:** Accepted
+- **Status:** Implemented
 - **Decision date:** 2026-07-15
+- **Implemented:** 2026-07-15
 - **Owners:** Atlas, Lumio, and nix-config
 - **Protocol:** `atlas-agent-v3`
 - **Milestone:** 3.0
@@ -284,12 +285,30 @@ discarded.
 
 ## Verification record
 
-To be filled only after implementation and the real smoke test:
+- Atlas revision: `5f4cd41` (`atlas.service` restarted at this revision; health reports `0.2.0`).
+- Lumio revision: `5ee799a` (Atlas recorded `atlas-agent-v3`, Lumio `0.2.0`, Pi `0.80.6`,
+  and this Git revision for agent `agt_ee2644bee0e3d622309ef149`).
+- nix-config revision: `6aef46b`.
+- Atlas checks: `uv run pytest -q` — 131 passed; `uv run ruff check .` — passed.
+- Lumio checks: `npm run check` — 29 tests passed and compatibility check passed against Pi
+  `0.80.6`; the bundled extension entrypoint also built successfully with esbuild.
+- nix-config checks: `nix eval .#evalTests --show-trace` returned `true`; the macsp Darwin
+  configuration and all 15 affected derivations built successfully. Activation was not performed
+  because `darwin-rebuild switch` requires the user's local sudo/Touch ID authorization.
+- Production safety: SQLite backup
+  `/home/wicsp/projects/Atlas/data/backups/atlas-before-rfc0003-20260715.sqlite3` passed
+  `integrity_check`; the additive schema preserved existing Runs.
+- Real end-to-end smoke, 2026-07-15:
+  - Source: `src_1b250bea40fb47d4824428bf399bb290` (`bilibili:BV1cWTQ6PEzd`)
+  - Run: `run_c07774c6d15847cfabb066fec9153a30`, completed by
+    `agt_219d2003739f5e6703753729` with job `bilibili-summary-v3`
+  - transcript Resource: `res_6d9dda584551b698a31a6101796dd5ae`
+  - summary Resource: `res_8df166177823f500e9b7f7abb65b7ad7`
+  - card: `Vortex Next/Resources/Cards/res_8df166177823f500e9b7f7abb65b7ad7.md`
+  - completion Event reports two ArtifactRefs and two Resources; Run output is 483 bytes of
+    bounded metadata, while the 4,639-byte transcript and 2,856-byte summary remain mode-0600
+    external files whose SHA-256 values match Atlas.
 
-- Atlas revision: pending
-- Lumio revision: pending
-- nix-config revision: pending
-- Atlas checks: pending
-- Lumio checks: pending
-- nix-config checks: pending
-- End-to-end Source/Run/Resource/Card IDs: pending
+The old Vortex vault was not migrated or written by this implementation. No Knowledge Comment was
+created during the production smoke test; the explicit command and non-overwrite boundary are
+covered by Lumio tests, so validation did not manufacture a human-owned note.
