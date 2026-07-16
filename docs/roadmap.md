@@ -167,7 +167,7 @@ Obsidian boundary, deployed revisions, and real Source-to-Resource-to-card verif
 
 ### Milestone 3.2: Resource Review Console
 
-**Status:** Accepted on 2026-07-16; implementation in progress.
+**Status:** Implemented on 2026-07-16.
 
 **Outcome:** Pending Resources are discoverable and reviewable from one Tailscale-only iPhone/Mac
 workbench without copying Resource IDs.

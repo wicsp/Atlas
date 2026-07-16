@@ -1,7 +1,8 @@
 # RFC 0004: Resource Review Console
 
-- **Status:** Accepted
+- **Status:** Implemented
 - **Decision date:** 2026-07-16
+- **Implemented:** 2026-07-16
 - **Owners:** Atlas, Atlas Console, and Lumio
 - **Protocol:** `atlas-agent-v3` (unchanged)
 - **Milestone:** 3.2
@@ -110,6 +111,7 @@ The first implementation composes existing bounded APIs in the client:
 GET /api/sources?limit=500
 GET /api/resources?kind=summary&limit=500
 GET /api/knowledge-refs?limit=500
+GET /api/runs?project_id=resource-review&limit=500
 GET /api/runs/{run_id}
 ```
 
@@ -267,11 +269,31 @@ migration is required by this RFC.
 
 ## Verification record
 
-To be completed after implementation and deployment:
-
-- Atlas revision and service version;
-- Atlas Console revision and deployed Tailscale URL;
-- Lumio revision, package version, and registered capability;
-- repository check results;
-- isolated retry/non-overwrite verification;
-- production read-only browser smoke result.
+- Atlas implementation revision: `43045cf`; `atlas.service` was restarted from this revision and
+  reports version `0.3.0`.
+- Atlas Console revision: `4b58ff8`; the independent repository is deployed at
+  `http://100.100.10.3:8787` on AMAX.
+- Lumio revision: `5170f57`; package version `0.3.0`, Pi `0.80.6`, protocol
+  `atlas-agent-v3` (unchanged).
+- Atlas checks: `uv run pytest -q` — 135 passed on both the Mac work copy and AMAX;
+  `uv run ruff check .` — passed.
+- Lumio checks: `npm run check` — 34 tests passed and the Pi compatibility check passed; the full
+  extension entrypoint bundled successfully with esbuild.
+- Console checks: ESLint passed; production build passed; four server-rendering/grouping/Run-state
+  tests passed on Mac and AMAX; `npm audit --omit=dev --audit-level=moderate` reports zero
+  production vulnerabilities. PostCSS is pinned through an npm override to its patched 8.5.19
+  release while the starter's current Next line still declares an older transitive release.
+- Deployment boundary: Vinext listens only on `127.0.0.1:8788`; Caddy listens only on the AMAX
+  Tailscale address `100.100.10.3:8787`, applies restrictive response headers, and proxies
+  `/api/*` to Atlas on `127.0.0.1:8000`. Both user services are enabled and active.
+- Mac-to-AMAX read-only smoke returned the Console title, Atlas `0.3.0`, and the expected security
+  headers through the Tailscale URL. Unauthenticated `/api/resources` and
+  `/api/review-actions/comment` returned 401.
+- A temporary no-session Pi registered Atlas agent `agt_75c893b8a15ef834c948ba56` with
+  capabilities `bilibili-summary-v3` and `vortex-comment-v1`, Lumio revision `5170f57`, and version
+  `0.3.0`. Startup reconciliation reported three unchanged cards and no failures.
+- The isolated retry test executed `vortex-comment-v1` twice against the same Resource after human
+  text was appended. The second execution kept the same note byte-for-byte, reused the metadata
+  identity, and reported no note body or absolute path.
+- No production Resource was commented, dismissed, restored, or otherwise mutated for validation.
+  The user can choose the first real Resource after signing in.
