@@ -62,6 +62,12 @@ class ContentService:
     def list_knowledge_refs(self, limit: int = 100) -> list[KnowledgeRefRecord]:
         return self._repository.list_knowledge_refs(limit=limit)
 
+    def find_knowledge_ref_for_resource(
+        self,
+        resource_id: str,
+    ) -> KnowledgeRefRecord | None:
+        return self._repository.find_knowledge_ref_for_resource(resource_id)
+
 
 def _now() -> datetime:
     return datetime.now(UTC)

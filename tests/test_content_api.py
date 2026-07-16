@@ -173,6 +173,15 @@ def _resource_id(source_id: str, kind: str, content_hash: str) -> str:
     return f"res_{digest[:32]}"
 
 
+def _publish_content(control: TestClient, scoped: TestClient) -> tuple[dict, dict]:
+    source = _source(control)
+    claimed = _claimed_run(control, scoped, source["source_id"])
+    payload = _completion_payload(claimed, source["source_id"])
+    completed = scoped.post(f"/api/runs/{claimed['run_id']}/complete", json=payload)
+    assert completed.status_code == 200, completed.text
+    return source, payload
+
+
 def test_source_upsert_is_stable_and_enriches_metadata(control_client: TestClient) -> None:
     first = _source(control_client)
     second = _source(control_client, title="A useful video")
@@ -191,6 +200,10 @@ def test_content_endpoints_require_control_auth(atlas_app: FastAPI) -> None:
     assert client.get("/api/sources").status_code == 401
     assert client.get("/api/resources").status_code == 401
     assert client.get("/api/knowledge-refs").status_code == 401
+    assert client.post(
+        "/api/review-actions/comment",
+        json={"resource_id": "res_12345678"},
+    ).status_code == 401
 
 
 def test_completion_atomically_publishes_resources_and_is_idempotent(
@@ -395,3 +408,93 @@ def test_knowledge_ref_upsert_preserves_identity(
     assert second.status_code == 200, second.text
     assert first.json()["knowledge_ref_id"] == second.json()["knowledge_ref_id"]
     assert len(control_client.get("/api/knowledge-refs").json()) == 1
+
+
+def test_comment_request_enqueues_only_fixed_capability_and_reuses_active_run(
+    control_client: TestClient,
+    scoped_client: TestClient,
+    dashboard_client: TestClient,
+) -> None:
+    _, publication = _publish_content(control_client, scoped_client)
+    resource_id = publication["resources"][1]["resource_id"]
+
+    first = dashboard_client.post(
+        "/api/review-actions/comment",
+        json={"resource_id": resource_id},
+    )
+    second = dashboard_client.post(
+        "/api/review-actions/comment",
+        json={"resource_id": resource_id},
+    )
+
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    assert first.json()["reused"] is False
+    assert second.json()["reused"] is True
+    assert second.json()["run"]["run_id"] == first.json()["run"]["run_id"]
+
+    run = first.json()["run"]
+    assert run["project_id"] == "resource-review"
+    assert run["job_name"] == "vortex-comment-v1"
+    assert run["capabilities_required"] == ["vortex-comment-v1"]
+    assert run["input"] == {"resource_id": resource_id}
+    assert run["metadata"] == {"requested_via": "atlas-console"}
+    assert run["output"] is None
+
+    visible = dashboard_client.get(f"/api/runs/{run['run_id']}")
+    assert visible.status_code == 200, visible.text
+    assert visible.json() == run
+
+
+def test_comment_request_rejects_prose_and_non_summary_resources(
+    control_client: TestClient,
+    scoped_client: TestClient,
+    dashboard_client: TestClient,
+) -> None:
+    _, publication = _publish_content(control_client, scoped_client)
+    transcript_id = publication["resources"][0]["resource_id"]
+    summary_id = publication["resources"][1]["resource_id"]
+
+    prose = dashboard_client.post(
+        "/api/review-actions/comment",
+        json={"resource_id": summary_id, "body": "machine-authored prose"},
+    )
+    transcript = dashboard_client.post(
+        "/api/review-actions/comment",
+        json={"resource_id": transcript_id},
+    )
+
+    assert prose.status_code == 422
+    assert transcript.status_code == 409, transcript.text
+    assert "summary Resource" in transcript.json()["detail"]
+    assert dashboard_client.get("/api/runs?project_id=resource-review").json() == []
+
+
+def test_comment_request_conflicts_when_human_comment_already_exists(
+    control_client: TestClient,
+    scoped_client: TestClient,
+    dashboard_client: TestClient,
+) -> None:
+    _, publication = _publish_content(control_client, scoped_client)
+    resource_id = publication["resources"][1]["resource_id"]
+    knowledge_ref = control_client.post(
+        "/api/knowledge-refs",
+        json={
+            "note_id": "Knowledge/Comments/already-commented",
+            "uri": (
+                "obsidian://open?vault=Vortex&file="
+                "Knowledge%2FComments%2Falready-commented"
+            ),
+            "resource_ids": [resource_id],
+        },
+    )
+    assert knowledge_ref.status_code == 200, knowledge_ref.text
+
+    response = dashboard_client.post(
+        "/api/review-actions/comment",
+        json={"resource_id": resource_id},
+    )
+
+    assert response.status_code == 409, response.text
+    assert "already has KnowledgeRef" in response.json()["detail"]
+    assert dashboard_client.get("/api/runs?project_id=resource-review").json() == []

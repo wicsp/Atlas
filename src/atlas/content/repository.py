@@ -233,6 +233,16 @@ class ContentRepository:
             ).all()
             return [_to_knowledge_ref(row) for row in rows]
 
+    def find_knowledge_ref_for_resource(
+        self,
+        resource_id: str,
+    ) -> KnowledgeRefRecord | None:
+        with self._session_factory() as session:
+            for row in session.scalars(select(KnowledgeRefRow)).all():
+                if resource_id in _load_json(row.resource_ids_json, []):
+                    return _to_knowledge_ref(row)
+            return None
+
 
 def apply_source_updates(
     session: Session,

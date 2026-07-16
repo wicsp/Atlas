@@ -165,6 +165,23 @@ Obsidian boundary, deployed revisions, and real Source-to-Resource-to-card verif
 - Startup and manual reconciliation converge every summary card to Atlas review metadata without
   modifying human-authored files under `Knowledge/**`.
 
+### Milestone 3.2: Resource Review Console
+
+**Status:** Accepted on 2026-07-16; implementation in progress.
+
+**Outcome:** Pending Resources are discoverable and reviewable from one Tailscale-only iPhone/Mac
+workbench without copying Resource IDs.
+
+- group summary Resource versions by Source and preserve their provenance;
+- show pending, reviewed, dismissed, and all views with local action feedback;
+- open original Sources and generated Vortex cards;
+- dismiss or restore through Atlas review metadata;
+- request a human comment through a fixed Atlas Run that a Mac Lumio executes locally;
+- keep the browser free of control/agent credentials and keep all Knowledge prose human-authored.
+
+This is a deliberately narrow review client, not the general control plane described by Milestone
+6. See [RFC 0004](rfcs/0004-resource-review-console.md).
+
 ## Milestone 4: Academic source workflow
 
 **Status:** Ready for a focused RFC; not started.
@@ -201,6 +218,9 @@ Initial views:
 - agents and nodes;
 - resources awaiting review;
 - experiments and notifications.
+
+Milestone 3.2 delivers only the Resource review workbench. Milestone 6 begins when the remaining
+cross-domain views have concrete user workflows and stable backend contracts.
 
 The console is a client of Atlas. It does not own the backend schema, directly access Atlas SQLite,
 or become the only way to operate the system.

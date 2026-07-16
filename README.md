@@ -43,6 +43,8 @@ Atlas is one part of a three-repository personal infrastructure system:
   in-memory reliability.
 - [RFC 0003: Source, Resource, and Human Review Loop](docs/rfcs/0003-source-resource-review-loop.md):
   the Bilibili-to-Obsidian content boundary.
+- [RFC 0004: Resource Review Console](docs/rfcs/0004-resource-review-console.md): the narrow,
+  mobile-friendly Resource inbox and human-comment request boundary.
 - [Roadmap](docs/roadmap.md): ordered milestones and current stabilization work.
 - [Backend control-plane design](docs/superpowers/specs/2026-07-06-atlas-backend-control-plane-design.md):
   the existing backend architecture.

@@ -11,11 +11,13 @@ nix-config ──provisions──▶ Atlas service
 
 Lumio ─────public API───▶ Atlas
 Atlas ─────work/events──▶ protocol-compatible agents
+Console ───public API───▶ Atlas
 ```
 
 Provisioning is not a runtime library dependency. Atlas must run without Lumio, and Lumio should
 remain useful when Atlas is unavailable. An active Atlas-assigned attempt tolerates only a transient
 interruption that ends within its remaining lease; local pi use does not inherit that limitation.
+The Console is an optional client: Atlas and Lumio continue to operate when it is unavailable.
 
 ## Responsibility matrix
 
@@ -33,6 +35,12 @@ interruption that ends within its remaining lease; local pi use does not inherit
 | Large files | Artifact references only | Produce/consume | Provision storage paths |
 | Human-authored knowledge | Link/index only | May open an empty capture UI | Provision applications/paths |
 | Source/Resource provenance | Own metadata and lifecycle | Acquire/derive/project | Provision paths only |
+| Resource review Console | Expose narrow APIs | Execute Mac-local mutations | Provision private service |
+
+The separate Atlas Console is a browser client, not a fourth authority. It may compose Atlas read
+models and request explicitly-scoped actions. It does not access Atlas SQLite, hold the shared
+control token, execute arbitrary Jobs, read Mac-local `file://` artifacts, or write the Vortex
+vault. Browser actions that require local files become capability-routed Runs for Lumio.
 
 ## Control plane and data plane
 

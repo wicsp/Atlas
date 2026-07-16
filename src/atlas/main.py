@@ -33,6 +33,12 @@ from .messages.service import MessageService, MessageStateError, create_message_
 from .network import NetworkConnectivity
 from .probes import ProbeHistorySummary, ProbeResult
 from .rate_limit import login_rate_limiter
+from .review.models import CommentRequest, CommentRequestResponse
+from .review.service import (
+    ResourceAlreadyCommentedError,
+    ReviewService,
+    UnsupportedReviewResourceError,
+)
 from .security import (
     SESSION_COOKIE_NAME,
     create_session_token,
@@ -150,6 +156,13 @@ def _content_service(request: Request) -> ContentService:
         service = create_content_service(settings.work.database_path)
         request.app.state.content_service = service
     return service
+
+
+def _review_service(request: Request) -> ReviewService:
+    return ReviewService(
+        content=_content_service(request),
+        work=_work_service(request),
+    )
 
 
 def require_auth(request: Request) -> None:
@@ -495,6 +508,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         limit: int = Query(default=100, ge=1, le=500),
     ) -> list[KnowledgeRefRecord]:
         return _content_service(request).list_knowledge_refs(limit=limit)
+
+    @app.post(
+        "/api/review-actions/comment",
+        response_model=CommentRequestResponse,
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def request_resource_comment(
+        request: Request,
+        payload: CommentRequest,
+    ) -> CommentRequestResponse:
+        try:
+            return _review_service(request).request_comment(payload.resource_id)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Resource not found",
+            ) from exc
+        except (ResourceAlreadyCommentedError, UnsupportedReviewResourceError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
+            ) from exc
 
     @app.post(
         "/api/messages",
