@@ -182,6 +182,26 @@ workbench without copying Resource IDs.
 This is a deliberately narrow review client, not the general control plane described by Milestone
 6. See [RFC 0004](rfcs/0004-resource-review-console.md).
 
+### Milestone 3.3: Bilibili local ASR fallback
+
+**Status:** Implemented on 2026-07-16.
+
+**Outcome:** A public single-part Bilibili video without platform subtitles still becomes a
+reviewable transcript and AI-summary Resource on the Mac.
+
+- advertise the new `bilibili-summary-v4` capability so subtitle-only agents cannot claim it;
+- treat browser cookies as optional and continue anonymously for public sources;
+- prefer platform subtitles, then run a bounded `yt-dlp -> ffmpeg -> whisper.cpp` fallback;
+- record acquisition mode, language, engine, model, duration, and transcript lineage;
+- delete raw audio and intermediate ASR files after every outcome;
+- keep multi-part ASR, diarization, AMAX offload, and raw-media retention out of this slice.
+
+See [RFC 0005](rfcs/0005-bilibili-asr-fallback.md).
+
+The acceptance video `BV1NG9xBUEju` completed through local whisper.cpp ASR and Atlas publication
+on the first corrected attempt. The macsp Darwin configuration evaluates and builds successfully;
+activating that generation remains the user's normal interactive sudo/Touch ID step.
+
 ## Milestone 4: Academic source workflow
 
 **Status:** Ready for a focused RFC; not started.
