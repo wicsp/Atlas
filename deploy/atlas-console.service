@@ -1,0 +1,22 @@
+[Unit]
+Description=Atlas Resource Review Console
+After=network-online.target atlas.service
+Wants=network-online.target atlas.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/wicsp/projects/AtlasConsole
+Environment=NODE_ENV=production
+Environment=PATH=/home/wicsp/.nix-profile/bin:/usr/local/bin:/usr/bin:/bin
+Environment=NPM_CONFIG_UPDATE_NOTIFIER=false
+Environment=NPM_CONFIG_CACHE=/tmp/atlas-console-npm-cache
+ExecStart=/home/wicsp/.nix-profile/bin/npm run start -- --hostname 127.0.0.1 --port 8788
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+
+[Install]
+WantedBy=default.target
