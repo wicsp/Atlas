@@ -143,3 +143,33 @@ export function latestCommentRunsByResource(
 export function isActiveRun(run: RunRecord | undefined): boolean {
   return run?.status === "pending" || run?.status === "claimed";
 }
+
+function isVortexCommentUri(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  try {
+    const uri = new URL(value);
+    const file = uri.searchParams.get("file");
+    return (
+      uri.protocol === "obsidian:" &&
+      uri.hostname === "open" &&
+      uri.searchParams.get("vault") === "Vortex" &&
+      file !== null &&
+      file.startsWith("Knowledge/Comments/")
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Return only the bounded Vortex deep link created by the comment workflow.
+ * KnowledgeRef is authoritative; completed Run output is a same-refresh fallback.
+ */
+export function commentNoteUri(
+  run: RunRecord | undefined,
+  knowledgeRef: KnowledgeRefRecord | undefined,
+): string | null {
+  if (isVortexCommentUri(knowledgeRef?.uri)) return knowledgeRef.uri;
+  const runUri = run?.status === "completed" ? run.output?.note_uri : null;
+  return isVortexCommentUri(runUri) ? runUri : null;
+}

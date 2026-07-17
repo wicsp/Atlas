@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  commentNoteUri,
   groupResourcesBySource,
   isActiveRun,
   latestCommentRunsByResource,
@@ -90,4 +91,44 @@ test("tracks only the newest comment run for each Resource", () => {
   assert.equal(latest.res_one000.run_id, "run_new");
   assert.equal(isActiveRun(latest.res_one000), true);
   assert.equal(isActiveRun({ ...claimed, status: "completed" }), false);
+});
+
+test("returns only a completed Vortex Knowledge Comment deep link", () => {
+  const validUri =
+    "obsidian://open?vault=Vortex&file=Knowledge%2FComments%2F2026-07-17-res_one000";
+  const completed = {
+    ...run("run_done", "res_one000", "2026-07-17T11:00:00Z", "completed"),
+    output: { note_uri: validUri },
+  };
+  const knowledgeRef = {
+    knowledge_ref_id: "kref_one",
+    note_id: "Knowledge/Comments/2026-07-17-res_one000",
+    uri: validUri,
+    source_ids: [source.source_id],
+    resource_ids: ["res_one000"],
+    revision_of: null,
+    created_at: "2026-07-17T11:00:00Z",
+    updated_at: "2026-07-17T11:00:00Z",
+  };
+
+  assert.equal(commentNoteUri(completed, knowledgeRef), validUri);
+  assert.equal(commentNoteUri(completed, undefined), validUri);
+  assert.equal(
+    commentNoteUri({ ...completed, status: "claimed" }, undefined),
+    null,
+  );
+  assert.equal(
+    commentNoteUri(
+      { ...completed, output: { note_uri: "https://example.com/not-obsidian" } },
+      undefined,
+    ),
+    null,
+  );
+  assert.equal(
+    commentNoteUri(
+      completed,
+      { ...knowledgeRef, uri: "obsidian://open?vault=Vortex&file=Resources%2FCards%2Fres_one000" },
+    ),
+    validUri,
+  );
 });

@@ -1,7 +1,8 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  commentNoteUri,
   groupResourcesBySource,
   isActiveRun,
   latestCommentRunsByResource,
@@ -144,6 +145,7 @@ export function ReviewConsole() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [busyResources, setBusyResources] = useState<Set<string>>(new Set());
   const [feedback, setFeedback] = useState<Record<string, Feedback>>({});
+  const commentOpenIntents = useRef(new Set<string>());
 
   const loadReviewData = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
@@ -163,6 +165,23 @@ export function ReviewConsole() {
       setLastUpdated(new Date());
 
       const latest = latestCommentRunsByResource(nextRuns);
+      const noteToOpen = (() => {
+        let target: { resourceId: string; runId?: string; uri: string } | null = null;
+        for (const resourceId of [...commentOpenIntents.current]) {
+          const run = latest[resourceId];
+          if (!run || isActiveRun(run)) continue;
+
+          commentOpenIntents.current.delete(resourceId);
+          const knowledgeRef = nextKnowledgeRefs.find((reference) =>
+            reference.resource_ids.includes(resourceId),
+          );
+          const noteUri = commentNoteUri(run, knowledgeRef);
+          if (run.status === "completed" && noteUri && target === null) {
+            target = { resourceId, runId: run.run_id, uri: noteUri };
+          }
+        }
+        return target;
+      })();
       setFeedback((current) => {
         const updated = { ...current };
         for (const [resourceId, entry] of Object.entries(current)) {
@@ -173,13 +192,21 @@ export function ReviewConsole() {
             tone: run.status === "completed" ? "success" : "error",
             message:
               run.status === "completed"
-                ? "空白评论已创建；现在可以在 Obsidian 中写下你的判断。"
+                ? "空白评论已创建；可通过“已有你的评论”重新打开。"
                 : run.error_message || runLabel(run),
             runId: run.run_id,
           };
         }
+        if (noteToOpen) {
+          updated[noteToOpen.resourceId] = {
+            tone: "success",
+            message: "空白评论已创建；正在打开 Obsidian。",
+            runId: noteToOpen.runId,
+          };
+        }
         return updated;
       });
+      if (noteToOpen) window.location.assign(noteToOpen.uri);
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         setAuth("anonymous");
@@ -344,6 +371,7 @@ export function ReviewConsole() {
   }
 
   async function requestComment(resourceId: string) {
+    commentOpenIntents.current.add(resourceId);
     setResourceBusy(resourceId, true);
     setFeedback((current) => ({
       ...current,
@@ -373,6 +401,7 @@ export function ReviewConsole() {
       }));
       if (!isActiveRun(result.run)) await loadReviewData(true);
     } catch (error) {
+      commentOpenIntents.current.delete(resourceId);
       setFeedback((current) => ({
         ...current,
         [resourceId]: { tone: "error", message: errorMessage(error) },
