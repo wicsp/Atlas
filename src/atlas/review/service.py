@@ -8,6 +8,7 @@ from .models import CommentRequestResponse
 
 REVIEW_PROJECT_ID = "resource-review"
 COMMENT_JOB_NAME = "vortex-comment-v1"
+COMMENT_RUN_PRIORITY = 100
 
 
 class ResourceAlreadyCommentedError(ValueError):
@@ -58,6 +59,7 @@ class ReviewService:
                 job_name=COMMENT_JOB_NAME,
                 capabilities_required=[COMMENT_JOB_NAME],
                 input={"resource_id": resource_id},
+                priority=COMMENT_RUN_PRIORITY,
                 max_attempts=3,
                 metadata={"requested_via": "atlas-console"},
             )

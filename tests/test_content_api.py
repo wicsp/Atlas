@@ -438,6 +438,7 @@ def test_comment_request_enqueues_only_fixed_capability_and_reuses_active_run(
     assert run["job_name"] == "vortex-comment-v1"
     assert run["capabilities_required"] == ["vortex-comment-v1"]
     assert run["input"] == {"resource_id": resource_id}
+    assert run["priority"] == 100
     assert run["metadata"] == {"requested_via": "atlas-console"}
     assert run["output"] is None
 
