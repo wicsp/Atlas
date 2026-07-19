@@ -45,6 +45,10 @@ Atlas is one part of a three-repository personal infrastructure system:
   the Bilibili-to-Obsidian content boundary.
 - [RFC 0004: Resource Review Console](docs/rfcs/0004-resource-review-console.md): the narrow,
   mobile-friendly Resource inbox and human-comment request boundary.
+- [RFC 0005: Bilibili ASR Fallback](docs/rfcs/0005-bilibili-asr-fallback.md): subtitle-first,
+  bounded local transcription for public single-part videos.
+- [RFC 0006: Nightly Bilibili Atlas Queue](docs/rfcs/0006-nightly-bilibili-atlas-queue.md):
+  explicit favorites-folder ingestion with publication-gated cleanup.
 - [Roadmap](docs/roadmap.md): ordered milestones and current stabilization work.
 - [Backend control-plane design](docs/superpowers/specs/2026-07-06-atlas-backend-control-plane-design.md):
   the existing backend architecture.

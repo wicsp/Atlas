@@ -202,6 +202,24 @@ The acceptance video `BV1NG9xBUEju` completed through local whisper.cpp ASR and 
 on the first corrected attempt. The macsp Darwin configuration evaluates and builds successfully;
 activating that generation remains the user's normal interactive sudo/Touch ID step.
 
+### Milestone 3.4: Nightly Bilibili Atlas queue
+
+**Status:** Accepted; implementation started on 2026-07-19.
+
+**Outcome:** Videos explicitly placed in the Bilibili `Atlas` favorites folder are processed
+sequentially overnight through the existing Source/Run/Resource pipeline. Only after Atlas verifies
+a published summary Resource is the individual video removed from both that folder and Watch
+Later.
+
+- use the exact `Atlas` folder as a deterministic queue instead of classifying all Watch Later;
+- run a bounded one-shot headless Pi/Lumio executor from a macOS calendar LaunchAgent;
+- skip recomputation when a summary Resource already exists and retry only external cleanup;
+- preserve failed, unfinished, over-duration, and unsupported videos in the Bilibili queue;
+- provide no bulk deletion, durable outbox, new Atlas scheduler object, or AI-authored Knowledge.
+
+See [RFC 0006](rfcs/0006-nightly-bilibili-atlas-queue.md). A sleeping Mac may defer the 02:00
+LaunchAgent until the next wake; exact remote wake is outside this milestone.
+
 ## Milestone 4: Academic source workflow
 
 **Status:** Ready for a focused RFC; not started.
