@@ -795,7 +795,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get(
         "/api/runs",
         response_model=list[RunRecord],
-        dependencies=[Depends(require_auth)],
+        dependencies=[Depends(require_control_auth)],
     )
     async def list_runs(
         request: Request,
@@ -813,7 +813,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get(
         "/api/runs/{run_id}",
         response_model=RunRecord,
-        dependencies=[Depends(require_auth)],
+        dependencies=[Depends(require_control_auth)],
     )
     async def get_run(request: Request, run_id: str) -> RunRecord:
         try:

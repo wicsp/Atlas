@@ -329,6 +329,21 @@ class TestLeaseExpiry:
 
 
 class TestListing:
+    def test_control_credential_can_list_and_get_runs(self, agent_client):
+        _create_project(agent_client, "nightly", "Nightly")
+        run = _enqueue_run(agent_client, "nightly", "bilibili-summary-v4")
+
+        listed = agent_client.get("/api/runs?project_id=nightly")
+        fetched = agent_client.get(f"/api/runs/{run['run_id']}")
+
+        assert listed.status_code == 200
+        assert [item["run_id"] for item in listed.json()] == [run["run_id"]]
+        assert fetched.status_code == 200
+        assert fetched.json()["run_id"] == run["run_id"]
+
+    def test_scoped_executor_cannot_list_arbitrary_runs(self, scoped_client):
+        assert scoped_client.get("/api/runs").status_code == 401
+
     def test_list_runs_by_project(self, agent_client, session_client):
         _create_project(agent_client, "p1", "P1")
         _create_project(agent_client, "p2", "P2")

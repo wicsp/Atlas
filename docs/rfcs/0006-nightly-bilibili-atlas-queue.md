@@ -40,8 +40,12 @@ not durable configuration.
 ### Atlas
 
 Atlas remains authoritative for Source identity, Run state, Resource publication, provenance, and
-review status. RFC 0006 uses the existing RFC 0003/v3 endpoints and adds no schema or runtime API.
-The `bilibili-capture` Project and `bilibili-summary-v4` Runs make every attempt visible.
+review status. RFC 0006 adds no schema or new endpoint. It permits the already privileged personal
+control credential, in addition to an operator browser session, to use the existing read-only
+`GET /api/runs` and `GET /api/runs/{run_id}` endpoints. This lets a restarted controller resume an
+active Run instead of enqueueing duplicate model work. Scoped executor credentials remain unable
+to list arbitrary Runs. The `bilibili-capture` Project and `bilibili-summary-v4` Runs make every
+attempt visible.
 
 Atlas does not store Bilibili cookies, call Bilibili APIs, or delete external list entries.
 
@@ -69,16 +73,19 @@ temporary cookie file, and performs these steps for one video at a time:
 
 1. Resolve the exact `Atlas` favorites folder and list all pages.
 2. Upsert Source `bilibili:<bvid>` with the canonical video URL.
-3. If that Source already has a summary Resource, skip recomputation and continue at step 7.
-4. Ensure Project `bilibili-capture` exists and enqueue one `bilibili-summary-v4` Run with
+3. If that Source already has a summary Resource, skip recomputation and continue at step 8.
+4. Read existing Runs for this Source. Resume waiting for a pending or claimed
+   `bilibili-summary-v4` Run; do not enqueue a duplicate. A terminal Run without a summary remains
+   visible and requires an explicit manual retry rather than consuming model/ASR again every night.
+5. Otherwise ensure Project `bilibili-capture` exists and enqueue one `bilibili-summary-v4` Run with
    `max_attempts: 1` and queue-origin metadata.
-5. Wait for that Run to become terminal, within the controller's overall nightly deadline.
-6. Require status `completed` and a summary Resource whose `source_id` and
+6. Wait for that Run to become terminal, within the controller's overall nightly deadline.
+7. Require status `completed` and a summary Resource whose `source_id` and
    `produced_by_run_id` match this Source and Run.
-7. Remove the individual video from the `Atlas` favorites folder.
-8. Remove the same individual `aid` from Watch Later when present.
+8. Remove the individual video from the `Atlas` favorites folder.
+9. Remove the same individual `aid` from Watch Later when present.
 
-Steps 7 and 8 are independent, idempotent cleanup operations. If only one succeeds, the next scan
+Steps 8 and 9 are independent, idempotent cleanup operations. If only one succeeds, the next scan
 sees the existing summary Resource and retries cleanup without rerunning the model.
 
 The controller stops accepting new videos at its deadline, lets no new external mutation begin,
@@ -124,24 +131,27 @@ video, or multipart ASR refusal leaves the video in the queue.
    names.
 2. Cleanup tests cover present-in-both, present-in-one, absent-in-both, malformed BV ID, and one
    failed Bilibili mutation without any bulk request.
-3. Controller tests use fake Atlas, Bilibili, and Pi processes to cover empty queue, existing
-   summary, successful publication, failed Run, timeout, duplicate invocation, and guaranteed
-   credential cleanup.
-4. Lumio's existing 40 Atlas tests and compatibility check remain green.
-5. `nix flake check`, affected Darwin evaluation, and a full macsp build pass.
-6. A manual dry run lists the real folder without enqueueing or deleting.
-7. One real queued video completes through headless Pi, publishes a reviewable summary Resource,
+3. The control credential can list and fetch Runs but a scoped executor credential cannot list
+   arbitrary Runs.
+4. Controller tests use fake Atlas, Bilibili, and Pi processes to cover empty queue, existing
+   summary, successful publication, failed Run, active-Run reuse, timeout, duplicate invocation,
+   and guaranteed credential cleanup.
+5. Lumio's existing Atlas tests and compatibility check remain green.
+6. `nix flake check`, affected Darwin evaluation, and a full macsp build pass.
+7. A manual dry run lists the real folder without enqueueing or deleting.
+8. One real queued video completes through headless Pi, publishes a reviewable summary Resource,
    disappears from both Bilibili lists, and produces no Knowledge prose.
-8. A deliberately failed video remains in the folder and is visible as a failed Atlas Run.
+9. A deliberately failed video remains in the folder and is visible as a failed Atlas Run.
 
 ## Implementation order
 
 1. Add the safe Lumio queue helper and tests.
-2. Add the one-shot controller with fake-process/API tests.
-3. Add the LaunchAgent and configuration in `nix-config`.
-4. Run a read-only real-folder smoke test.
-5. Run one explicit real mutation acceptance video.
-6. Record deployed revisions here and mark the RFC Implemented.
+2. Allow control-authenticated read-only Run inspection and add Atlas tests.
+3. Add the one-shot controller with fake-process/API tests.
+4. Add the LaunchAgent and configuration in `nix-config`.
+5. Run a read-only real-folder smoke test.
+6. Run one explicit real mutation acceptance video.
+7. Record deployed revisions here and mark the RFC Implemented.
 
 ## Implementation record
 
