@@ -28,6 +28,12 @@ interface CommentRequestResponse {
   reused: boolean;
 }
 
+interface PurgeSourceResponse {
+  run: RunRecord;
+  resource_ids: string[];
+  reused: boolean;
+}
+
 class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -144,7 +150,9 @@ export function ReviewConsole() {
   const [loadError, setLoadError] = useState("");
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [busyResources, setBusyResources] = useState<Set<string>>(new Set());
+  const [busySources, setBusySources] = useState<Set<string>>(new Set());
   const [feedback, setFeedback] = useState<Record<string, Feedback>>({});
+  const [purgeFeedback, setPurgeFeedback] = useState<Feedback | null>(null);
   const commentOpenIntents = useRef(new Set<string>());
 
   const loadReviewData = useCallback(async (quiet = false) => {
@@ -163,6 +171,20 @@ export function ReviewConsole() {
       setKnowledgeRefs(nextKnowledgeRefs);
       setRuns(nextRuns);
       setLastUpdated(new Date());
+
+      setPurgeFeedback((current) => {
+        if (!current?.runId) return current;
+        const run = nextRuns.find((candidate) => candidate.run_id === current.runId);
+        if (!run || isActiveRun(run)) return current;
+        return {
+          tone: run.status === "completed" ? "success" : "error",
+          message:
+            run.status === "completed"
+              ? "机器材料已彻底删除，本地 artifact 与 Obsidian 卡片也已清理。"
+              : run.error_message || "Atlas 元数据已删除，但本地清理失败；Run 会保留诊断。",
+          runId: run.run_id,
+        };
+      });
 
       const latest = latestCommentRunsByResource(nextRuns);
       const noteToOpen = (() => {
@@ -248,7 +270,7 @@ export function ReviewConsole() {
   }, [loadReviewData]);
 
   const latestRuns = useMemo(() => latestCommentRunsByResource(runs), [runs]);
-  const hasActiveRuns = Object.values(latestRuns).some(isActiveRun);
+  const hasActiveRuns = runs.some(isActiveRun);
 
   useEffect(() => {
     if (auth !== "authenticated" || !hasActiveRuns) return;
@@ -326,6 +348,48 @@ export function ReviewConsole() {
       else next.delete(resourceId);
       return next;
     });
+  }
+
+  function setSourceBusy(sourceId: string, value: boolean) {
+    setBusySources((current) => {
+      const next = new Set(current);
+      if (value) next.add(sourceId);
+      else next.delete(sourceId);
+      return next;
+    });
+  }
+
+  async function purgeSource(sourceId: string, resourceIds: string[]) {
+    const confirmed = window.confirm(
+      `彻底删除这个来源的全部机器材料？\n\n将删除 ${resourceIds.length} 个可见 summary 版本，以及同一来源的 transcript、其他机器 Resource、artifact 文件和 Obsidian Resource 卡片。\n\nSource 与 Run 审计仍会保留。此操作不可恢复。`,
+    );
+    if (!confirmed) return;
+
+    setSourceBusy(sourceId, true);
+    setPurgeFeedback({ tone: "progress", message: "正在删除 Atlas Resource 元数据并安排 Mac 本地清理…" });
+    try {
+      const result = await api<PurgeSourceResponse>("/api/review-actions/purge-source", {
+        method: "POST",
+        body: JSON.stringify({ source_id: sourceId }),
+      });
+      const deleted = new Set(result.resource_ids);
+      setResources((current) => current.filter((resource) => !deleted.has(resource.resource_id)));
+      setRuns((current) => [
+        result.run,
+        ...current.filter((run) => run.run_id !== result.run.run_id),
+      ]);
+      setPurgeFeedback({
+        tone: isActiveRun(result.run) ? "progress" : "success",
+        message: result.reused
+          ? "Atlas 已删除机器材料；正在继续等待 Mac 完成本地清理。"
+          : `Atlas 已删除 ${result.resource_ids.length} 个机器 Resource；正在等待 Mac 清理 artifact 与卡片。`,
+        runId: result.run.run_id,
+      });
+    } catch (error) {
+      setPurgeFeedback({ tone: "error", message: errorMessage(error) });
+    } finally {
+      setSourceBusy(sourceId, false);
+    }
   }
 
   async function changeReviewStatus(resourceId: string, status: ReviewStatus) {
@@ -550,6 +614,13 @@ export function ReviewConsole() {
         </div>
       ) : null}
 
+      {purgeFeedback ? (
+        <div className={`global-feedback ${purgeFeedback.tone}`} role="status">
+          <span>{purgeFeedback.message}</span>
+          <button type="button" onClick={() => setPurgeFeedback(null)}>关闭</button>
+        </div>
+      ) : null}
+
       <section className="inbox-heading">
         <div>
           <p className="eyebrow">SOURCE LEDGER</p>
@@ -573,6 +644,14 @@ export function ReviewConsole() {
 
         {visibleGroups.map((group, groupIndex) => {
           const source = group.source;
+          const sourceBusy = busySources.has(group.sourceId);
+          const sourceKnowledgeProtected = group.resources.some((resource) =>
+            knowledgeByResource.has(resource.resource_id),
+          );
+          const sourceCommentActive = group.resources.some((resource) =>
+            isActiveRun(latestRuns[resource.resource_id]),
+          );
+          const purgeDisabled = sourceBusy || sourceKnowledgeProtected || sourceCommentActive;
           return (
             <article className="source-card" key={group.sourceId}>
               <header className="source-header">
@@ -586,18 +665,38 @@ export function ReviewConsole() {
                   <h3>{source?.title || group.resources[0]?.title || "未命名来源"}</h3>
                   <code title={group.sourceId}>{shortId(group.sourceId)}</code>
                 </div>
-                {source ? (
-                  <a
-                    className="source-link"
-                    href={source.canonical_uri}
-                    target="_blank"
-                    rel="noreferrer"
+                <div className="source-header-actions">
+                  {source ? (
+                    <a
+                      className="source-link"
+                      href={source.canonical_uri}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      打开原文 <span aria-hidden="true">↗</span>
+                    </a>
+                  ) : (
+                    <span className="missing-source">Source metadata missing</span>
+                  )}
+                  <button
+                    className="purge-button"
+                    type="button"
+                    disabled={purgeDisabled}
+                    title={
+                      sourceKnowledgeProtected
+                        ? "已有 KnowledgeRef 的机器材料不能删除"
+                        : sourceCommentActive
+                          ? "评论创建完成前不能删除"
+                          : "删除该来源的全部机器 Resource、artifact 与生成卡片"
+                    }
+                    onClick={() => void purgeSource(
+                      group.sourceId,
+                      group.resources.map((resource) => resource.resource_id),
+                    )}
                   >
-                    打开原文 <span aria-hidden="true">↗</span>
-                  </a>
-                ) : (
-                  <span className="missing-source">Source metadata missing</span>
-                )}
+                    {sourceBusy ? "删除中…" : "彻底删除机器材料"}
+                  </button>
+                </div>
               </header>
 
               <div className="versions">

@@ -612,6 +612,34 @@ button:disabled {
   color: var(--forest);
 }
 
+.source-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  justify-content: flex-end;
+}
+
+.purge-button {
+  min-height: 38px;
+  padding: 0 0.75rem;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--coral);
+  font-size: 0.72rem;
+}
+
+.purge-button:hover:not(:disabled) {
+  border-color: #d8aaa0;
+  background: var(--coral-soft);
+}
+
+.purge-button:disabled {
+  cursor: not-allowed;
+  color: var(--muted);
+  opacity: 0.55;
+}
+
 .missing-source {
   color: var(--coral);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -907,6 +935,38 @@ button:disabled {
   color: var(--coral);
 }
 
+.global-feedback {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+  margin: 1.25rem 0 0;
+  padding: 0.8rem 1rem;
+  border-left: 3px solid currentColor;
+  background: var(--paper-deep);
+  font-size: 0.75rem;
+}
+
+.global-feedback.progress,
+.global-feedback.info {
+  color: var(--blue);
+}
+
+.global-feedback.success {
+  color: var(--forest);
+}
+
+.global-feedback.error {
+  color: var(--coral);
+}
+
+.global-feedback button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 0.7rem;
+}
+
 .empty-state {
   display: grid;
   justify-items: center;
@@ -1038,8 +1098,12 @@ button:disabled {
 
   .source-link,
   .missing-source {
-    grid-column: 2;
     justify-self: start;
+  }
+
+  .source-header-actions {
+    grid-column: 2;
+    justify-content: flex-start;
   }
 
   .versions {

@@ -46,6 +46,9 @@ test("removes starter surfaces and keeps credentials out of client source", asyn
   assert.match(page, /<ReviewConsole \/>/);
   assert.match(client, /credentials:\s*"include"/);
   assert.match(client, /\/api\/review-actions\/comment/);
+  assert.match(client, /\/api\/review-actions\/purge-source/);
+  assert.match(client, /彻底删除机器材料/);
+  assert.match(client, /window\.confirm/);
   assert.doesNotMatch(client, /shared[_-]?token|control[_-]?token|localStorage/i);
   assert.doesNotMatch(packageJson, /react-loading-skeleton|drizzle/);
 
