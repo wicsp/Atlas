@@ -49,6 +49,8 @@ test("removes starter surfaces and keeps credentials out of client source", asyn
   assert.match(client, /\/api\/review-actions\/purge-source/);
   assert.match(client, /彻底删除机器材料/);
   assert.match(client, /window\.confirm/);
+  assert.match(client, /ACTIVE_RUN_POLL_INTERVAL_MS\s*=\s*1_000/);
+  assert.match(client, /Lumio 已领取；正在创建空白评论并登记引用/);
   assert.doesNotMatch(client, /shared[_-]?token|control[_-]?token|localStorage/i);
   assert.doesNotMatch(packageJson, /react-loading-skeleton|drizzle/);
 

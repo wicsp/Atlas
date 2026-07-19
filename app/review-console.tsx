@@ -16,6 +16,7 @@ import {
 type AuthState = "checking" | "anonymous" | "authenticated";
 type Filter = ReviewStatus | "all";
 type FeedbackTone = "progress" | "success" | "error" | "info";
+const ACTIVE_RUN_POLL_INTERVAL_MS = 1_000;
 
 interface Feedback {
   tone: FeedbackTone;
@@ -209,15 +210,29 @@ export function ReviewConsole() {
         for (const [resourceId, entry] of Object.entries(current)) {
           if (!entry.runId) continue;
           const run = latest[resourceId];
-          if (!run || run.run_id !== entry.runId || isActiveRun(run)) continue;
-          updated[resourceId] = {
-            tone: run.status === "completed" ? "success" : "error",
-            message:
-              run.status === "completed"
-                ? "空白评论已创建；可通过“已有你的评论”重新打开。"
-                : run.error_message || runLabel(run),
-            runId: run.run_id,
-          };
+          if (!run || run.run_id !== entry.runId) continue;
+          if (run.status === "pending") {
+            updated[resourceId] = {
+              tone: "progress",
+              message: "正在等待在线的 Mac Lumio 领取评论任务…",
+              runId: run.run_id,
+            };
+          } else if (run.status === "claimed") {
+            updated[resourceId] = {
+              tone: "progress",
+              message: "Lumio 已领取；正在创建空白评论并登记引用…",
+              runId: run.run_id,
+            };
+          } else {
+            updated[resourceId] = {
+              tone: run.status === "completed" ? "success" : "error",
+              message:
+                run.status === "completed"
+                  ? "空白评论已创建；可通过“已有你的评论”重新打开。"
+                  : run.error_message || runLabel(run),
+              runId: run.run_id,
+            };
+          }
         }
         if (noteToOpen) {
           updated[noteToOpen.resourceId] = {
@@ -276,7 +291,7 @@ export function ReviewConsole() {
     if (auth !== "authenticated" || !hasActiveRuns) return;
     const interval = window.setInterval(() => {
       void loadReviewData(true);
-    }, 4000);
+    }, ACTIVE_RUN_POLL_INTERVAL_MS);
     return () => window.clearInterval(interval);
   }, [auth, hasActiveRuns, loadReviewData]);
 
@@ -457,9 +472,11 @@ export function ReviewConsole() {
         ...current,
         [resourceId]: {
           tone: isActiveRun(result.run) ? "progress" : "success",
-          message: result.reused
-            ? "已有相同请求，正在继续等待 Mac Lumio。"
-            : "请求已排队；Mac 上任一在线 Lumio 会领取它。",
+          message: result.run.status === "claimed"
+            ? "Lumio 已领取；正在创建空白评论并登记引用…"
+            : result.reused
+              ? "已有相同请求，正在继续等待在线的 Mac Lumio。"
+              : "请求已排队；正在等待在线的 Mac Lumio 领取。",
           runId: result.run.run_id,
         },
       }));
