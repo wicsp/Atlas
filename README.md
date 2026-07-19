@@ -49,6 +49,8 @@ Atlas is one part of a three-repository personal infrastructure system:
   bounded local transcription for public single-part videos.
 - [RFC 0006: Nightly Bilibili Atlas Queue](docs/rfcs/0006-nightly-bilibili-atlas-queue.md):
   explicit favorites-folder ingestion with publication-gated cleanup.
+- [RFC 0007: Source Machine Resource Purge](docs/rfcs/0007-source-machine-resource-purge.md):
+  protected, Source-scoped deletion of machine Resources, artifacts, and generated cards.
 - [Roadmap](docs/roadmap.md): ordered milestones and current stabilization work.
 - [Backend control-plane design](docs/superpowers/specs/2026-07-06-atlas-backend-control-plane-design.md):
   the existing backend architecture.

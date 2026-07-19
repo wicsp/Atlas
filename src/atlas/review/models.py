@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from atlas.work.models import RunRecord
 
 _RESOURCE_ID_PATTERN = r"^res_[A-Za-z0-9._-]{8,120}$"
+_SOURCE_ID_PATTERN = r"^src_[A-Za-z0-9._-]{8,120}$"
 
 
 class StrictModel(BaseModel):
@@ -22,4 +23,19 @@ class CommentRequest(StrictModel):
 
 class CommentRequestResponse(StrictModel):
     run: RunRecord
+    reused: bool
+
+
+class PurgeSourceRequest(StrictModel):
+    source_id: str = Field(pattern=_SOURCE_ID_PATTERN)
+
+    @field_validator("source_id")
+    @classmethod
+    def strip_source_id(cls, value: str) -> str:
+        return value.strip()
+
+
+class PurgeSourceResponse(StrictModel):
+    run: RunRecord
+    resource_ids: list[str]
     reused: bool

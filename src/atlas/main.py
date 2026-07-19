@@ -33,7 +33,18 @@ from .messages.service import MessageService, MessageStateError, create_message_
 from .network import NetworkConnectivity
 from .probes import ProbeHistorySummary, ProbeResult
 from .rate_limit import login_rate_limiter
-from .review.models import CommentRequest, CommentRequestResponse
+from .review.models import (
+    CommentRequest,
+    CommentRequestResponse,
+    PurgeSourceRequest,
+    PurgeSourceResponse,
+)
+from .review.purge import (
+    NoResourcesToPurgeError,
+    ResourcePurgeConflictError,
+    ResourcePurgeService,
+    create_resource_purge_service,
+)
 from .review.service import (
     ResourceAlreadyCommentedError,
     ReviewService,
@@ -163,6 +174,18 @@ def _review_service(request: Request) -> ReviewService:
         content=_content_service(request),
         work=_work_service(request),
     )
+
+
+def _resource_purge_service(request: Request) -> ResourcePurgeService:
+    service = getattr(request.app.state, "resource_purge_service", None)
+    if service is None:
+        settings: Settings = request.app.state.settings
+        service = create_resource_purge_service(
+            settings.work.database_path,
+            _work_service(request),
+        )
+        request.app.state.resource_purge_service = service
+    return service
 
 
 def require_auth(request: Request) -> None:
@@ -526,6 +549,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 detail="Resource not found",
             ) from exc
         except (ResourceAlreadyCommentedError, UnsupportedReviewResourceError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
+            ) from exc
+
+    @app.post(
+        "/api/review-actions/purge-source",
+        response_model=PurgeSourceResponse,
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def request_source_resource_purge(
+        request: Request,
+        payload: PurgeSourceRequest,
+    ) -> PurgeSourceResponse:
+        try:
+            return _resource_purge_service(request).request(payload.source_id)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Source not found",
+            ) from exc
+        except (NoResourcesToPurgeError, ResourcePurgeConflictError) as exc:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=str(exc),

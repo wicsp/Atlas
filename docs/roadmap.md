@@ -220,6 +220,24 @@ Later.
 See [RFC 0006](rfcs/0006-nightly-bilibili-atlas-queue.md). A sleeping Mac may defer the 02:00
 LaunchAgent until the next wake; exact remote wake is outside this milestone.
 
+### Milestone 3.5: Source machine-material purge
+
+**Status:** Implemented on 2026-07-19.
+
+**Outcome:** A Source that proves useless can have all of its machine-produced Resources removed,
+instead of merely hiding their review cards, without risking human Knowledge.
+
+- purge at Source scope so summary versions, transcripts, ArtifactRefs, local bytes, and generated
+  cards cannot be left as an accidental partial record;
+- reject the operation when any Resource is cited by a KnowledgeRef, has an active comment Run, or
+  its Source still has an active producer Run;
+- retain Source and Run/Event audit records while deleting rebuildable machine material;
+- enqueue the bounded, idempotent Mac cleanup in the same transaction as Atlas metadata removal;
+- constrain Lumio deletion to verified artifact-root files and generated Resource cards.
+
+See [RFC 0007](rfcs/0007-source-machine-resource-purge.md). Dismiss remains the reversible review
+action; purge is an explicitly confirmed, irreversible lifecycle operation.
+
 ## Milestone 4: Academic source workflow
 
 **Status:** Ready for a focused RFC; not started.
