@@ -1,6 +1,6 @@
 # RFC 0006: Nightly Bilibili Atlas Queue
 
-- **Status:** Accepted for implementation
+- **Status:** Accepted; implementation and manual E2E complete, activation pending
 - **Milestone:** 3.4
 - **Owners:** Atlas protocol and records; Lumio acquisition/orchestration; `nix-config` scheduling
 - **Accepted:** 2026-07-19
@@ -155,5 +155,27 @@ video, or multipart ASR refusal leaves the video in the queue.
 
 ## Implementation record
 
-Not yet deployed. The initial read-only queue helper resolved the real `Atlas` folder and observed
-`BV1wzNL68EB7` on 2026-07-19 without mutation.
+Implemented revisions as of 2026-07-19:
+
+- Atlas documentation baseline: `f0b0264`;
+- Atlas control-authenticated read-only Run inspection: `7892ba6`;
+- Lumio safe queue helper: `9efc63a`;
+- Lumio one-shot controller and background Pi identity: `446e5cb`;
+- `nix-config` 02:00 LaunchAgent: `940d84f`.
+
+Verification:
+
+- Atlas: 137 tests passed; Ruff passed.
+- Lumio: 13 queue/controller tests and 41 Atlas integration tests passed; compatibility check
+  passed against Pi 0.80.6.
+- `nix-config`: the LaunchAgent evaluated with the expected paths/environment and the complete
+  `darwinConfigurations.macsp.system` build passed.
+- The initial read-only helper resolved the real `Atlas` folder and observed `BV1wzNL68EB7`.
+- Manual E2E Run `run_3a30f0505b3f4826afd61748330a2e64` completed with Source
+  `src_188b752ccc0f44e39ae5a907a65684b8`, transcript Resource
+  `res_8942baca0ec782ae92d17337654f5a6a`, and summary Resource
+  `res_49c3bcdbd1597b20297e1fb7818c1065`. Subsequent read-only checks found the video absent from
+  both the `Atlas` favorites folder and Watch Later. No Knowledge prose was created.
+
+The RFC remains short of `Implemented` status until the user activates `940d84f` with the normal
+Darwin rebuild and the installed LaunchAgent is inspected or completes its first scheduled run.

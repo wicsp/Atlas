@@ -204,7 +204,7 @@ activating that generation remains the user's normal interactive sudo/Touch ID s
 
 ### Milestone 3.4: Nightly Bilibili Atlas queue
 
-**Status:** Accepted; implementation started on 2026-07-19.
+**Status:** Code and manual E2E complete on 2026-07-19; Darwin activation pending.
 
 **Outcome:** Videos explicitly placed in the Bilibili `Atlas` favorites folder are processed
 sequentially overnight through the existing Source/Run/Resource pipeline. Only after Atlas verifies
