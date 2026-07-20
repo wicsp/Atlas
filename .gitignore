@@ -10,8 +10,8 @@ build/
 *.egg-info/
 client/node_modules/
 client/dist/
-config/atlas.toml
-config/*.local.toml
+/apps/server/config/atlas.toml
+/apps/server/config/*.local.toml
 data/
 tmp/
 logs/
@@ -26,3 +26,12 @@ logs/
 .env.*
 .DS_Store
 :memory:
+
+# Console-local state
+/apps/console/node_modules/
+/apps/console/.next/
+/apps/console/.vinext/
+/apps/console/dist/
+/apps/console/.wrangler/
+/apps/console/outputs/
+/apps/console/work/

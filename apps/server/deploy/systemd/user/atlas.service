@@ -9,12 +9,12 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/wicsp/projects/Atlas
+WorkingDirectory=/home/wicsp/projects/Atlas/apps/server
 Environment=PYTHONUNBUFFERED=1
-Environment=ATLAS_CONFIG=/home/wicsp/projects/Atlas/config/atlas.toml
+Environment=ATLAS_CONFIG=/home/wicsp/projects/Atlas/apps/server/config/atlas.toml
 UMask=0077
 EnvironmentFile=%h/.config/atlas/atlas.env
-ExecStart=/home/wicsp/projects/Atlas/.venv/bin/python -m uvicorn atlas.main:app --host 0.0.0.0 --port 8000
+ExecStart=/home/wicsp/projects/Atlas/apps/server/.venv/bin/python -m uvicorn atlas.main:app --host 0.0.0.0 --port 8000
 Restart=on-failure
 RestartSec=5s
 

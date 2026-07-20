@@ -20,6 +20,7 @@ from .models import PurgeSourceResponse
 REVIEW_PROJECT_ID = "resource-review"
 PURGE_JOB_NAME = "vortex-resource-purge-v1"
 COMMENT_JOB_NAME = "vortex-comment-v1"
+COMPARISON_JOB_NAME = "vortex-comparison-v1"
 
 
 class ResourcePurgeConflictError(ValueError):
@@ -94,21 +95,21 @@ class ResourcePurgeRepository:
                     f"KnowledgeRef {referenced_by.knowledge_ref_id}"
                 )
 
-            active_comment = next(
+            active_review = next(
                 (
                     row
                     for row in session.scalars(
                         select(RunRow)
-                        .where(RunRow.job_name == COMMENT_JOB_NAME)
+                        .where(RunRow.job_name.in_([COMMENT_JOB_NAME, COMPARISON_JOB_NAME]))
                         .where(RunRow.status.in_(["pending", "claimed"]))
                     ).all()
                     if _load_json(row.input_json, {}).get("resource_id") in resource_ids
                 ),
                 None,
             )
-            if active_comment is not None:
+            if active_review is not None:
                 raise ResourcePurgeConflictError(
-                    f"Source {source_id} has active comment Run {active_comment.run_id}"
+                    f"Source {source_id} has active review Run {active_review.run_id}"
                 )
 
             active_producer = next(

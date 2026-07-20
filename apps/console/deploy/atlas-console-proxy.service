@@ -1,0 +1,21 @@
+[Unit]
+Description=Tailscale-only reverse proxy for Atlas Console
+After=network-online.target atlas.service atlas-console.service
+Wants=network-online.target atlas.service
+Requires=atlas-console.service
+
+[Service]
+Type=simple
+Environment=XDG_DATA_HOME=/tmp/atlas-console-caddy-data
+Environment=XDG_CONFIG_HOME=/tmp/atlas-console-caddy-config
+ExecStart=/home/wicsp/.nix-profile/bin/caddy run --config /home/wicsp/projects/Atlas/apps/console/deploy/Caddyfile --adapter caddyfile
+ExecReload=/home/wicsp/.nix-profile/bin/caddy reload --config /home/wicsp/projects/Atlas/apps/console/deploy/Caddyfile --adapter caddyfile
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+
+[Install]
+WantedBy=default.target

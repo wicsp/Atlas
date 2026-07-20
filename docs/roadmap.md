@@ -293,5 +293,6 @@ For each milestone:
 6. Record deployed revisions and protocol versions in Atlas.
 7. Finish the vertical slice before starting another infrastructure feature.
 
-Avoid parallel expansion of the three repositories. Parallel work is useful only when the protocol
-is already accepted and each repository task has a non-overlapping boundary.
+Avoid parallel expansion of system components. Server and Console changes should be one Atlas
+vertical slice; cross-repository parallel work is useful only when the protocol is already accepted
+and each task has a non-overlapping boundary.

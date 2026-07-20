@@ -2,9 +2,10 @@
 
 ## Purpose
 
-Atlas, Lumio, and `nix-config` are three repositories for one personal infrastructure system.
-They have different owners and release cycles, but they must evolve through shared end-to-end
-capabilities rather than independent feature lists.
+The Atlas monorepo, Lumio, and `nix-config` are repositories for one personal infrastructure
+system. They have different responsibilities and release cycles, but they must evolve through
+shared end-to-end capabilities rather than independent feature lists. Atlas keeps its server and
+Console together while preserving their runtime boundary.
 
 The shortest description of the system is:
 
@@ -69,8 +70,9 @@ or secret values.
    provenance, status, and locations. Files remain in the storage system suited to them.
 5. **Every deployment identifies its revision.** Running Atlas and connected agents should expose
    software version, Git revision, and protocol version where possible.
-6. **Cross-repository changes are vertical slices.** Define the protocol in Atlas, implement the
-   executor in Lumio, provision it in `nix-config`, then verify the complete path.
+6. **Cross-system changes are vertical slices.** Define the protocol in Atlas, update the server
+   and Console atomically when needed, implement the executor in Lumio, provision it in
+   `nix-config`, then verify the complete path.
 7. **Private networking is not authentication.** Tailscale limits reachability; Atlas still
    authenticates operators and agents.
 8. **Derived state is rebuildable.** Summaries, embeddings, indexes, dashboards, and cached views
@@ -83,7 +85,8 @@ or secret values.
 | HTTP API and control-plane data model | Atlas |
 | Agent capability implementation | Lumio |
 | Host packages and service declarations | `nix-config` |
-| Human comments and their revision history | Knowledge vault |
+| Human comment drafts | Knowledge vault |
+| Explicitly completed synchronized comments | Atlas |
 | Bibliographic metadata, PDFs, and annotations | Zotero |
 | Experiment source code | The experiment repository |
 | Large experiment artifacts | AMAX storage or an object store |
@@ -112,4 +115,3 @@ The normal delivery order is:
 - A frontend that owns the backend model.
 - A general multi-user agent platform or plugin marketplace.
 - Automatic conversion of AI summaries into authoritative knowledge.
-

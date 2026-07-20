@@ -501,6 +501,132 @@ def test_comment_request_conflicts_when_human_comment_already_exists(
     assert dashboard_client.get("/api/runs?project_id=resource-review").json() == []
 
 
+def test_complete_comment_stores_markdown_and_marks_reviewed(
+    control_client: TestClient,
+    scoped_client: TestClient,
+    dashboard_client: TestClient,
+) -> None:
+    source, publication = _publish_content(control_client, scoped_client)
+    resource_id = publication["resources"][1]["resource_id"]
+
+    markdown = "# Knowledge Comment\n\n## 我的评论\n\n这是我的判断。\n"
+    content_hash = f"sha256:{hashlib.sha256(markdown.encode()).hexdigest()}"
+    payload = {
+        "resource_id": resource_id,
+        "body_markdown": markdown,
+        "content_hash": content_hash,
+    }
+    completed = dashboard_client.post(
+        "/api/review-actions/complete-comment",
+        json=payload,
+    )
+    replay = dashboard_client.post(
+        "/api/review-actions/complete-comment",
+        json=payload,
+    )
+
+    assert completed.status_code == 200, completed.text
+    assert replay.status_code == 200, replay.text
+    body = completed.json()
+    assert body["resource"]["review_status"] == "reviewed"
+    assert body["knowledge_ref"]["note_id"] == f"Knowledge/Comments/{resource_id}"
+    assert body["knowledge_ref"]["resource_ids"] == [resource_id]
+    assert body["knowledge_ref"]["source_ids"] == [source["source_id"]]
+    assert body["comment"]["body_markdown"] == markdown
+    assert body["comment"]["content_hash"] == content_hash
+    assert body["comment"]["resource_ids"] == [resource_id]
+    assert (
+        replay.json()["comment"]["comment_id"]
+        == body["comment"]["comment_id"]
+    )
+    listed = dashboard_client.get(f"/api/comments?resource_id={resource_id}")
+    assert listed.status_code == 200, listed.text
+    assert listed.json() == [body["comment"]]
+
+
+def test_complete_comment_requires_valid_content_and_summary_resource(
+    control_client: TestClient,
+    scoped_client: TestClient,
+    dashboard_client: TestClient,
+) -> None:
+    _, publication = _publish_content(control_client, scoped_client)
+    transcript_id = publication["resources"][0]["resource_id"]
+    summary_id = publication["resources"][1]["resource_id"]
+
+    missing_body = dashboard_client.post(
+        "/api/review-actions/complete-comment",
+        json={"resource_id": summary_id},
+    )
+    hash_mismatch = dashboard_client.post(
+        "/api/review-actions/complete-comment",
+        json={
+            "resource_id": summary_id,
+            "body_markdown": "written comment",
+            "content_hash": f"sha256:{'0' * 64}",
+        },
+    )
+    transcript = dashboard_client.post(
+        "/api/review-actions/complete-comment",
+        json={
+            "resource_id": transcript_id,
+            "body_markdown": "written comment",
+            "content_hash": (
+                f"sha256:{hashlib.sha256(b'written comment').hexdigest()}"
+            ),
+        },
+    )
+
+    assert missing_body.status_code == 422
+    assert hash_mismatch.status_code == 422
+    assert transcript.status_code == 409
+
+
+def test_comment_sync_request_enqueues_fixed_capability_and_reuses_active_run(
+    control_client: TestClient,
+    scoped_client: TestClient,
+    dashboard_client: TestClient,
+) -> None:
+    _, publication = _publish_content(control_client, scoped_client)
+    resource_id = publication["resources"][1]["resource_id"]
+
+    first = dashboard_client.post(
+        "/api/review-actions/sync-comment", json={"resource_id": resource_id}
+    )
+    replay = dashboard_client.post(
+        "/api/review-actions/sync-comment", json={"resource_id": resource_id}
+    )
+
+    assert first.status_code == 200, first.text
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["reused"] is True
+    assert replay.json()["run"]["run_id"] == first.json()["run"]["run_id"]
+    assert first.json()["run"]["job_name"] == "vortex-comment-sync-v1"
+    assert first.json()["run"]["capabilities_required"] == [
+        "vortex-comment-sync-v1"
+    ]
+
+
+def test_comparison_request_enqueues_fixed_capability_and_reuses_active_run(
+    control_client: TestClient,
+    scoped_client: TestClient,
+    dashboard_client: TestClient,
+) -> None:
+    _, publication = _publish_content(control_client, scoped_client)
+    resource_id = publication["resources"][1]["resource_id"]
+    first = dashboard_client.post(
+        "/api/review-actions/compare", json={"resource_id": resource_id}
+    )
+    replay = dashboard_client.post(
+        "/api/review-actions/compare", json={"resource_id": resource_id}
+    )
+    assert first.status_code == 200, first.text
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["reused"] is True
+    assert replay.json()["run"]["run_id"] == first.json()["run"]["run_id"]
+    assert first.json()["run"]["job_name"] == "vortex-comparison-v1"
+    assert first.json()["run"]["capabilities_required"] == ["vortex-comparison-v1"]
+
+
 def test_source_purge_atomically_removes_machine_resources_and_enqueues_cleanup(
     control_client: TestClient,
     scoped_client: TestClient,
@@ -592,7 +718,7 @@ def test_source_purge_rejects_active_comment_run(
     )
 
     assert response.status_code == 409, response.text
-    assert "active comment Run" in response.json()["detail"]
+    assert "active review Run" in response.json()["detail"]
     assert len(control_client.get(
         f"/api/resources?source_id={source['source_id']}"
     ).json()) == 2

@@ -15,6 +15,7 @@ from .agents.models import AgentRecord, AgentRegistration, AgentRegistrationResp
 from .agents.service import AgentService, create_agent_service
 from .config import Settings, get_settings
 from .content.models import (
+    CommentRecord,
     KnowledgeRefCreate,
     KnowledgeRefRecord,
     ResourceKind,
@@ -34,8 +35,12 @@ from .network import NetworkConnectivity
 from .probes import ProbeHistorySummary, ProbeResult
 from .rate_limit import login_rate_limiter
 from .review.models import (
+    CommentCompleteRequest,
+    CommentCompleteResponse,
     CommentRequest,
     CommentRequestResponse,
+    CommentSyncRequestResponse,
+    ComparisonRequestResponse,
     PurgeSourceRequest,
     PurgeSourceResponse,
 )
@@ -532,6 +537,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> list[KnowledgeRefRecord]:
         return _content_service(request).list_knowledge_refs(limit=limit)
 
+    @app.get(
+        "/api/comments",
+        response_model=list[CommentRecord],
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def list_comments(
+        request: Request,
+        resource_id: str | None = None,
+        source_id: str | None = None,
+        limit: int = Query(default=100, ge=1, le=500),
+    ) -> list[CommentRecord]:
+        return _content_service(request).list_comments(
+            resource_id=resource_id,
+            source_id=source_id,
+            limit=limit,
+        )
+
     @app.post(
         "/api/review-actions/comment",
         response_model=CommentRequestResponse,
@@ -549,6 +571,81 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 detail="Resource not found",
             ) from exc
         except (ResourceAlreadyCommentedError, UnsupportedReviewResourceError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
+            ) from exc
+
+    @app.post(
+        "/api/review-actions/sync-comment",
+        response_model=CommentSyncRequestResponse,
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def request_comment_sync(
+        request: Request,
+        payload: CommentRequest,
+    ) -> CommentSyncRequestResponse:
+        try:
+            return _review_service(request).request_comment_sync(payload.resource_id)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Resource not found",
+            ) from exc
+        except UnsupportedReviewResourceError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
+            ) from exc
+
+    @app.post(
+        "/api/review-actions/complete-comment",
+        response_model=CommentCompleteResponse,
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def complete_resource_comment(
+        request: Request,
+        payload: CommentCompleteRequest,
+    ) -> CommentCompleteResponse:
+        try:
+            return _review_service(request).complete_comment(
+                payload.resource_id,
+                payload.body_markdown,
+                payload.content_hash,
+            )
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Resource not found",
+            ) from exc
+        except UnsupportedReviewResourceError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=str(exc),
+            ) from exc
+
+    @app.post(
+        "/api/review-actions/compare",
+        response_model=ComparisonRequestResponse,
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def request_resource_comparison(
+        request: Request,
+        payload: CommentRequest,
+    ) -> ComparisonRequestResponse:
+        try:
+            return _review_service(request).request_comparison(payload.resource_id)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Resource not found",
+            ) from exc
+        except UnsupportedReviewResourceError as exc:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=str(exc),
