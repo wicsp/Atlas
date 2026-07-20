@@ -27,7 +27,8 @@ uses a Tailscale-only reverse proxy: `/api/*` targets Atlas and all other paths 
 
 ## AMAX deployment
 
-The checked-in units assume `/home/wicsp/projects/AtlasConsole`:
+The checked-in units assume the monorepo is at `/home/wicsp/projects/Atlas` and this application is
+at `/home/wicsp/projects/Atlas/apps/console`:
 
 ```bash
 npm ci

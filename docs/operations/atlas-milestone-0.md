@@ -1,7 +1,8 @@
 # Atlas Milestone 0 Operations
 
 This runbook covers the Milestone 0 bootstrap flow for `atlas.main:app`. The checked-in
-`deploy/systemd/user/atlas.service` file is the production service bound to `0.0.0.0:8000`.
+`apps/server/deploy/systemd/user/atlas.service` file is the production service bound to
+`0.0.0.0:8000`.
 Before a cutover, install it without starting it. The canary is a separate transient systemd user
 unit on a dynamically chosen localhost port.
 
@@ -24,24 +25,22 @@ verified bootstrap deployment.
 
 ## Artifacts
 
-- Production unit: `deploy/systemd/user/atlas.service`
-- Production config: `config/atlas.toml`
+- Production unit: `apps/server/deploy/systemd/user/atlas.service`
+- Production config: `apps/server/config/atlas.toml`
 - User env file: `%h/.config/atlas/atlas.env`
 - Detached rollback worktree rooted at `4b79af1`
 
-`config/atlas.toml` already carries the auth values. The user env file only needs
+`apps/server/config/atlas.toml` already carries the auth values. The user env file only needs
 `ATLAS_AGENT_SHARED_TOKEN`.
 
 Do not commit runtime config, databases, logs, or secrets.
 
 ## Preflight
 
-Run these from the repository root:
+Run this from the repository root:
 
 ```bash
-uv sync
-uv run pytest -q
-uv run ruff check .
+just test-server
 ```
 
 ## Canary
@@ -52,7 +51,7 @@ overrides the SQLite paths into fresh `/tmp` files, and disables sub2api:
 
 ```bash
 tmpdir=$(mktemp -d /tmp/atlas-m0-XXXXXX)
-port=$(.venv/bin/python - <<'PY'
+port=$(apps/server/.venv/bin/python - <<'PY'
 import socket
 s = socket.socket()
 s.bind(("127.0.0.1", 0))
@@ -61,14 +60,14 @@ s.close()
 PY
 )
 systemd-run --user --unit=atlas-m0-canary.service --collect \
-  -p WorkingDirectory=/home/wicsp/projects/Atlas \
-  -p Environment=ATLAS_CONFIG=/home/wicsp/projects/Atlas/config/atlas.toml \
+  -p WorkingDirectory=/home/wicsp/projects/Atlas/apps/server \
+  -p Environment=ATLAS_CONFIG=/home/wicsp/projects/Atlas/apps/server/config/atlas.toml \
   -p Environment=ATLAS_AGENT_DATABASE_PATH=$tmpdir/agents.sqlite3 \
   -p Environment=ATLAS_PROBE_HISTORY_DATABASE_PATH=$tmpdir/probe-history.sqlite3 \
   -p Environment=ATLAS_SUB2API_SNAPSHOT_DATABASE_PATH=$tmpdir/sub2api-snapshots.sqlite3 \
   -p Environment=ATLAS_SUB2API_ENABLED=false \
   -p EnvironmentFile=%h/.config/atlas/atlas.env \
-  /home/wicsp/projects/Atlas/.venv/bin/python -m uvicorn atlas.main:app --host 127.0.0.1 --port "$port"
+  /home/wicsp/projects/Atlas/apps/server/.venv/bin/python -m uvicorn atlas.main:app --host 127.0.0.1 --port "$port"
 for _ in 1 2 3 4 5 6 7 8 9 10; do
   if curl -fsS "http://127.0.0.1:${port}/api/health" >/tmp/atlas-health.json; then
     break
@@ -87,29 +86,31 @@ test "$status" = 401
 set -a
 . ~/.config/atlas/atlas.env
 set +a
+printf -v atlas_auth_header 'Authorization: %s %s' Bearer "$ATLAS_AGENT_SHARED_TOKEN"
 
 curl -fsS -X POST "http://127.0.0.1:${port}/api/agents/register" \
-  -H "Authorization: Bearer ${ATLAS_AGENT_SHARED_TOKEN}" \
+  -H "$atlas_auth_header" \
   -H 'Content-Type: application/json' \
   -d '{"agent_id":"atlas-m0-canary","name":"Atlas M0 Canary","capabilities":["health:read"],"metadata":{"canary":true}}' \
   >/tmp/atlas-canary-register.json
 curl -fsS -X POST "http://127.0.0.1:${port}/api/agents/register" \
-  -H "Authorization: Bearer ${ATLAS_AGENT_SHARED_TOKEN}" \
+  -H "$atlas_auth_header" \
   -H 'Content-Type: application/json' \
   -d '{"agent_id":"atlas-m0-peer","name":"Atlas M0 Peer"}' \
   >/tmp/atlas-canary-peer-register.json
 curl -fsS -X POST "http://127.0.0.1:${port}/api/agents/atlas-m0-canary/heartbeat" \
-  -H "Authorization: Bearer ${ATLAS_AGENT_SHARED_TOKEN}" \
+  -H "$atlas_auth_header" \
   >/tmp/atlas-canary-heartbeat.json
 curl -fsS -X POST "http://127.0.0.1:${port}/api/messages" \
-  -H "Authorization: Bearer ${ATLAS_AGENT_SHARED_TOKEN}" \
+  -H "$atlas_auth_header" \
   -H 'Content-Type: application/json' \
   -d '{"from_agent_id":"atlas-m0-canary","to_agent_id":"atlas-m0-peer","kind":"prompt","body":"atlas m0 inbox check","metadata":{"source":"milestone-0"}}' \
   >/tmp/atlas-canary-message.json
 curl -fsS "http://127.0.0.1:${port}/api/agents/atlas-m0-peer/messages/inbox" \
-  -H "Authorization: Bearer ${ATLAS_AGENT_SHARED_TOKEN}" \
+  -H "$atlas_auth_header" \
   >/tmp/atlas-canary-inbox.json
 unset ATLAS_AGENT_SHARED_TOKEN
+unset atlas_auth_header
 ```
 
 Stop and collect only the canary after verification:
@@ -125,7 +126,7 @@ Install the production unit without starting it:
 
 ```bash
 mkdir -p ~/.config/systemd/user ~/.config/atlas
-cp deploy/systemd/user/atlas.service ~/.config/systemd/user/atlas.service
+cp apps/server/deploy/systemd/user/atlas.service ~/.config/systemd/user/atlas.service
 systemctl --user daemon-reload
 ```
 
@@ -147,7 +148,7 @@ trap - EXIT
    message send, and inbox checks.
 2. Confirm the detached `4b79af1` rollback worktree is still available and matches the verified
    `atlas.main:app` entry point.
-3. Confirm `deploy/systemd/user/atlas.service` is installed but still not started.
+3. Confirm `apps/server/deploy/systemd/user/atlas.service` is installed but still not started.
 4. Create a SQLite-consistent, permission-restricted backup of persistent data and runtime config.
 5. Gracefully stop the unmanaged process, then confirm that port 8000 is free. Do not use a forced
    kill if graceful shutdown fails.
@@ -173,11 +174,11 @@ relative persistent-data paths do not move into the rollback worktree:
 ROLLBACK_WT=/home/wicsp/.local/share/atlas/releases/4b79af1
 systemctl --user stop atlas.service
 systemd-run --user --unit=atlas-m0-rollback-live.service --collect \
-  -p WorkingDirectory=/home/wicsp/projects/Atlas \
+  -p WorkingDirectory=/home/wicsp/projects/Atlas/apps/server \
   -p Environment=PYTHONPATH=$ROLLBACK_WT/src \
-  -p Environment=ATLAS_CONFIG=/home/wicsp/projects/Atlas/config/atlas.toml \
+  -p Environment=ATLAS_CONFIG=/home/wicsp/projects/Atlas/apps/server/config/atlas.toml \
   -p EnvironmentFile=%h/.config/atlas/atlas.env \
-  /home/wicsp/projects/Atlas/.venv/bin/python -m uvicorn atlas.main:app --host 0.0.0.0 --port 8000
+  /home/wicsp/projects/Atlas/apps/server/.venv/bin/python -m uvicorn atlas.main:app --host 0.0.0.0 --port 8000
 curl -fsS http://127.0.0.1:8000/api/health
 ```
 
@@ -186,7 +187,8 @@ SQLite files while diagnosing.
 
 ## Unit Validation
 
-`systemd-analyze --user verify deploy/systemd/user/atlas.service` can catch unit-file syntax issues.
+`systemd-analyze --user verify apps/server/deploy/systemd/user/atlas.service` can catch unit-file
+syntax issues.
 Inside the Codex sandbox it may still print user-manager bus/socket permission errors, so treat it
 as a syntax check only. Final validation requires installing the unit in the real user manager and
 checking `systemctl --user status atlas.service` during cutover.

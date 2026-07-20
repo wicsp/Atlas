@@ -33,14 +33,15 @@ The Console is an optional client: Atlas and Lumio continue to operate when it i
 | launchd/systemd units | Describe runtime requirements | No | Own |
 | Secret values | No | No | No; reference secret store only |
 | Large files | Artifact references only | Produce/consume | Provision storage paths |
-| Human-authored knowledge | Link/index only | May open an empty capture UI | Provision applications/paths |
+| Human-authored comments | Own explicit completed copies | Own local drafts and upload | Provision applications/paths |
 | Source/Resource provenance | Own metadata and lifecycle | Acquire/derive/project | Provision paths only |
 | Resource review Console | Expose narrow APIs | Execute Mac-local mutations | Provision private service |
 
-The separate Atlas Console is a browser client, not a fourth authority. It may compose Atlas read
-models and request explicitly-scoped actions. It does not access Atlas SQLite, hold the shared
-control token, execute arbitrary Jobs, read Mac-local `file://` artifacts, or write the Vortex
-vault. Browser actions that require local files become capability-routed Runs for Lumio.
+The separately deployed Atlas Console is a browser client co-located in this repository, not a
+fourth authority. It may compose Atlas read models and request explicitly-scoped actions. It does
+not access Atlas SQLite, hold the shared control token, execute arbitrary Jobs, read Mac-local
+`file://` artifacts, or write the Vortex vault. Browser actions that require local files become
+capability-routed Runs for Lumio.
 
 ## Control plane and data plane
 
@@ -93,6 +94,8 @@ These objects are deliberately distinct:
 - **KnowledgeComment**: a human-authored observation with source anchors and revision relations.
 - **KnowledgeRef**: Atlas metadata pointing to a KnowledgeComment URI and its evidence IDs; it has
   no prose field.
+- **Comment**: an explicitly completed human-authored Markdown snapshot synchronized to Atlas and
+  linked through a KnowledgeRef.
 - **Node**: a device or host.
 - **Agent**: a process capable of interacting with Atlas.
 

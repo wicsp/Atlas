@@ -1,16 +1,24 @@
-# Repository Runtime Notes
+# AGENTS.md
 
-## `apply_patch` Caveat
+Atlas is a personal system with two co-located applications and independently deployed services.
 
-- In this workspace, `apply_patch` has shown an inconsistent filesystem view: shell commands can read a file, while `apply_patch` reports `No such file or directory` during update/delete verification.
-- This was reproduced with temporary probe files: `apply_patch` could add a file, but immediately failed to update or delete that same file.
-- When this happens, do not assume the target file is actually missing. Verify with host-side commands such as `sed`, `rg --files`, `ls -l`, or `readlink`.
-- If the requested edit is still required, use non-sandbox execution with `sandbox_permissions="require_escalated"` and a narrow command that only touches the intended file.
-- Prefer recording this in the final response so future agents understand why `apply_patch` was not used for that edit.
+## Ownership
 
-## Sandbox And Command Execution
+- `apps/server/` owns the API, domain state, persistence, authentication, and work coordination.
+- `apps/console/` is an operator client. It may use only documented Atlas APIs and the operator
+  session; it must not acquire agent credentials or direct database access.
+- `docs/rfcs/` is authoritative for changes that cross Atlas, Console, Lumio, or future clients.
+- `deploy/` directories describe runtime units, but declarative host provisioning remains outside
+  this repository.
 
-- Some sandboxed `exec_command` calls can be rejected at process creation with `CreateProcess ... Rejected`, even for commands that exist.
-- This does not necessarily mean the Python environment or target file is broken.
-- For checks that must reflect the real host environment, run with `sandbox_permissions="require_escalated"`.
-- This matters especially for `.venv/bin/python`, directory-size checks such as `du -shL data/models`, and symlink-following operations.
+## Development rules
+
+1. Keep server and console dependencies scoped to their application directories.
+2. Do not introduce a monorepo framework unless the root commands can no longer remain trivial.
+3. Change the server contract before or together with dependent console behavior.
+4. Add backend and console tests for cross-cutting behavior; run `just test` before publishing.
+5. Never commit runtime configuration, databases, logs, artifacts, credentials, or personal
+   knowledge content.
+6. Keep tool and API output bounded so agent tasks do not flood model context.
+7. Preserve the Source / Resource / Knowledge boundary and require explicit human confirmation
+   before promoting machine output into human-owned knowledge.

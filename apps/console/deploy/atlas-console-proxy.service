@@ -8,8 +8,8 @@ Requires=atlas-console.service
 Type=simple
 Environment=XDG_DATA_HOME=/tmp/atlas-console-caddy-data
 Environment=XDG_CONFIG_HOME=/tmp/atlas-console-caddy-config
-ExecStart=/home/wicsp/.nix-profile/bin/caddy run --config /home/wicsp/projects/AtlasConsole/deploy/Caddyfile --adapter caddyfile
-ExecReload=/home/wicsp/.nix-profile/bin/caddy reload --config /home/wicsp/projects/AtlasConsole/deploy/Caddyfile --adapter caddyfile
+ExecStart=/home/wicsp/.nix-profile/bin/caddy run --config /home/wicsp/projects/Atlas/apps/console/deploy/Caddyfile --adapter caddyfile
+ExecReload=/home/wicsp/.nix-profile/bin/caddy reload --config /home/wicsp/projects/Atlas/apps/console/deploy/Caddyfile --adapter caddyfile
 Restart=on-failure
 RestartSec=3
 NoNewPrivileges=true
