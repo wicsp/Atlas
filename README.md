@@ -21,10 +21,11 @@ The applications remain separate runtime services:
 
 ## Development
 
-Run all checks from the repository root:
+Rebuild locked environments and run all checks from the repository root:
 
 ```bash
-just test
+just sync
+just ci
 ```
 
 Or work on one application directly:
@@ -43,6 +44,10 @@ npm test
 
 See [the server guide](apps/server/README.md), [the console guide](apps/console/README.md), and the
 [operations runbook](docs/operations/atlas-milestone-0.md) for configuration and deployment.
+
+On the configured amax host, `just deploy` runs the complete check/build sequence, installs the
+three checked-in user units, restarts them, and verifies API and Console health. It is intentionally
+an explicit command and is never part of CI.
 
 ## System boundary
 
