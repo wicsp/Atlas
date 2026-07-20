@@ -12,6 +12,8 @@ from sqlalchemy.orm import Mapped, Session, mapped_column, sessionmaker
 from atlas.db.base import Base
 
 from .models import (
+    CommentCreate,
+    CommentRecord,
     KnowledgeRefCreate,
     KnowledgeRefRecord,
     ResourceCreate,
@@ -67,6 +69,18 @@ class KnowledgeRefRow(Base):
     source_ids_json: Mapped[str] = mapped_column(Text, default="[]")
     resource_ids_json: Mapped[str] = mapped_column(Text, default="[]")
     revision_of: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    created_at: Mapped[str] = mapped_column(String(64), index=True)
+    updated_at: Mapped[str] = mapped_column(String(64), index=True)
+
+
+class CommentRow(Base):
+    __tablename__ = "comments"
+
+    comment_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    knowledge_ref_id: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    body_markdown: Mapped[str] = mapped_column(Text)
+    content_hash: Mapped[str] = mapped_column(String(128), index=True)
+    format: Mapped[str] = mapped_column(String(64), default="text/markdown")
     created_at: Mapped[str] = mapped_column(String(64), index=True)
     updated_at: Mapped[str] = mapped_column(String(64), index=True)
 
@@ -185,44 +199,93 @@ class ContentRepository:
         now: datetime,
     ) -> KnowledgeRefRecord:
         with self._session_factory() as session, session.begin():
-            source_ids = list(payload.source_ids)
-            for source_id in source_ids:
-                if session.get(SourceRow, source_id) is None:
-                    raise KeyError(source_id)
+            row = _upsert_knowledge_ref(session, payload, now)
+            session.flush()
+            return _to_knowledge_ref(row)
 
-            for resource_id in payload.resource_ids:
-                resource = session.get(ResourceRow, resource_id)
-                if resource is None:
-                    raise KeyError(resource_id)
-                if resource.source_id not in source_ids:
-                    source_ids.append(resource.source_id)
+    def complete_comment(
+        self,
+        payload: CommentCreate,
+        note_id: str,
+        uri: str,
+        now: datetime,
+    ) -> tuple[ResourceRecord, KnowledgeRefRecord, CommentRecord]:
+        with self._session_factory() as session, session.begin():
+            resource = session.get(ResourceRow, payload.resource_id)
+            if resource is None:
+                raise KeyError(payload.resource_id)
+            actual_hash = f"sha256:{hashlib.sha256(payload.body_markdown.encode()).hexdigest()}"
+            if actual_hash != payload.content_hash:
+                raise ValueError("Comment content hash does not match body")
 
-            if payload.revision_of and session.get(KnowledgeRefRow, payload.revision_of) is None:
-                raise KeyError(payload.revision_of)
-
-            row = session.scalars(
-                select(KnowledgeRefRow).where(KnowledgeRefRow.note_id == payload.note_id)
+            knowledge_ref = _upsert_knowledge_ref(
+                session,
+                KnowledgeRefCreate(
+                    note_id=note_id,
+                    uri=uri,
+                    resource_ids=[payload.resource_id],
+                ),
+                now,
+            )
+            comment = session.scalars(
+                select(CommentRow).where(
+                    CommentRow.knowledge_ref_id == knowledge_ref.knowledge_ref_id
+                )
             ).first()
-            if row is None:
-                row = KnowledgeRefRow(
-                    knowledge_ref_id=f"kref_{uuid.uuid4().hex}",
-                    note_id=payload.note_id,
-                    uri=payload.uri,
-                    source_ids_json=_dump_json(source_ids),
-                    resource_ids_json=_dump_json(payload.resource_ids),
-                    revision_of=payload.revision_of,
+            if comment is None:
+                comment = CommentRow(
+                    comment_id=f"cmt_{uuid.uuid4().hex}",
+                    knowledge_ref_id=knowledge_ref.knowledge_ref_id,
+                    body_markdown=payload.body_markdown,
+                    content_hash=payload.content_hash,
+                    format=payload.format,
                     created_at=now.isoformat(),
                     updated_at=now.isoformat(),
                 )
-                session.add(row)
-            else:
-                row.uri = payload.uri
-                row.source_ids_json = _dump_json(source_ids)
-                row.resource_ids_json = _dump_json(payload.resource_ids)
-                row.revision_of = payload.revision_of
-                row.updated_at = now.isoformat()
+                session.add(comment)
+            elif (
+                comment.body_markdown != payload.body_markdown
+                or comment.content_hash != payload.content_hash
+                or comment.format != payload.format
+            ):
+                comment.body_markdown = payload.body_markdown
+                comment.content_hash = payload.content_hash
+                comment.format = payload.format
+                comment.updated_at = now.isoformat()
+
+            if resource.review_status != "reviewed":
+                resource.review_status = "reviewed"
+                resource.updated_at = now.isoformat()
             session.flush()
-            return _to_knowledge_ref(row)
+            return (
+                _to_resource(resource),
+                _to_knowledge_ref(knowledge_ref),
+                _to_comment(comment, knowledge_ref),
+            )
+
+    def list_comments(
+        self,
+        resource_id: str | None = None,
+        source_id: str | None = None,
+        limit: int = 100,
+    ) -> list[CommentRecord]:
+        with self._session_factory() as session:
+            rows = session.scalars(
+                select(CommentRow).order_by(CommentRow.created_at.desc()).limit(limit)
+            ).all()
+            records: list[CommentRecord] = []
+            for row in rows:
+                knowledge_ref = session.get(KnowledgeRefRow, row.knowledge_ref_id)
+                if knowledge_ref is None:
+                    continue
+                resource_ids = _load_json(knowledge_ref.resource_ids_json, [])
+                source_ids = _load_json(knowledge_ref.source_ids_json, [])
+                if resource_id and resource_id not in resource_ids:
+                    continue
+                if source_id and source_id not in source_ids:
+                    continue
+                records.append(_to_comment(row, knowledge_ref))
+            return records
 
     def list_knowledge_refs(self, limit: int = 100) -> list[KnowledgeRefRecord]:
         with self._session_factory() as session:
@@ -383,3 +446,70 @@ def _to_knowledge_ref(row: KnowledgeRefRow) -> KnowledgeRefRecord:
         created_at=datetime.fromisoformat(row.created_at),
         updated_at=datetime.fromisoformat(row.updated_at),
     )
+
+
+def _to_comment(row: CommentRow, knowledge_ref: KnowledgeRefRow) -> CommentRecord:
+    return CommentRecord(
+        comment_id=row.comment_id,
+        knowledge_ref_id=row.knowledge_ref_id,
+        note_id=knowledge_ref.note_id,
+        source_ids=_load_json(knowledge_ref.source_ids_json, []),
+        resource_ids=_load_json(knowledge_ref.resource_ids_json, []),
+        body_markdown=row.body_markdown,
+        content_hash=row.content_hash,
+        format=row.format,  # type: ignore[arg-type]
+        created_at=datetime.fromisoformat(row.created_at),
+        updated_at=datetime.fromisoformat(row.updated_at),
+    )
+
+
+def _upsert_knowledge_ref(
+    session: Session,
+    payload: KnowledgeRefCreate,
+    now: datetime,
+) -> KnowledgeRefRow:
+    source_ids = list(payload.source_ids)
+    for source_id in source_ids:
+        if session.get(SourceRow, source_id) is None:
+            raise KeyError(source_id)
+
+    for resource_id in payload.resource_ids:
+        resource = session.get(ResourceRow, resource_id)
+        if resource is None:
+            raise KeyError(resource_id)
+        if resource.source_id not in source_ids:
+            source_ids.append(resource.source_id)
+
+    if payload.revision_of and session.get(KnowledgeRefRow, payload.revision_of) is None:
+        raise KeyError(payload.revision_of)
+
+    row = session.scalars(
+        select(KnowledgeRefRow).where(KnowledgeRefRow.note_id == payload.note_id)
+    ).first()
+    if row is None:
+        row = KnowledgeRefRow(
+            knowledge_ref_id=f"kref_{uuid.uuid4().hex}",
+            note_id=payload.note_id,
+            uri=payload.uri,
+            source_ids_json=_dump_json(source_ids),
+            resource_ids_json=_dump_json(payload.resource_ids),
+            revision_of=payload.revision_of,
+            created_at=now.isoformat(),
+            updated_at=now.isoformat(),
+        )
+        session.add(row)
+        session.flush()
+    else:
+        changed = (
+            row.uri != payload.uri
+            or row.source_ids_json != _dump_json(source_ids)
+            or row.resource_ids_json != _dump_json(payload.resource_ids)
+            or row.revision_of != payload.revision_of
+        )
+        row.uri = payload.uri
+        row.source_ids_json = _dump_json(source_ids)
+        row.resource_ids_json = _dump_json(payload.resource_ids)
+        row.revision_of = payload.revision_of
+        if changed:
+            row.updated_at = now.isoformat()
+    return row

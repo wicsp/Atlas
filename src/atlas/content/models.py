@@ -10,6 +10,7 @@ SourceKind = Literal["video", "paper", "webpage", "dataset", "code", "other"]
 ResourceKind = Literal["transcript", "summary", "extraction", "comparison"]
 ReviewStatus = Literal["pending", "reviewed", "dismissed"]
 GeneratorMode = Literal["deterministic", "ai"]
+CommentFormat = Literal["text/markdown"]
 
 _HASH_PATTERN = r"^sha256:[0-9a-f]{64}$"
 _RESOURCE_ID_PATTERN = r"^res_[A-Za-z0-9._-]{8,120}$"
@@ -201,5 +202,34 @@ class KnowledgeRefRecord(StrictModel):
     source_ids: list[str] = Field(default_factory=list)
     resource_ids: list[str] = Field(default_factory=list)
     revision_of: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class CommentCreate(StrictModel):
+    resource_id: str = Field(pattern=_RESOURCE_ID_PATTERN)
+    body_markdown: str = Field(min_length=1, max_length=256 * 1024)
+    content_hash: str = Field(pattern=_HASH_PATTERN)
+    format: CommentFormat = "text/markdown"
+
+    _strip_resource_id = field_validator("resource_id")(_strip_required)
+
+    @field_validator("body_markdown")
+    @classmethod
+    def require_body(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("comment body cannot be blank")
+        return value
+
+
+class CommentRecord(StrictModel):
+    comment_id: str
+    knowledge_ref_id: str
+    note_id: str
+    source_ids: list[str] = Field(default_factory=list)
+    resource_ids: list[str] = Field(default_factory=list)
+    body_markdown: str
+    content_hash: str
+    format: CommentFormat
     created_at: datetime
     updated_at: datetime

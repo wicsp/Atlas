@@ -6,6 +6,8 @@ from pathlib import Path
 from atlas.db.session import create_sqlite_session_factory
 
 from .models import (
+    CommentCreate,
+    CommentRecord,
     KnowledgeRefCreate,
     KnowledgeRefRecord,
     ResourceRecord,
@@ -61,6 +63,26 @@ class ContentService:
 
     def list_knowledge_refs(self, limit: int = 100) -> list[KnowledgeRefRecord]:
         return self._repository.list_knowledge_refs(limit=limit)
+
+    def complete_comment(
+        self,
+        payload: CommentCreate,
+        note_id: str,
+        uri: str,
+    ) -> tuple[ResourceRecord, KnowledgeRefRecord, CommentRecord]:
+        return self._repository.complete_comment(payload, note_id, uri, _now())
+
+    def list_comments(
+        self,
+        resource_id: str | None = None,
+        source_id: str | None = None,
+        limit: int = 100,
+    ) -> list[CommentRecord]:
+        return self._repository.list_comments(
+            resource_id=resource_id,
+            source_id=source_id,
+            limit=limit,
+        )
 
     def find_knowledge_ref_for_resource(
         self,
