@@ -38,17 +38,17 @@ build: build-console
 
 install-units:
     mkdir -p "${HOME}/.config/systemd/user"
-    cp apps/server/deploy/systemd/user/atlas.service "${HOME}/.config/systemd/user/atlas.service"
-    cp apps/console/deploy/atlas-console.service "${HOME}/.config/systemd/user/atlas-console.service"
-    cp apps/console/deploy/atlas-console-proxy.service "${HOME}/.config/systemd/user/atlas-console-proxy.service"
+    cp --remove-destination apps/server/deploy/systemd/user/atlas.service "${HOME}/.config/systemd/user/atlas.service"
+    cp --remove-destination apps/console/deploy/atlas-console.service "${HOME}/.config/systemd/user/atlas-console.service"
+    cp --remove-destination apps/console/deploy/atlas-console-proxy.service "${HOME}/.config/systemd/user/atlas-console-proxy.service"
     systemctl --user daemon-reload
 
 restart:
     systemctl --user restart atlas.service atlas-console.service atlas-console-proxy.service
 
 health:
-    curl --fail --silent --show-error http://127.0.0.1:8000/api/health
-    curl --fail --silent --show-error --output /dev/null http://100.100.10.3:8787
+    curl --fail --silent --show-error --retry 15 --retry-delay 1 --retry-all-errors http://127.0.0.1:8000/api/health
+    curl --fail --silent --show-error --retry 15 --retry-delay 1 --retry-all-errors --output /dev/null http://100.100.10.3:8787
 
 deploy: ci build install-units restart health
 
