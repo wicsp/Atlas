@@ -66,7 +66,7 @@ function run(id, resourceId, createdAt, status) {
   };
 }
 
-test("groups every version by Source and orders newest first", () => {
+test("shows one current Resource per generation profile", () => {
   const older = resource("res_older000", source.source_id, "2026-07-15T11:00:00Z");
   const newer = resource("res_newer000", source.source_id, "2026-07-16T11:00:00Z");
   const orphan = resource("res_orphan00", "src_missing", "2026-07-17T11:00:00Z");
@@ -75,15 +75,41 @@ test("groups every version by Source and orders newest first", () => {
 
   assert.deepEqual(groups.map((group) => group.sourceId), ["src_missing", "src_one"]);
   assert.equal(groups[0].source, null);
+  assert.deepEqual(groups[1].resources.map((item) => item.resource_id), ["res_newer000"]);
+});
+
+test("keeps referenced history and parallel declared analysis profiles", () => {
+  const older = resource("res_older000", source.source_id, "2026-07-15T11:00:00Z");
+  const newer = resource("res_newer000", source.source_id, "2026-07-16T11:00:00Z");
+  const analysis = {
+    ...resource("res_analysis0", source.source_id, "2026-07-16T12:00:00Z"),
+    metadata: { profile_id: "argument-map-v1" },
+  };
+  const knowledgeRef = {
+    knowledge_ref_id: "kref_old",
+    note_id: "Knowledge/Comments/res_older000",
+    uri: "obsidian://open?vault=Vortex&file=Knowledge%2FComments%2Fres_older000",
+    source_ids: [source.source_id],
+    resource_ids: [older.resource_id],
+    revision_of: null,
+    created_at: "2026-07-17T11:00:00Z",
+    updated_at: "2026-07-17T11:00:00Z",
+  };
+
+  const groups = groupResourcesBySource([source], [older, newer, analysis], [knowledgeRef]);
   assert.deepEqual(
-    groups[1].resources.map((item) => item.resource_id),
-    ["res_newer000", "res_older000"],
+    groups[0].resources.map((item) => item.resource_id),
+    ["res_analysis0", "res_newer000", "res_older000"],
   );
 });
 
 test("tracks only the newest comment run for each Resource", () => {
   const pending = run("run_old", "res_one000", "2026-07-15T11:00:00Z", "pending");
-  const claimed = run("run_new", "res_one000", "2026-07-16T11:00:00Z", "claimed");
+  const claimed = {
+    ...run("run_new", "res_one000", "2026-07-16T11:00:00Z", "claimed"),
+    job_name: "vortex-comment-sync-v1",
+    capabilities_required: ["vortex-comment-sync-v1"],
+  };
   const unrelated = { ...pending, run_id: "run_other", job_name: "other-job" };
 
   const latest = latestCommentRunsByResource([pending, unrelated, claimed]);

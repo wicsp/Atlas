@@ -1,11 +1,11 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
-  commentNoteUri,
   groupResourcesBySource,
   isActiveRun,
   latestCommentRunsByResource,
+  type CommentRecord,
   type KnowledgeRefRecord,
   type ResourceRecord,
   type ReviewStatus,
@@ -24,7 +24,7 @@ interface Feedback {
   runId?: string;
 }
 
-interface CommentRequestResponse {
+interface WorkRequestResponse {
   run: RunRecord;
   reused: boolean;
 }
@@ -99,6 +99,15 @@ function statusLabel(status: ReviewStatus): string {
 }
 
 function runLabel(run: RunRecord): string {
+  if (run.job_name === "vortex-comment-sync-v1") {
+    return {
+      pending: "等待同步评论",
+      claimed: "正在同步评论",
+      completed: "评论已同步",
+      failed: "评论同步失败",
+      cancelled: "同步已取消",
+    }[run.status];
+  }
   return {
     pending: "等待 Mac Lumio",
     claimed: "正在创建评论",
@@ -131,6 +140,41 @@ function obsidianCardUri(resourceId: string): string {
   return `obsidian://open?vault=Vortex&file=${file}`;
 }
 
+function commentNoteId(resourceId: string): string {
+  return `Knowledge/Comments/${resourceId}`;
+}
+
+function obsidianCommentCreateUri(resource: ResourceRecord): string {
+  const file = encodeURIComponent(commentNoteId(resource.resource_id));
+  const content = encodeURIComponent(`---
+type: knowledge-comment
+resource_ids:
+  - "${resource.resource_id}"
+source_ids:
+  - "${resource.source_id}"
+created: "${new Date().toISOString()}"
+---
+
+# Knowledge Comment
+
+## 我的评论
+
+## 证据定位
+
+- Resource: [[Resources/Cards/${resource.resource_id}|${resource.resource_id}]]
+
+## 修订关系
+`);
+  return `obsidian://new?vault=Vortex&file=${file}&content=${content}`;
+}
+
+function openObsidianPair(resource: ResourceRecord): void {
+  window.location.assign(obsidianCardUri(resource.resource_id));
+  window.setTimeout(() => {
+    window.location.assign(obsidianCommentCreateUri(resource));
+  }, 150);
+}
+
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   return "发生了未知错误";
@@ -144,7 +188,9 @@ export function ReviewConsole() {
   const [atlasVersion, setAtlasVersion] = useState<string | null>(null);
   const [sources, setSources] = useState<SourceRecord[]>([]);
   const [resources, setResources] = useState<ResourceRecord[]>([]);
+  const [comparisons, setComparisons] = useState<ResourceRecord[]>([]);
   const [knowledgeRefs, setKnowledgeRefs] = useState<KnowledgeRefRecord[]>([]);
+  const [comments, setComments] = useState<CommentRecord[]>([]);
   const [runs, setRuns] = useState<RunRecord[]>([]);
   const [filter, setFilter] = useState<Filter>("pending");
   const [loading, setLoading] = useState(false);
@@ -154,22 +200,25 @@ export function ReviewConsole() {
   const [busySources, setBusySources] = useState<Set<string>>(new Set());
   const [feedback, setFeedback] = useState<Record<string, Feedback>>({});
   const [purgeFeedback, setPurgeFeedback] = useState<Feedback | null>(null);
-  const commentOpenIntents = useRef(new Set<string>());
 
   const loadReviewData = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
     setLoadError("");
     try {
-      const [nextSources, nextResources, nextKnowledgeRefs, nextRuns] =
+      const [nextSources, nextResources, nextComparisons, nextKnowledgeRefs, nextComments, nextRuns] =
         await Promise.all([
           api<SourceRecord[]>("/api/sources?limit=500"),
           api<ResourceRecord[]>("/api/resources?kind=summary&limit=500"),
+          api<ResourceRecord[]>("/api/resources?kind=comparison&limit=500"),
           api<KnowledgeRefRecord[]>("/api/knowledge-refs?limit=500"),
+          api<CommentRecord[]>("/api/comments?limit=500"),
           api<RunRecord[]>("/api/runs?project_id=resource-review&limit=500"),
         ]);
       setSources(nextSources);
       setResources(nextResources);
+      setComparisons(nextComparisons);
       setKnowledgeRefs(nextKnowledgeRefs);
+      setComments(nextComments);
       setRuns(nextRuns);
       setLastUpdated(new Date());
 
@@ -188,39 +237,33 @@ export function ReviewConsole() {
       });
 
       const latest = latestCommentRunsByResource(nextRuns);
-      const noteToOpen = (() => {
-        let target: { resourceId: string; runId?: string; uri: string } | null = null;
-        for (const resourceId of [...commentOpenIntents.current]) {
-          const run = latest[resourceId];
-          if (!run || isActiveRun(run)) continue;
-
-          commentOpenIntents.current.delete(resourceId);
-          const knowledgeRef = nextKnowledgeRefs.find((reference) =>
-            reference.resource_ids.includes(resourceId),
-          );
-          const noteUri = commentNoteUri(run, knowledgeRef);
-          if (run.status === "completed" && noteUri && target === null) {
-            target = { resourceId, runId: run.run_id, uri: noteUri };
-          }
-        }
-        return target;
-      })();
       setFeedback((current) => {
         const updated = { ...current };
         for (const [resourceId, entry] of Object.entries(current)) {
           if (!entry.runId) continue;
-          const run = latest[resourceId];
+          const run = nextRuns.find((candidate) => candidate.run_id === entry.runId)
+            ?? latest[resourceId];
           if (!run || run.run_id !== entry.runId) continue;
+          const comparison = run.job_name === "vortex-comparison-v1";
+          const commentSync = run.job_name === "vortex-comment-sync-v1";
           if (run.status === "pending") {
             updated[resourceId] = {
               tone: "progress",
-              message: "正在等待在线的 Mac Lumio 领取评论任务…",
+              message: comparison
+                ? "正在等待在线的 Mac Lumio 领取候选关系检查…"
+                : commentSync
+                  ? "正在等待在线的 Mac Lumio 读取并同步本地评论…"
+                : "正在等待在线的 Mac Lumio 领取评论任务…",
               runId: run.run_id,
             };
           } else if (run.status === "claimed") {
             updated[resourceId] = {
               tone: "progress",
-              message: "Lumio 已领取；正在创建空白评论并登记引用…",
+              message: comparison
+                ? "Lumio 已领取；正在比较 Resource 与已写评论…"
+                : commentSync
+                  ? "Lumio 已领取；正在校验并上传本地 Markdown…"
+                : "Lumio 已领取；正在创建空白评论并登记引用…",
               runId: run.run_id,
             };
           } else {
@@ -228,22 +271,18 @@ export function ReviewConsole() {
               tone: run.status === "completed" ? "success" : "error",
               message:
                 run.status === "completed"
-                  ? "空白评论已创建；可通过“已有你的评论”重新打开。"
+                  ? comparison
+                    ? "观点对比已生成；可直接点击“查看对比”。"
+                    : commentSync
+                      ? "评论正文已同步到 Atlas，Resource 已标记为已评论。"
+                    : "空白评论已创建；可通过“已有你的评论”重新打开。"
                   : run.error_message || runLabel(run),
               runId: run.run_id,
             };
           }
         }
-        if (noteToOpen) {
-          updated[noteToOpen.resourceId] = {
-            tone: "success",
-            message: "空白评论已创建；正在打开 Obsidian。",
-            runId: noteToOpen.runId,
-          };
-        }
         return updated;
       });
-      if (noteToOpen) window.location.assign(noteToOpen.uri);
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         setAuth("anonymous");
@@ -305,9 +344,33 @@ export function ReviewConsole() {
     return index;
   }, [knowledgeRefs]);
 
+  const commentByResource = useMemo(() => {
+    const index = new Map<string, CommentRecord>();
+    for (const comment of comments) {
+      for (const resourceId of comment.resource_ids) {
+        if (!index.has(resourceId)) index.set(resourceId, comment);
+      }
+    }
+    return index;
+  }, [comments]);
+
+  const comparisonByResource = useMemo(() => {
+    const index = new Map<string, ResourceRecord>();
+    for (const comparison of [...comparisons].sort((left, right) =>
+      right.created_at.localeCompare(left.created_at)
+      || right.resource_id.localeCompare(left.resource_id)
+    )) {
+      const comparedResourceId = comparison.metadata.compared_resource_id;
+      if (typeof comparedResourceId === "string" && !index.has(comparedResourceId)) {
+        index.set(comparedResourceId, comparison);
+      }
+    }
+    return index;
+  }, [comparisons]);
+
   const groups = useMemo(
-    () => groupResourcesBySource(sources, resources),
-    [sources, resources],
+    () => groupResourcesBySource(sources, resources, knowledgeRefs),
+    [knowledgeRefs, sources, resources],
   );
   const visibleGroups = useMemo(
     () =>
@@ -352,7 +415,9 @@ export function ReviewConsole() {
     setAuth("anonymous");
     setSources([]);
     setResources([]);
+    setComparisons([]);
     setKnowledgeRefs([]);
+    setComments([]);
     setRuns([]);
   }
 
@@ -449,18 +514,64 @@ export function ReviewConsole() {
     }
   }
 
-  async function requestComment(resourceId: string) {
-    commentOpenIntents.current.add(resourceId);
-    setResourceBusy(resourceId, true);
+  function requestComment(resource: ResourceRecord) {
+    const resourceId = resource.resource_id;
     setFeedback((current) => ({
       ...current,
       [resourceId]: {
-        tone: "progress",
-        message: "正在向 Mac Lumio 请求一个空白评论…",
+        tone: "success",
+        message: "已在本地打开 Resource 与评论草稿；写完后点击“完成评论”。",
       },
     }));
+    openObsidianPair(resource);
+  }
+
+  async function completeComment(resourceId: string) {
+    setResourceBusy(resourceId, true);
+    setFeedback((current) => ({
+      ...current,
+      [resourceId]: { tone: "progress", message: "正在请求 Mac Lumio 同步本地评论…" },
+    }));
     try {
-      const result = await api<CommentRequestResponse>("/api/review-actions/comment", {
+      const result = await api<WorkRequestResponse>(
+        "/api/review-actions/sync-comment",
+        {
+        method: "POST",
+        body: JSON.stringify({ resource_id: resourceId }),
+        },
+      );
+      setRuns((current) => [
+        result.run,
+        ...current.filter((run) => run.run_id !== result.run.run_id),
+      ]);
+      setFeedback((current) => ({
+        ...current,
+        [resourceId]: {
+          tone: "progress",
+          message: result.reused
+            ? "已有同步任务，正在继续等待 Mac Lumio。"
+            : "同步任务已排队，完成后才会标记为已评论。",
+          runId: result.run.run_id,
+        },
+      }));
+    } catch (error) {
+      setFeedback((current) => ({
+        ...current,
+        [resourceId]: { tone: "error", message: errorMessage(error) },
+      }));
+    } finally {
+      setResourceBusy(resourceId, false);
+    }
+  }
+
+  async function requestComparison(resourceId: string) {
+    setResourceBusy(resourceId, true);
+    setFeedback((current) => ({
+      ...current,
+      [resourceId]: { tone: "progress", message: "正在安排候选观点关系检查…" },
+    }));
+    try {
+      const result = await api<WorkRequestResponse>("/api/review-actions/compare", {
         method: "POST",
         body: JSON.stringify({ resource_id: resourceId }),
       });
@@ -471,18 +582,14 @@ export function ReviewConsole() {
       setFeedback((current) => ({
         ...current,
         [resourceId]: {
-          tone: isActiveRun(result.run) ? "progress" : "success",
-          message: result.run.status === "claimed"
-            ? "Lumio 已领取；正在创建空白评论并登记引用…"
-            : result.reused
-              ? "已有相同请求，正在继续等待在线的 Mac Lumio。"
-              : "请求已排队；正在等待在线的 Mac Lumio 领取。",
+          tone: "progress",
+          message: result.reused
+            ? "已有相同检查正在执行。"
+            : "候选关系检查已排队；结果只会生成机器 comparison Resource。",
           runId: result.run.run_id,
         },
       }));
-      if (!isActiveRun(result.run)) await loadReviewData(true);
     } catch (error) {
-      commentOpenIntents.current.delete(resourceId);
       setFeedback((current) => ({
         ...current,
         [resourceId]: { tone: "error", message: errorMessage(error) },
@@ -665,10 +772,14 @@ export function ReviewConsole() {
           const sourceKnowledgeProtected = group.resources.some((resource) =>
             knowledgeByResource.has(resource.resource_id),
           );
-          const sourceCommentActive = group.resources.some((resource) =>
-            isActiveRun(latestRuns[resource.resource_id]),
+          const sourceResourceIds = new Set(group.resources.map((resource) => resource.resource_id));
+          const sourceReviewActive = runs.some((run) =>
+            isActiveRun(run)
+            && ["vortex-comment-v1", "vortex-comment-sync-v1", "vortex-comparison-v1"].includes(run.job_name)
+            && typeof run.input.resource_id === "string"
+            && sourceResourceIds.has(run.input.resource_id)
           );
-          const purgeDisabled = sourceBusy || sourceKnowledgeProtected || sourceCommentActive;
+          const purgeDisabled = sourceBusy || sourceKnowledgeProtected || sourceReviewActive;
           return (
             <article className="source-card" key={group.sourceId}>
               <header className="source-header">
@@ -702,8 +813,8 @@ export function ReviewConsole() {
                     title={
                       sourceKnowledgeProtected
                         ? "已有 KnowledgeRef 的机器材料不能删除"
-                        : sourceCommentActive
-                          ? "评论创建完成前不能删除"
+                        : sourceReviewActive
+                          ? "审阅或观点关系检查完成前不能删除"
                           : "删除该来源的全部机器 Resource、artifact 与生成卡片"
                     }
                     onClick={() => void purgeSource(
@@ -719,10 +830,16 @@ export function ReviewConsole() {
               <div className="versions">
                 {group.resources.map((resource, versionIndex) => {
                   const knowledge = knowledgeByResource.get(resource.resource_id);
+                  const comment = commentByResource.get(resource.resource_id);
+                  const comparison = comparisonByResource.get(resource.resource_id);
                   const run = latestRuns[resource.resource_id];
+                  const activeComparison = runs.find((candidate) =>
+                    candidate.job_name === "vortex-comparison-v1"
+                    && candidate.input.resource_id === resource.resource_id
+                    && isActiveRun(candidate)
+                  );
                   const isBusy = busyResources.has(resource.resource_id);
                   const resourceFeedback = feedback[resource.resource_id];
-                  const activeRun = isActiveRun(run);
                   return (
                     <section className="resource-version" key={resource.resource_id}>
                       <div className="version-rail" aria-hidden="true">
@@ -753,7 +870,7 @@ export function ReviewConsole() {
                           <div className="knowledge-strip">
                             <span aria-hidden="true">✎</span>
                             <div>
-                              <strong>已有你的评论</strong>
+                              <strong>{comment ? "评论已同步到 Atlas" : "本地评论待同步"}</strong>
                               <small>{knowledge.note_id}</small>
                             </div>
                             <a href={knowledge.uri}>在 Obsidian 打开</a>
@@ -787,11 +904,34 @@ export function ReviewConsole() {
                           <button
                             className="comment-button"
                             type="button"
-                            disabled={Boolean(knowledge) || isBusy || activeRun}
-                            onClick={() => void requestComment(resource.resource_id)}
+                            disabled={Boolean(knowledge) || isBusy}
+                            onClick={() => requestComment(resource)}
                           >
-                            {knowledge ? "已有评论" : activeRun ? "评论处理中" : "写评论"}
+                            {knowledge ? "已有评论" : "写评论"}
                           </button>
+                          {!comment && resource.review_status !== "dismissed" ? (
+                            <button
+                              type="button"
+                              disabled={isBusy}
+                              onClick={() => void completeComment(resource.resource_id)}
+                            >
+                              {knowledge ? "同步评论到 Atlas" : "完成评论"}
+                            </button>
+                          ) : null}
+                          {resource.review_status !== "dismissed" && comment ? (
+                            <button
+                              type="button"
+                              disabled={isBusy || Boolean(activeComparison)}
+                              onClick={() => void requestComparison(resource.resource_id)}
+                            >
+                              {activeComparison ? "正在生成对比" : comparison ? "更新观点对比" : "生成观点对比"}
+                            </button>
+                          ) : null}
+                          {comparison ? (
+                            <a className="comparison-link" href={obsidianCardUri(comparison.resource_id)}>
+                              查看对比
+                            </a>
+                          ) : null}
                           {resource.review_status === "dismissed" ? (
                             <button
                               type="button"

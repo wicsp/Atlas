@@ -53,6 +53,19 @@ export interface KnowledgeRefRecord {
   updated_at: string;
 }
 
+export interface CommentRecord {
+  comment_id: string;
+  knowledge_ref_id: string;
+  note_id: string;
+  source_ids: string[];
+  resource_ids: string[];
+  body_markdown: string;
+  content_hash: string;
+  format: "text/markdown";
+  created_at: string;
+  updated_at: string;
+}
+
 export interface RunRecord {
   run_id: string;
   project_id: string;
@@ -80,6 +93,20 @@ export interface ReviewGroup {
   newestAt: string;
 }
 
+export function resourceProfileId(resource: ResourceRecord): string {
+  const declared = resource.metadata.profile_id;
+  if (typeof declared === "string" && declared.trim()) return declared.trim();
+  const generator = resource.generator;
+  return [
+    resource.kind,
+    generator.name,
+    generator.version,
+    generator.model_provider ?? "deterministic",
+    generator.model_id ?? "deterministic",
+    generator.prompt_version ?? "deterministic",
+  ].join(":");
+}
+
 function newestFirst<T extends { created_at: string }>(
   left: T,
   right: T,
@@ -93,11 +120,26 @@ function newestFirst<T extends { created_at: string }>(
 export function groupResourcesBySource(
   sources: SourceRecord[],
   resources: ResourceRecord[],
+  knowledgeRefs: KnowledgeRefRecord[] = [],
 ): ReviewGroup[] {
   const sourceById = new Map(sources.map((source) => [source.source_id, source]));
   const resourcesBySource = new Map<string, ResourceRecord[]>();
+  const referenced = new Set(knowledgeRefs.flatMap((reference) => reference.resource_ids));
+  const currentBySlot = new Map<string, ResourceRecord>();
 
   for (const resource of resources) {
+    const slot = `${resource.source_id}\0${resourceProfileId(resource)}`;
+    const current = currentBySlot.get(slot);
+    if (!current || newestFirst(resource, current, resource.resource_id, current.resource_id) < 0) {
+      currentBySlot.set(slot, resource);
+    }
+  }
+
+  for (const resource of resources) {
+    const slot = `${resource.source_id}\0${resourceProfileId(resource)}`;
+    if (currentBySlot.get(slot)?.resource_id !== resource.resource_id && !referenced.has(resource.resource_id)) {
+      continue;
+    }
     const bucket = resourcesBySource.get(resource.source_id) ?? [];
     bucket.push(resource);
     resourcesBySource.set(resource.source_id, bucket);
@@ -131,7 +173,7 @@ export function latestCommentRunsByResource(
   );
 
   for (const run of ordered) {
-    if (run.job_name !== "vortex-comment-v1") continue;
+    if (!["vortex-comment-v1", "vortex-comment-sync-v1"].includes(run.job_name)) continue;
     const resourceId = run.input.resource_id;
     if (typeof resourceId === "string" && !latest[resourceId]) {
       latest[resourceId] = run;

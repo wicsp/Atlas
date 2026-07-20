@@ -44,11 +44,18 @@ systemctl --user enable --now atlas-console.service atlas-console-proxy.service
 ## User workflow
 
 1. Sign in with the existing Atlas operator password.
-2. Find Source groups under `待判断`; all summary versions remain visible inside each group.
+2. Find Source groups under `待判断`; the current Resource for each analysis profile is visible,
+   while KnowledgeRef-cited history remains available.
 3. Open the original or the generated Obsidian card.
-4. Choose `写评论` to enqueue the fixed `vortex-comment-v1` Run. An online Mac Lumio creates the
-   empty note, registers the KnowledgeRef, marks the Resource reviewed, and refreshes its card.
-5. Choose `忽略` for irrelevant unreferenced Resources, or `恢复` to return one to pending.
+4. Choose `写评论` to open the Resource Card and immediately create/open the deterministic local
+   `Knowledge/Comments/<resource_id>.md` draft. No server request is made and the Resource remains
+   pending.
+5. After writing, choose `完成评论` to register the metadata-only KnowledgeRef and mark the
+   Resource reviewed. Comment prose never leaves Obsidian.
+6. Choose `生成观点对比` to compare the selected summary only with comments for that Resource or
+   Source. Lumio renders deterministic Obsidian callout cards for source view, personal view, and
+   the candidate judgment; use `查看对比` to open the latest result directly.
+7. Choose `忽略` for irrelevant unreferenced Resources, or `恢复` to return one to pending.
 
 The chronological `时间上最新` badge is not a recommendation and does not select a preferred
 summary.
