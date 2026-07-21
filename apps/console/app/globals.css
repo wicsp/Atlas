@@ -43,7 +43,8 @@ body {
 }
 
 button,
-input {
+input,
+textarea {
   font: inherit;
 }
 
@@ -57,6 +58,97 @@ a:focus-visible,
 input:focus-visible {
   outline: 3px solid rgba(23, 77, 58, 0.24);
   outline-offset: 3px;
+}
+
+textarea:focus-visible {
+  outline: 3px solid rgba(23, 77, 58, 0.24);
+  outline-offset: 3px;
+}
+
+.resource-reader {
+  margin: 1.2rem 0;
+  border: 1px solid var(--line-strong);
+  background: #fffef9;
+}
+
+.resource-reader > header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  padding: 1rem 1.1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.resource-reader > header > div {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.resource-reader > header button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.resource-reader > p {
+  margin: 0;
+  padding: 1rem 1.1rem;
+  color: var(--muted);
+}
+
+.resource-reader .reader-error {
+  color: var(--coral);
+}
+
+.resource-content {
+  max-height: 62vh;
+  overflow: auto;
+  margin: 0;
+  padding: 1.4rem;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-family: Iowan Old Style, Baskerville, Georgia, serif;
+  font-size: 1rem;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.comment-editor {
+  display: grid;
+  gap: 0.7rem;
+  padding: 1.2rem;
+  border-top: 1px solid var(--line);
+  background: var(--forest-soft);
+}
+
+.comment-editor label {
+  font-weight: 700;
+}
+
+.comment-editor textarea {
+  width: 100%;
+  min-height: 190px;
+  resize: vertical;
+  padding: 0.9rem;
+  border: 1px solid var(--line-strong);
+  background: var(--card);
+  color: var(--ink);
+  line-height: 1.6;
+}
+
+.comment-editor > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+}
+
+.comment-editor small {
+  color: var(--muted);
 }
 
 a {

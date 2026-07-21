@@ -9,6 +9,7 @@ from atlas.agents.models import AgentRecord
 from atlas.db.session import create_sqlite_session_factory
 
 from .models import (
+    ArtifactContentRecord,
     ArtifactRef,
     EventRecord,
     ExecutionAttemptRecord,
@@ -149,6 +150,14 @@ class WorkService:
 
     def list_artifacts(self, run_id: str) -> list[ArtifactRef]:
         return self._repository.list_artifacts(run_id)
+
+    def get_artifact_content(self, artifact_id: str) -> ArtifactContentRecord:
+        return self._repository.get_artifact_content(artifact_id)
+
+    def upsert_artifact_content(
+        self, artifact_id: str, content: str
+    ) -> ArtifactContentRecord:
+        return self._repository.upsert_artifact_content(artifact_id, content, _now())
 
     def upstream_context(self, run: RunRecord) -> dict[str, dict[str, Any]]:
         context: dict[str, dict[str, Any]] = {}

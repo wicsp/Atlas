@@ -5,6 +5,7 @@ Project, Run, Event, and ArtifactRef types for Milestone 2.
 
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime
 from typing import Any, Literal
 
@@ -143,6 +144,40 @@ class ArtifactRefCreate(BaseModel):
     content_type: str | None = Field(default=None, max_length=128)
     size_bytes: int | None = Field(default=None, ge=0)
     checksum: str | None = Field(default=None, max_length=128)
+    content: str | None = Field(default=None, max_length=1024 * 1024)
+
+    @model_validator(mode="after")
+    def validate_inline_content(self) -> ArtifactRefCreate:
+        if self.content is None:
+            return self
+        encoded = self.content.encode()
+        if len(encoded) > 1024 * 1024:
+            raise ValueError("inline artifact content exceeds 1 MiB")
+        if self.size_bytes is not None and self.size_bytes != len(encoded):
+            raise ValueError("inline artifact size does not match size_bytes")
+        digest = f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+        if self.checksum is not None and self.checksum != digest:
+            raise ValueError("inline artifact content does not match checksum")
+        return self
+
+
+class ArtifactContentUpsert(BaseModel):
+    content: str = Field(max_length=1024 * 1024)
+
+    @field_validator("content")
+    @classmethod
+    def bound_encoded_content(cls, value: str) -> str:
+        if len(value.encode()) > 1024 * 1024:
+            raise ValueError("artifact content exceeds 1 MiB")
+        return value
+
+
+class ArtifactContentRecord(BaseModel):
+    artifact_id: str
+    content: str
+    content_type: str | None = None
+    size_bytes: int
+    checksum: str
 
 
 class ExecutionAttemptRecord(BaseModel):

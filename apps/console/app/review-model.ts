@@ -42,6 +42,24 @@ export interface ResourceRecord {
   updated_at: string;
 }
 
+export interface ArtifactRef {
+  artifact_id: string;
+  run_id: string;
+  name: string;
+  uri: string;
+  content_type: string | null;
+  size_bytes: number | null;
+  checksum: string | null;
+  created_at: string;
+}
+
+export interface ResourceDocument {
+  resource: ResourceRecord;
+  source: SourceRecord;
+  artifact: ArtifactRef;
+  content: string;
+}
+
 export interface KnowledgeRefRecord {
   knowledge_ref_id: string;
   note_id: string;

@@ -257,6 +257,75 @@ def test_completion_atomically_publishes_resources_and_is_idempotent(
     }
 
 
+def test_resource_content_is_uploaded_atomically_and_readable_in_console(
+    control_client: TestClient,
+    scoped_client: TestClient,
+) -> None:
+    source = _source(control_client)
+    claimed = _claimed_run(control_client, scoped_client, source["source_id"])
+    payload = _completion_payload(claimed, source["source_id"])
+    markdown = "# Summary\n\nReadable in Atlas Console.\n"
+    checksum = f"sha256:{hashlib.sha256(markdown.encode()).hexdigest()}"
+    payload["artifacts"][1].update(
+        content=markdown,
+        size_bytes=len(markdown.encode()),
+        checksum=checksum,
+    )
+    payload["resources"][1].update(
+        resource_id=_resource_id(source["source_id"], "summary", checksum),
+        content_hash=checksum,
+    )
+
+    completed = scoped_client.post(
+        f"/api/runs/{claimed['run_id']}/complete", json=payload
+    )
+    assert completed.status_code == 200, completed.text
+
+    resource_id = payload["resources"][1]["resource_id"]
+    document = control_client.get(f"/api/resources/{resource_id}/content")
+    assert document.status_code == 200, document.text
+    assert document.json()["content"] == markdown
+    assert document.json()["artifact"]["checksum"] == checksum
+
+
+def test_existing_artifact_content_can_be_backfilled_once(
+    control_client: TestClient,
+    scoped_client: TestClient,
+) -> None:
+    source = _source(control_client)
+    claimed = _claimed_run(control_client, scoped_client, source["source_id"])
+    payload = _completion_payload(claimed, source["source_id"])
+    markdown = "# Backfilled summary\n"
+    checksum = f"sha256:{hashlib.sha256(markdown.encode()).hexdigest()}"
+    payload["artifacts"][1].update(
+        size_bytes=len(markdown.encode()),
+        checksum=checksum,
+    )
+    payload["resources"][1].update(
+        resource_id=_resource_id(source["source_id"], "summary", checksum),
+        content_hash=checksum,
+    )
+    completed = scoped_client.post(
+        f"/api/runs/{claimed['run_id']}/complete", json=payload
+    )
+    assert completed.status_code == 200, completed.text
+
+    resource_id = payload["resources"][1]["resource_id"]
+    resource = control_client.get(f"/api/resources/{resource_id}").json()
+    missing = control_client.get(f"/api/resources/{resource_id}/content")
+    assert missing.status_code == 404
+
+    uploaded = control_client.put(
+        f"/api/artifacts/{resource['artifact_id']}/content",
+        json={"content": markdown},
+    )
+    assert uploaded.status_code == 200, uploaded.text
+    assert uploaded.json()["content"] == markdown
+    document = control_client.get(f"/api/resources/{resource_id}/content")
+    assert document.status_code == 200, document.text
+    assert document.json()["content"] == markdown
+
+
 def test_invalid_resource_rolls_back_entire_completion(
     control_client: TestClient,
     scoped_client: TestClient,
@@ -533,7 +602,8 @@ def test_complete_comment_stores_markdown_and_marks_reviewed(
     assert replay.status_code == 200, replay.text
     body = completed.json()
     assert body["resource"]["review_status"] == "reviewed"
-    assert body["knowledge_ref"]["note_id"] == f"Knowledge/Comments/{resource_id}"
+    assert body["knowledge_ref"]["note_id"] == f"Atlas/Comments/{resource_id}"
+    assert body["knowledge_ref"]["uri"] == f"/#resource-{resource_id}"
     assert body["knowledge_ref"]["resource_ids"] == [resource_id]
     assert body["knowledge_ref"]["source_ids"] == [source["source_id"]]
     assert body["comment"]["body_markdown"] == markdown

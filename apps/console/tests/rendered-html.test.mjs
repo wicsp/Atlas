@@ -45,19 +45,21 @@ test("removes starter surfaces and keeps credentials out of client source", asyn
 
   assert.match(page, /<ReviewConsole \/>/);
   assert.match(client, /credentials:\s*"include"/);
-  assert.match(client, /\/api\/review-actions\/sync-comment/);
+  assert.match(client, /\/api\/resources\/.*\/content/);
   assert.match(client, /\/api\/comments\?limit=500/);
+  assert.match(client, /\/api\/review-actions\/complete-comment/);
   assert.match(client, /\/api\/review-actions\/compare/);
   assert.match(client, /\/api\/review-actions\/purge-source/);
   assert.match(client, /彻底删除机器材料/);
   assert.match(client, /window\.confirm/);
-  assert.match(client, /obsidian:\/\/new\?vault=Vortex/);
-  assert.match(client, /openObsidianPair/);
-  assert.match(client, /完成评论/);
+  assert.match(client, /阅读与评论/);
+  assert.match(client, /保存评论/);
+  assert.match(client, /评论直接保存在 Atlas/);
   assert.match(client, /生成观点对比/);
   assert.match(client, /kind=comparison/);
   assert.match(client, /查看对比/);
   assert.match(client, /comparisonByResource/);
+  assert.doesNotMatch(client, /openObsidianPair|obsidianCommentCreateUri/);
   assert.doesNotMatch(client, /shared[_-]?token|control[_-]?token|localStorage/i);
   assert.doesNotMatch(packageJson, /react-loading-skeleton|drizzle/);
 

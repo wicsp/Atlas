@@ -13,7 +13,13 @@ from sqlalchemy.orm import Session, sessionmaker
 from atlas.content.repository import KnowledgeRefRow, ResourceRow, SourceRow
 from atlas.db.session import create_sqlite_session_factory
 from atlas.work.models import EXECUTION_CONTRACT_METADATA_KEY
-from atlas.work.repository import ArtifactRow, EventRow, ProjectRow, RunRow
+from atlas.work.repository import (
+    ArtifactContentRow,
+    ArtifactRow,
+    EventRow,
+    ProjectRow,
+    RunRow,
+)
 from atlas.work.service import WorkService
 from atlas.workflows.catalog import builtin_step_contract
 
@@ -157,6 +163,9 @@ class ResourcePurgeRepository:
                             "checksum": artifact.checksum,
                             "size_bytes": artifact.size_bytes,
                         }
+                        inline_content = session.get(ArtifactContentRow, artifact.artifact_id)
+                        if inline_content is not None:
+                            session.delete(inline_content)
                         session.delete(artifact)
                 manifest.append(
                     {

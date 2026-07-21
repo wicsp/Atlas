@@ -47,15 +47,13 @@ systemctl --user enable --now atlas-console.service atlas-console-proxy.service
 1. Sign in with the existing Atlas operator password.
 2. Find Source groups under `待判断`; the current Resource for each analysis profile is visible,
    while KnowledgeRef-cited history remains available.
-3. Open the original or the generated Obsidian card.
-4. Choose `写评论` to open the Resource Card and immediately create/open the deterministic local
-   `Knowledge/Comments/<resource_id>.md` draft. No server request is made and the Resource remains
-   pending.
-5. After writing, choose `完成评论` to register the metadata-only KnowledgeRef and mark the
-   Resource reviewed. Comment prose never leaves Obsidian.
+3. Open the Resource directly in Console; Atlas serves checksum-verified bounded Markdown.
+4. Choose `阅读与评论` to inspect the machine output and write Markdown without leaving Console.
+5. Choose `保存评论` to atomically save the Comment and mark the Resource reviewed. Obsidian
+   projection is optional and never gates completion.
 6. Choose `生成观点对比` to compare the selected summary only with comments for that Resource or
-   Source. Lumio renders deterministic Obsidian callout cards for source view, personal view, and
-   the candidate judgment; use `查看对比` to open the latest result directly.
+   Source. The resulting comparison is readable in Console and may optionally be projected to
+   Obsidian.
 7. Choose `忽略` for irrelevant unreferenced Resources, or `恢复` to return one to pending.
 
 The chronological `时间上最新` badge is not a recommendation and does not select a preferred

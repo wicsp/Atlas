@@ -16,6 +16,7 @@ from atlas.db.base import Base
 
 from .models import (
     EXECUTION_CONTRACT_METADATA_KEY,
+    ArtifactContentRecord,
     ArtifactRef,
     ArtifactRefCreate,
     EventRecord,
@@ -82,6 +83,15 @@ class ArtifactRow(Base):
     size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     checksum: Mapped[str | None] = mapped_column(String(128), nullable=True)
     created_at: Mapped[str] = mapped_column(String(64))
+
+
+class ArtifactContentRow(Base):
+    __tablename__ = "artifact_contents"
+
+    artifact_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    content: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[str] = mapped_column(String(64))
+    updated_at: Mapped[str] = mapped_column(String(64))
 
 
 class IdempotencyRow(Base):
@@ -582,6 +592,15 @@ class WorkRepository:
                         created_at=now.isoformat(),
                     )
                 )
+                if art.content is not None:
+                    session.add(
+                        ArtifactContentRow(
+                            artifact_id=artifact_id,
+                            content=art.content,
+                            created_at=now.isoformat(),
+                            updated_at=now.isoformat(),
+                        )
+                    )
 
             # RFC 0003: Source enrichment, ArtifactRefs, and Resource publication
             # are part of the same transaction as the terminal Run state.
@@ -801,6 +820,44 @@ class WorkRepository:
             ).all()
             return [_to_artifact(row) for row in rows]
 
+    def get_artifact_content(self, artifact_id: str) -> ArtifactContentRecord:
+        with self._session_factory() as session:
+            artifact = session.get(ArtifactRow, artifact_id)
+            content = session.get(ArtifactContentRow, artifact_id)
+            if artifact is None or content is None:
+                raise KeyError(artifact_id)
+            return _to_artifact_content(artifact, content)
+
+    def upsert_artifact_content(
+        self,
+        artifact_id: str,
+        value: str,
+        now: datetime,
+    ) -> ArtifactContentRecord:
+        with self._session_factory() as session, session.begin():
+            artifact = session.get(ArtifactRow, artifact_id)
+            if artifact is None:
+                raise KeyError(artifact_id)
+            encoded = value.encode()
+            digest = f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+            if artifact.size_bytes is not None and artifact.size_bytes != len(encoded):
+                raise ValueError("artifact content size does not match manifest")
+            if artifact.checksum is not None and artifact.checksum != digest:
+                raise ValueError("artifact content checksum does not match manifest")
+            row = session.get(ArtifactContentRow, artifact_id)
+            if row is None:
+                row = ArtifactContentRow(
+                    artifact_id=artifact_id,
+                    content=value,
+                    created_at=now.isoformat(),
+                    updated_at=now.isoformat(),
+                )
+                session.add(row)
+            elif row.content != value:
+                raise ValueError("artifact content is immutable")
+            session.flush()
+            return _to_artifact_content(artifact, row)
+
 
 # ── JSON helpers ──────────────────────────────────────────
 
@@ -964,4 +1021,18 @@ def _to_artifact(row: ArtifactRow) -> ArtifactRef:
         size_bytes=row.size_bytes,
         checksum=row.checksum,
         created_at=datetime.fromisoformat(row.created_at),
+    )
+
+
+def _to_artifact_content(
+    artifact: ArtifactRow,
+    content: ArtifactContentRow,
+) -> ArtifactContentRecord:
+    encoded = content.content.encode()
+    return ArtifactContentRecord(
+        artifact_id=artifact.artifact_id,
+        content=content.content,
+        content_type=artifact.content_type,
+        size_bytes=len(encoded),
+        checksum=f"sha256:{hashlib.sha256(encoded).hexdigest()}",
     )

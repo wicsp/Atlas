@@ -93,6 +93,8 @@ from .todos import (
     update_todo,
 )
 from .work.models import (
+    ArtifactContentRecord,
+    ArtifactContentUpsert,
     ArtifactRef,
     EventRecord,
     ExecutionAttemptRecord,
@@ -137,6 +139,10 @@ class ResourceBundle(BaseModel):
     resource: ResourceRecord
     source: SourceRecord
     artifact: ArtifactRef
+
+
+class ResourceDocument(ResourceBundle):
+    content: str
 
 
 def _todo_store_path(request: Request) -> Path:
@@ -551,6 +557,47 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 detail="Resource artifact reference is missing",
             )
         return ResourceBundle(resource=resource, source=source, artifact=artifact)
+
+    @app.get(
+        "/api/resources/{resource_id}/content",
+        response_model=ResourceDocument,
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def get_resource_content(request: Request, resource_id: str) -> ResourceDocument:
+        bundle = await get_resource_bundle(request, resource_id)
+        try:
+            content = _work_service(request).get_artifact_content(bundle.artifact.artifact_id)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Resource content has not been uploaded to Atlas",
+            ) from exc
+        return ResourceDocument(**bundle.model_dump(), content=content.content)
+
+    @app.put(
+        "/api/artifacts/{artifact_id}/content",
+        response_model=ArtifactContentRecord,
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def upsert_artifact_content(
+        request: Request,
+        artifact_id: str,
+        payload: ArtifactContentUpsert,
+    ) -> ArtifactContentRecord:
+        try:
+            return _work_service(request).upsert_artifact_content(
+                artifact_id, payload.content
+            )
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Artifact not found",
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
+            ) from exc
 
     @app.patch(
         "/api/resources/{resource_id}/review",

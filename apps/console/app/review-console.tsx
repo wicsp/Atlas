@@ -7,6 +7,7 @@ import {
   latestCommentRunsByResource,
   type CommentRecord,
   type KnowledgeRefRecord,
+  type ResourceDocument,
   type ResourceRecord,
   type ReviewStatus,
   type RunRecord,
@@ -33,6 +34,12 @@ interface PurgeSourceResponse {
   run: RunRecord;
   resource_ids: string[];
   reused: boolean;
+}
+
+interface CommentCompleteResponse {
+  resource: ResourceRecord;
+  knowledge_ref: KnowledgeRefRecord;
+  comment: CommentRecord;
 }
 
 class ApiError extends Error {
@@ -135,44 +142,11 @@ function externalIdentity(source: SourceRecord | null): string | null {
   return null;
 }
 
-function obsidianCardUri(resourceId: string): string {
-  const file = encodeURIComponent(`Resources/Cards/${resourceId}`);
-  return `obsidian://open?vault=Vortex&file=${file}`;
-}
-
-function commentNoteId(resourceId: string): string {
-  return `Knowledge/Comments/${resourceId}`;
-}
-
-function obsidianCommentCreateUri(resource: ResourceRecord): string {
-  const file = encodeURIComponent(commentNoteId(resource.resource_id));
-  const content = encodeURIComponent(`---
-type: knowledge-comment
-resource_ids:
-  - "${resource.resource_id}"
-source_ids:
-  - "${resource.source_id}"
-created: "${new Date().toISOString()}"
----
-
-# Knowledge Comment
-
-## 我的评论
-
-## 证据定位
-
-- Resource: [[Resources/Cards/${resource.resource_id}|${resource.resource_id}]]
-
-## 修订关系
-`);
-  return `obsidian://new?vault=Vortex&file=${file}&content=${content}`;
-}
-
-function openObsidianPair(resource: ResourceRecord): void {
-  window.location.assign(obsidianCardUri(resource.resource_id));
-  window.setTimeout(() => {
-    window.location.assign(obsidianCommentCreateUri(resource));
-  }, 150);
+async function sha256(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return `sha256:${Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("")}`;
 }
 
 function errorMessage(error: unknown): string {
@@ -200,6 +174,11 @@ export function ReviewConsole() {
   const [busySources, setBusySources] = useState<Set<string>>(new Set());
   const [feedback, setFeedback] = useState<Record<string, Feedback>>({});
   const [purgeFeedback, setPurgeFeedback] = useState<Feedback | null>(null);
+  const [openResourceId, setOpenResourceId] = useState<string | null>(null);
+  const [documents, setDocuments] = useState<Record<string, ResourceDocument>>({});
+  const [documentErrors, setDocumentErrors] = useState<Record<string, string>>({});
+  const [loadingDocuments, setLoadingDocuments] = useState<Set<string>>(new Set());
+  const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
 
   const loadReviewData = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
@@ -514,44 +493,84 @@ export function ReviewConsole() {
     }
   }
 
-  function requestComment(resource: ResourceRecord) {
+  async function openResource(
+    resource: ResourceRecord,
+    existingComment?: CommentRecord,
+  ) {
     const resourceId = resource.resource_id;
-    setFeedback((current) => ({
+    if (openResourceId === resourceId) {
+      setOpenResourceId(null);
+      return;
+    }
+    setOpenResourceId(resourceId);
+    setCommentDrafts((current) => ({
       ...current,
-      [resourceId]: {
-        tone: "success",
-        message: "已在本地打开 Resource 与评论草稿；写完后点击“完成评论”。",
-      },
+      [resourceId]: current[resourceId] ?? existingComment?.body_markdown ?? "",
     }));
-    openObsidianPair(resource);
+    if (documents[resourceId] || loadingDocuments.has(resourceId)) return;
+    setLoadingDocuments((current) => new Set(current).add(resourceId));
+    setDocumentErrors((current) => ({ ...current, [resourceId]: "" }));
+    try {
+      const document = await api<ResourceDocument>(
+        `/api/resources/${encodeURIComponent(resourceId)}/content`,
+      );
+      setDocuments((current) => ({ ...current, [resourceId]: document }));
+    } catch (error) {
+      setDocumentErrors((current) => ({
+        ...current,
+        [resourceId]: errorMessage(error),
+      }));
+    } finally {
+      setLoadingDocuments((current) => {
+        const next = new Set(current);
+        next.delete(resourceId);
+        return next;
+      });
+    }
   }
 
-  async function completeComment(resourceId: string) {
+  async function saveComment(resourceId: string) {
+    const body = commentDrafts[resourceId] ?? "";
+    if (!body.trim()) {
+      setFeedback((current) => ({
+        ...current,
+        [resourceId]: { tone: "error", message: "评论不能为空。" },
+      }));
+      return;
+    }
     setResourceBusy(resourceId, true);
     setFeedback((current) => ({
       ...current,
-      [resourceId]: { tone: "progress", message: "正在请求 Mac Lumio 同步本地评论…" },
+      [resourceId]: { tone: "progress", message: "正在保存评论到 Atlas…" },
     }));
     try {
-      const result = await api<WorkRequestResponse>(
-        "/api/review-actions/sync-comment",
+      const result = await api<CommentCompleteResponse>(
+        "/api/review-actions/complete-comment",
         {
-        method: "POST",
-        body: JSON.stringify({ resource_id: resourceId }),
+          method: "POST",
+          body: JSON.stringify({
+            resource_id: resourceId,
+            body_markdown: body,
+            content_hash: await sha256(body),
+          }),
         },
       );
-      setRuns((current) => [
-        result.run,
-        ...current.filter((run) => run.run_id !== result.run.run_id),
+      setResources((current) => current.map((resource) =>
+        resource.resource_id === resourceId ? result.resource : resource
+      ));
+      setKnowledgeRefs((current) => [
+        result.knowledge_ref,
+        ...current.filter((item) => item.knowledge_ref_id !== result.knowledge_ref.knowledge_ref_id),
+      ]);
+      setComments((current) => [
+        result.comment,
+        ...current.filter((item) => item.comment_id !== result.comment.comment_id),
       ]);
       setFeedback((current) => ({
         ...current,
         [resourceId]: {
-          tone: "progress",
-          message: result.reused
-            ? "已有同步任务，正在继续等待 Mac Lumio。"
-            : "同步任务已排队，完成后才会标记为已评论。",
-          runId: result.run.run_id,
+          tone: "success",
+          message: "评论已保存到 Atlas，Resource 已标记为已评论。",
         },
       }));
     } catch (error) {
@@ -840,8 +859,17 @@ export function ReviewConsole() {
                   );
                   const isBusy = busyResources.has(resource.resource_id);
                   const resourceFeedback = feedback[resource.resource_id];
+                  const comparisonOpen = comparison?.resource_id === openResourceId;
+                  const readerResource = comparisonOpen ? comparison : resource;
+                  const document = documents[readerResource.resource_id];
+                  const documentOpen = openResourceId === readerResource.resource_id;
+                  const documentLoading = loadingDocuments.has(readerResource.resource_id);
                   return (
-                    <section className="resource-version" key={resource.resource_id}>
+                    <section
+                      className="resource-version"
+                      id={`resource-${resource.resource_id}`}
+                      key={resource.resource_id}
+                    >
                       <div className="version-rail" aria-hidden="true">
                         <span className="version-dot" />
                         {versionIndex < group.resources.length - 1 ? <span className="version-line" /> : null}
@@ -866,14 +894,62 @@ export function ReviewConsole() {
                           <div><dt>Resource</dt><dd title={resource.resource_id}>{shortId(resource.resource_id)}</dd></div>
                         </dl>
 
+                        {documentOpen ? (
+                          <section className="resource-reader" aria-busy={documentLoading}>
+                            <header>
+                              <div>
+                                <span className="eyebrow">RESOURCE CONTENT</span>
+                                <strong>{readerResource.title}</strong>
+                              </div>
+                              <button type="button" onClick={() => setOpenResourceId(null)}>
+                                收起
+                              </button>
+                            </header>
+                            {documentLoading ? <p>正在从 Atlas 读取正文…</p> : null}
+                            {documentErrors[readerResource.resource_id] ? (
+                              <p className="reader-error">{documentErrors[readerResource.resource_id]}</p>
+                            ) : null}
+                            {document ? (
+                              <pre className="resource-content">{document.content}</pre>
+                            ) : null}
+                            {readerResource.kind === "summary" ? (
+                              <div className="comment-editor" id="comment">
+                                <label htmlFor={`comment-${resource.resource_id}`}>我的评论</label>
+                                <textarea
+                                  id={`comment-${resource.resource_id}`}
+                                  value={commentDrafts[resource.resource_id] ?? ""}
+                                  placeholder="在这里记录你的判断、质疑和证据定位。支持 Markdown。"
+                                  onChange={(event) => setCommentDrafts((current) => ({
+                                    ...current,
+                                    [resource.resource_id]: event.target.value,
+                                  }))}
+                                />
+                                <div>
+                                  <small>评论直接保存在 Atlas；同步到 Obsidian 是可选操作。</small>
+                                  <button
+                                    className="comment-button"
+                                    type="button"
+                                    disabled={isBusy}
+                                    onClick={() => void saveComment(resource.resource_id)}
+                                  >
+                                    {isBusy ? "保存中…" : comment ? "更新评论" : "保存评论"}
+                                  </button>
+                                </div>
+                              </div>
+                            ) : null}
+                          </section>
+                        ) : null}
+
                         {knowledge ? (
                           <div className="knowledge-strip">
                             <span aria-hidden="true">✎</span>
                             <div>
-                              <strong>{comment ? "评论已同步到 Atlas" : "本地评论待同步"}</strong>
+                              <strong>{comment ? "评论保存在 Atlas" : "已建立知识引用"}</strong>
                               <small>{knowledge.note_id}</small>
                             </div>
-                            <a href={knowledge.uri}>在 Obsidian 打开</a>
+                            {knowledge.uri.startsWith("obsidian:") ? (
+                              <a href={knowledge.uri}>在 Obsidian 打开</a>
+                            ) : null}
                           </div>
                         ) : null}
 
@@ -898,26 +974,14 @@ export function ReviewConsole() {
                               原始材料
                             </a>
                           ) : null}
-                          {resource.review_status !== "dismissed" ? (
-                            <a href={obsidianCardUri(resource.resource_id)}>Resource 卡片</a>
-                          ) : null}
                           <button
                             className="comment-button"
                             type="button"
-                            disabled={Boolean(knowledge) || isBusy}
-                            onClick={() => requestComment(resource)}
+                            disabled={isBusy}
+                            onClick={() => void openResource(resource, comment)}
                           >
-                            {knowledge ? "已有评论" : "写评论"}
+                            {documentOpen ? "收起 Resource" : comment ? "阅读与编辑评论" : "阅读与评论"}
                           </button>
-                          {!comment && resource.review_status !== "dismissed" ? (
-                            <button
-                              type="button"
-                              disabled={isBusy}
-                              onClick={() => void completeComment(resource.resource_id)}
-                            >
-                              {knowledge ? "同步评论到 Atlas" : "完成评论"}
-                            </button>
-                          ) : null}
                           {resource.review_status !== "dismissed" && comment ? (
                             <button
                               type="button"
@@ -928,9 +992,13 @@ export function ReviewConsole() {
                             </button>
                           ) : null}
                           {comparison ? (
-                            <a className="comparison-link" href={obsidianCardUri(comparison.resource_id)}>
+                            <button
+                              className="comparison-link"
+                              type="button"
+                              onClick={() => void openResource(comparison)}
+                            >
                               查看对比
-                            </a>
+                            </button>
                           ) : null}
                           {resource.review_status === "dismissed" ? (
                             <button
@@ -969,7 +1037,7 @@ export function ReviewConsole() {
       </section>
 
       <footer className="console-footer">
-        <p>Atlas 记录来源、状态与引用。Lumio 执行本地操作。Vortex 只保存你负责的文字。</p>
+        <p>Atlas 保存 Resource、审阅状态与评论。Obsidian 只作为可选的长期知识投影。</p>
         <span>Resource Review Console · RFC 0004</span>
       </footer>
     </main>
