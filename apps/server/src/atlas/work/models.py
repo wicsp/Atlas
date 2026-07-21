@@ -12,9 +12,60 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from atlas.content.models import ResourceCreate, SourceUpdate
 
-RunStatus = Literal["pending", "claimed", "completed", "failed", "cancelled"]
+RunStatus = Literal["blocked", "pending", "claimed", "completed", "failed", "cancelled"]
 
 AttemptStatus = Literal["active", "accepted", "failed", "superseded", "cancelled"]
+
+EXECUTION_CONTRACT_METADATA_KEY = "_atlas_execution_contract"
+
+
+class WorkflowRef(BaseModel):
+    """Immutable identity of the workflow that produced a run."""
+
+    name: str = Field(min_length=1, max_length=128)
+    version: str = Field(min_length=1, max_length=64)
+    digest: str | None = Field(default=None, min_length=1, max_length=128)
+
+    @field_validator("name", "version", "digest")
+    @classmethod
+    def normalize_fields(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("workflow fields cannot be empty")
+        return normalized
+
+
+class ExecutionRequirements(BaseModel):
+    """Placement requirements, deliberately separate from business workflow names."""
+
+    node_ids: list[str] = Field(default_factory=list, max_length=32)
+    executors: list[str] = Field(default_factory=list, max_length=32)
+    node_labels: list[str] = Field(default_factory=list, max_length=64)
+    grants: list[str] = Field(default_factory=list, max_length=64)
+
+    @field_validator("node_ids", "executors", "node_labels", "grants")
+    @classmethod
+    def normalize_lists(cls, value: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for item in value:
+            stripped = item.strip()
+            if stripped and stripped not in normalized:
+                normalized.append(stripped)
+        return normalized
+
+
+class SchedulingProfile(BaseModel):
+    """Server-derived placement facts for a registered runner or legacy agent."""
+
+    identity_id: str
+    legacy_capabilities: list[str] = Field(default_factory=list)
+    is_runner: bool = False
+    node_id: str | None = None
+    executors: list[str] = Field(default_factory=list)
+    node_labels: list[str] = Field(default_factory=list)
+    available_grants: list[str] = Field(default_factory=list)
 
 
 
@@ -40,6 +91,7 @@ class ProjectRecord(BaseModel):
 
 
 class RunCreate(BaseModel):
+    run_id: str | None = Field(default=None, min_length=1, max_length=128)
     project_id: str = Field(min_length=1, max_length=128)
     job_name: str = Field(min_length=1, max_length=128)
     capabilities_required: list[str] = Field(default_factory=list, max_length=32)
@@ -47,16 +99,24 @@ class RunCreate(BaseModel):
     priority: int = Field(default=0, ge=-100, le=100)
     max_attempts: int = Field(default=3, ge=1, le=10)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    workflow: WorkflowRef | None = None
+    step_name: str | None = Field(default=None, min_length=1, max_length=128)
+    requirements: ExecutionRequirements = Field(default_factory=ExecutionRequirements)
+    workflow_invocation_id: str | None = Field(default=None, min_length=1, max_length=128)
+    depends_on_run_ids: list[str] = Field(default_factory=list, max_length=32)
+    initial_status: Literal["blocked", "pending"] = "pending"
 
-    @field_validator("project_id", "job_name")
+    @field_validator("project_id", "job_name", "run_id", "workflow_invocation_id")
     @classmethod
-    def strip_required(cls, value: str) -> str:
+    def strip_required(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         normalized = value.strip()
         if not normalized:
             raise ValueError("value cannot be empty")
         return normalized
 
-    @field_validator("capabilities_required")
+    @field_validator("capabilities_required", "depends_on_run_ids")
     @classmethod
     def normalize_capabilities(cls, value: list[str]) -> list[str]:
         normalized: list[str] = []
@@ -65,6 +125,16 @@ class RunCreate(BaseModel):
             if stripped and stripped not in normalized:
                 normalized.append(stripped)
         return normalized
+
+    @model_validator(mode="after")
+    def reserve_execution_metadata_key(self) -> RunCreate:
+        if EXECUTION_CONTRACT_METADATA_KEY in self.metadata:
+            raise ValueError(f"metadata key {EXECUTION_CONTRACT_METADATA_KEY} is reserved")
+        if self.workflow is not None and self.step_name is None:
+            self.step_name = self.job_name
+        if self.depends_on_run_ids and self.initial_status != "blocked":
+            raise ValueError("dependent workflow runs must start blocked")
+        return self
 
 
 class ArtifactRefCreate(BaseModel):
@@ -166,6 +236,11 @@ class RunRecord(BaseModel):
     max_attempts: int
     priority: int
     metadata: dict[str, Any] = Field(default_factory=dict)
+    workflow: WorkflowRef | None = None
+    step_name: str | None = None
+    requirements: ExecutionRequirements = Field(default_factory=ExecutionRequirements)
+    workflow_invocation_id: str | None = None
+    depends_on_run_ids: list[str] = Field(default_factory=list)
     error_message: str | None = None
     created_at: datetime
     started_at: datetime | None = None

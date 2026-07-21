@@ -11,7 +11,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from . import __version__
-from .agents.models import AgentRecord, AgentRegistration, AgentRegistrationResponse
+from .agents.models import (
+    AgentRecord,
+    AgentRegistration,
+    AgentRegistrationResponse,
+    RunnerRecord,
+    RunnerRegistration,
+    RunnerRegistrationResponse,
+)
 from .agents.service import AgentService, create_agent_service
 from .config import Settings, get_settings
 from .content.models import (
@@ -100,6 +107,13 @@ from .work.models import (
     RunStatus,
 )
 from .work.service import WorkService, create_work_service
+from .workflows.models import (
+    WorkflowDefinitionCreate,
+    WorkflowDefinitionRecord,
+    WorkflowInvocationCreate,
+    WorkflowInvocationRecord,
+)
+from .workflows.service import WorkflowService, create_workflow_service
 
 
 class HealthResponse(BaseModel):
@@ -162,6 +176,18 @@ def _work_service(request: Request) -> WorkService:
             lease_ttl_seconds=settings.work.lease_ttl_seconds,
         )
         request.app.state.work_service = service
+    return service
+
+
+def _workflow_service(request: Request) -> WorkflowService:
+    service = getattr(request.app.state, "workflow_service", None)
+    if service is None:
+        settings: Settings = request.app.state.settings
+        service = create_workflow_service(
+            settings.work.database_path,
+            _work_service(request),
+        )
+        request.app.state.workflow_service = service
     return service
 
 
@@ -378,6 +404,46 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Agent not found",
+            ) from exc
+
+    # Runner is the runtime-neutral execution identity. The Agent endpoints above
+    # remain as an atlas-agent-v3 compatibility surface for deployed clients.
+    @app.get(
+        "/api/runners",
+        response_model=list[RunnerRecord],
+        dependencies=[Depends(require_auth)],
+    )
+    async def list_runners(request: Request) -> list[RunnerRecord]:
+        return _agent_service(request).list_runners()
+
+    @app.post(
+        "/api/runners/register",
+        response_model=RunnerRegistrationResponse,
+        dependencies=[Depends(require_agent_auth)],
+    )
+    async def register_runner(
+        request: Request,
+        payload: RunnerRegistration,
+    ) -> RunnerRegistrationResponse:
+        return _agent_service(request).register_runner(payload)
+
+    @app.post(
+        "/api/runners/{runner_id}/heartbeat",
+        response_model=RunnerRecord,
+        dependencies=[Depends(require_agent_auth)],
+    )
+    async def runner_heartbeat(request: Request, runner_id: str) -> RunnerRecord:
+        try:
+            return _agent_service(request).record_runner_heartbeat(runner_id)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Runner not found",
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
             ) from exc
 
     # ── Content API (RFC 0003) ─────────────────────────────────
@@ -767,6 +833,65 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # ── Work API (Milestone 2) ──────────────────────────────────
 
     @app.post(
+        "/api/workflows",
+        response_model=WorkflowDefinitionRecord,
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def register_workflow(
+        request: Request,
+        payload: WorkflowDefinitionCreate,
+    ) -> WorkflowDefinitionRecord:
+        try:
+            return _workflow_service(request).register_definition(payload)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
+            ) from exc
+
+    @app.get(
+        "/api/workflows",
+        response_model=list[WorkflowDefinitionRecord],
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def list_workflows(request: Request) -> list[WorkflowDefinitionRecord]:
+        return _workflow_service(request).list_definitions()
+
+    @app.post(
+        "/api/workflow-invocations",
+        response_model=WorkflowInvocationRecord,
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def invoke_workflow(
+        request: Request,
+        payload: WorkflowInvocationCreate,
+    ) -> WorkflowInvocationRecord:
+        try:
+            return _workflow_service(request).invoke(payload)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Workflow definition not found",
+            ) from exc
+
+    @app.get(
+        "/api/workflow-invocations/{invocation_id}",
+        response_model=WorkflowInvocationRecord,
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def get_workflow_invocation(
+        request: Request,
+        invocation_id: str,
+    ) -> WorkflowInvocationRecord:
+        try:
+            return _workflow_service(request).get_invocation(invocation_id)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Workflow invocation not found",
+            ) from exc
+
+    @app.post(
         "/api/projects",
         response_model=ProjectRecord,
         dependencies=[Depends(require_agent_auth)],
@@ -797,7 +922,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         request: Request,
         agent: Annotated[AgentRecord, Depends(require_scoped_agent_auth)],
     ):
-        result = _work_service(request).claim_next(agent.agent_id, agent.capabilities)
+        result = _work_service(request).claim_next(agent)
         if result is None:
             return None
         run, attempt_id, claim_token = result
@@ -805,6 +930,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             **run.model_dump(),
             "attempt_id": attempt_id,
             "claim_token": claim_token,
+            "execution_context": _work_service(request).upstream_context(run),
         }
 
     @app.post(
@@ -816,14 +942,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         agent: Annotated[AgentRecord, Depends(require_scoped_agent_auth)],
     ):
         try:
-            result = _work_service(request).claim_by_id(
-                run_id, agent.agent_id, agent.capabilities
-            )
+            result = _work_service(request).claim_by_id(run_id, agent)
             run, attempt_id, claim_token = result
             return {
                 **run.model_dump(),
                 "attempt_id": attempt_id,
                 "claim_token": claim_token,
+                "execution_context": _work_service(request).upstream_context(run),
             }
         except KeyError as exc:
             raise HTTPException(

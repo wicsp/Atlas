@@ -112,3 +112,45 @@ def test_agent_list_requires_dashboard_login(tmp_path: Path) -> None:
     response = client.get("/api/agents")
 
     assert response.status_code == 401
+
+
+def test_runner_registration_separates_node_and_executors_from_business_capabilities(
+    tmp_path: Path,
+) -> None:
+    client = make_client(tmp_path)
+    response = client.post(
+        "/api/runners/register",
+        headers=agent_headers(),
+        json={
+            "runner_id": "macsp.runner.pi-session",
+            "name": "Pi runner on macsp",
+            "node": {
+                "node_id": "macsp",
+                "os": "darwin",
+                "labels": ["desktop", "local-data"],
+            },
+            "executors": [{"name": "pi", "kind": "agent", "version": "1.0"}],
+            "available_grants": ["bilibili-cookie:read"],
+            "legacy_capabilities": ["bilibili-summary-v4"],
+            "metadata": {"distribution": "lumio"},
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    registered = response.json()
+    assert registered["runner_id"] == "macsp.runner.pi-session"
+    assert registered["protocol_version"] == "atlas-runner-v1"
+    assert registered["scoped_token"].startswith("at2_")
+
+    heartbeat = client.post(
+        "/api/runners/macsp.runner.pi-session/heartbeat",
+        headers=agent_headers(),
+    )
+    assert heartbeat.status_code == 200, heartbeat.text
+    assert heartbeat.json()["node"]["node_id"] == "macsp"
+    assert heartbeat.json()["executors"][0]["name"] == "pi"
+
+    login(client)
+    runners = client.get("/api/runners")
+    assert runners.status_code == 200
+    assert runners.json()[0]["metadata"] == {"distribution": "lumio"}

@@ -15,6 +15,7 @@ from atlas.content.repository import apply_source_updates, publish_resources
 from atlas.db.base import Base
 
 from .models import (
+    EXECUTION_CONTRACT_METADATA_KEY,
     ArtifactRef,
     ArtifactRefCreate,
     EventRecord,
@@ -24,6 +25,7 @@ from .models import (
     RunCreate,
     RunRecord,
     RunStatus,
+    SchedulingProfile,
 )
 
 
@@ -151,17 +153,27 @@ class WorkRepository:
 
     def create_run(self, payload: RunCreate, now: datetime) -> RunRecord:
         with self._session_factory() as session:
+            metadata = dict(payload.metadata)
+            has_requirements = payload.requirements.model_dump(exclude_defaults=True)
+            if payload.workflow is not None or has_requirements:
+                metadata[EXECUTION_CONTRACT_METADATA_KEY] = {
+                    "workflow": payload.workflow.model_dump() if payload.workflow else None,
+                    "step_name": payload.step_name,
+                    "requirements": payload.requirements.model_dump(),
+                    "workflow_invocation_id": payload.workflow_invocation_id,
+                    "depends_on_run_ids": payload.depends_on_run_ids,
+                }
             row = RunRow(
-                run_id=f"run_{uuid.uuid4().hex}",
+                run_id=payload.run_id or f"run_{uuid.uuid4().hex}",
                 project_id=payload.project_id,
                 job_name=payload.job_name,
                 capabilities_json=_dump_json(payload.capabilities_required),
                 input_json=_dump_json(payload.input),
-                status="pending",
+                status=payload.initial_status,
                 attempt_number=0,
                 max_attempts=payload.max_attempts,
                 priority=payload.priority,
-                metadata_json=_dump_json(payload.metadata),
+                metadata_json=_dump_json(metadata),
                 created_at=now.isoformat(),
             )
             session.add(row)
@@ -170,8 +182,12 @@ class WorkRepository:
                     event_id=f"evt_{uuid.uuid4().hex}",
                     run_id=row.run_id,
                     agent_id=None,
-                    event_type="enqueued",
-                    body="Run created",
+                    event_type="enqueued" if payload.initial_status == "pending" else "blocked",
+                    body=(
+                        "Run created"
+                        if payload.initial_status == "pending"
+                        else "Run waiting for workflow dependencies"
+                    ),
                     created_at=now.isoformat(),
                 )
             )
@@ -252,6 +268,7 @@ class WorkRepository:
         lease_expires_at: datetime,
         now: datetime,
         capabilities: list[str] | None = None,
+        scheduling_profile: SchedulingProfile | None = None,
     ) -> RunRecord | None:
         """Atomically find + claim a pending run in a single transaction.
 
@@ -305,6 +322,7 @@ class WorkRepository:
                 row
                 for row in candidates
                 if _capabilities_match(row.capabilities_json, effective_capabilities)
+                and _execution_requirements_match(row.metadata_json, scheduling_profile)
             ]
 
             if not matching:
@@ -381,6 +399,7 @@ class WorkRepository:
         lease_expires_at: datetime,
         now: datetime,
         capabilities: list[str],
+        scheduling_profile: SchedulingProfile | None = None,
     ) -> ClaimResult:
         with self._session_factory() as session, session.begin():
             row = session.get(RunRow, run_id)
@@ -392,6 +411,10 @@ class WorkRepository:
                 raise ValueError(f"Run {run_id} has exhausted all attempts")
             if not _capabilities_match(row.capabilities_json, capabilities):
                 raise PermissionError(f"Agent lacks capabilities required by run {run_id}")
+            if not _execution_requirements_match(row.metadata_json, scheduling_profile):
+                raise PermissionError(
+                    f"Runner does not satisfy execution requirements for run {run_id}"
+                )
             result = session.execute(
                 update(RunRow)
                 .where(RunRow.run_id == run_id)
@@ -595,6 +618,8 @@ class WorkRepository:
                         created_at=now.isoformat(),
                     )
                 )
+
+            _unblock_ready_dependents(session, run_id, now)
 
             # Update execution attempt.
             result_digest = hashlib.sha256(
@@ -805,6 +830,32 @@ def _capabilities_match(required_json: str, agent_capabilities: list[str]) -> bo
     return all(c in agent_set for c in required)
 
 
+def _execution_requirements_match(
+    metadata_json: str,
+    profile: SchedulingProfile | None,
+) -> bool:
+    metadata = _load_json(metadata_json, {})
+    contract = metadata.get(EXECUTION_CONTRACT_METADATA_KEY)
+    if not isinstance(contract, dict):
+        return True
+    requirements = contract.get("requirements") or {}
+    if not any(requirements.get(key) for key in ("node_ids", "executors", "node_labels", "grants")):
+        return True
+    if profile is None or not profile.is_runner:
+        return False
+    node_ids = set(requirements.get("node_ids") or [])
+    if node_ids and profile.node_id not in node_ids:
+        return False
+    executors = set(requirements.get("executors") or [])
+    if executors and not executors.intersection(profile.executors):
+        return False
+    if not set(requirements.get("node_labels") or []).issubset(profile.node_labels):
+        return False
+    if not set(requirements.get("grants") or []).issubset(profile.available_grants):
+        return False
+    return True
+
+
 def _claim_token_digest(token: str) -> str:
     """SHA256 digest of a claim token for database storage."""
     return hashlib.sha256(token.encode()).hexdigest()
@@ -837,6 +888,8 @@ def _to_project(row: ProjectRow) -> ProjectRecord:
 
 
 def _to_run(row: RunRow) -> RunRecord:
+    stored_metadata = _load_json(row.metadata_json, {})
+    contract = stored_metadata.pop(EXECUTION_CONTRACT_METADATA_KEY, {})
     return RunRecord(
         run_id=row.run_id,
         project_id=row.project_id,
@@ -850,12 +903,42 @@ def _to_run(row: RunRow) -> RunRecord:
         attempt_number=row.attempt_number,
         max_attempts=row.max_attempts,
         priority=row.priority,
-        metadata=_load_json(row.metadata_json, {}),
+        metadata=stored_metadata,
+        workflow=contract.get("workflow"),
+        step_name=contract.get("step_name"),
+        requirements=contract.get("requirements", {}),
+        workflow_invocation_id=contract.get("workflow_invocation_id"),
+        depends_on_run_ids=contract.get("depends_on_run_ids", []),
         error_message=row.error_message,
         created_at=datetime.fromisoformat(row.created_at),
         started_at=_parse_datetime(row.started_at),
         completed_at=_parse_datetime(row.completed_at),
     )
+
+
+def _unblock_ready_dependents(session: Session, completed_run_id: str, now: datetime) -> None:
+    blocked = session.scalars(select(RunRow).where(RunRow.status == "blocked")).all()
+    for candidate in blocked:
+        metadata = _load_json(candidate.metadata_json, {})
+        contract = metadata.get(EXECUTION_CONTRACT_METADATA_KEY)
+        if not isinstance(contract, dict):
+            continue
+        dependencies = contract.get("depends_on_run_ids") or []
+        if completed_run_id not in dependencies:
+            continue
+        dependency_rows = [session.get(RunRow, dependency_id) for dependency_id in dependencies]
+        if dependency_rows and all(row is not None and row.status == "completed" for row in dependency_rows):
+            candidate.status = "pending"
+            session.add(
+                EventRow(
+                    event_id=f"evt_{uuid.uuid4().hex}",
+                    run_id=candidate.run_id,
+                    agent_id=None,
+                    event_type="unblocked",
+                    body="Workflow dependencies completed",
+                    created_at=now.isoformat(),
+                )
+            )
 
 
 def _to_event(row: EventRow) -> EventRecord:

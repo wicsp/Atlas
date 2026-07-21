@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from atlas.agents.models import AgentRecord
 from atlas.db.session import create_sqlite_session_factory
 
 from .models import (
@@ -19,6 +20,7 @@ from .models import (
     RunFail,
     RunRecord,
     RunStatus,
+    SchedulingProfile,
 )
 from .repository import WorkRepository
 
@@ -45,24 +47,35 @@ class WorkService:
     def enqueue_run(self, payload: RunCreate) -> RunRecord:
         return self._repository.create_run(payload, _now())
 
-    def claim_next(self, agent_id: str, capabilities: list[str] | None = None) -> (
+    def claim_next(self, agent: AgentRecord) -> (
         tuple[RunRecord, str, str] | None
     ):
         now = _now()
         lease = now + self._lease_ttl
         result = self._repository.claim_next_atomic(
-            agent_id, lease, now, capabilities
+            agent.agent_id,
+            lease,
+            now,
+            agent.capabilities,
+            _scheduling_profile(agent),
         )
         if result is None:
             return None
         return result.run, result.attempt_id, result.claim_token
 
     def claim_by_id(
-        self, run_id: str, agent_id: str, capabilities: list[str]
+        self, run_id: str, agent: AgentRecord
     ) -> tuple[RunRecord, str, str]:
         now = _now()
         lease = now + self._lease_ttl
-        result = self._repository.claim_run(run_id, agent_id, lease, now, capabilities)
+        result = self._repository.claim_run(
+            run_id,
+            agent.agent_id,
+            lease,
+            now,
+            agent.capabilities,
+            _scheduling_profile(agent),
+        )
         return result.run, result.attempt_id, result.claim_token
 
     def heartbeat(self, run_id: str, agent_id: str, attempt_id: str, claim_token: str) -> RunRecord:
@@ -137,6 +150,21 @@ class WorkService:
     def list_artifacts(self, run_id: str) -> list[ArtifactRef]:
         return self._repository.list_artifacts(run_id)
 
+    def upstream_context(self, run: RunRecord) -> dict[str, dict[str, Any]]:
+        context: dict[str, dict[str, Any]] = {}
+        for dependency_id in run.depends_on_run_ids:
+            dependency = self.get_run(dependency_id)
+            if dependency.status != "completed":
+                raise ValueError(f"workflow dependency {dependency_id} is not completed")
+            context[dependency_id] = {
+                "output": dependency.output or {},
+                "artifacts": [
+                    artifact.model_dump(mode="json")
+                    for artifact in self.list_artifacts(dependency_id)
+                ],
+            }
+        return context
+
 
 def _now() -> datetime:
     return datetime.now(UTC)
@@ -146,6 +174,30 @@ def _payload_digest(payload: Any) -> str:
     """Produce a stable digest of a Pydantic model for idempotency."""
     raw = payload.model_dump_json()
     return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def _scheduling_profile(agent: AgentRecord) -> SchedulingProfile:
+    metadata = agent.metadata
+    node = metadata.get("node") if isinstance(metadata.get("node"), dict) else {}
+    raw_executors = metadata.get("executors") if isinstance(metadata.get("executors"), list) else []
+    executors = [
+        descriptor.get("name")
+        for descriptor in raw_executors
+        if isinstance(descriptor, dict) and isinstance(descriptor.get("name"), str)
+    ]
+    return SchedulingProfile(
+        identity_id=agent.agent_id,
+        legacy_capabilities=agent.capabilities,
+        is_runner=metadata.get("identity_kind") == "runner",
+        node_id=node.get("node_id") if isinstance(node.get("node_id"), str) else None,
+        executors=executors,
+        node_labels=node.get("labels", []) if isinstance(node.get("labels"), list) else [],
+        available_grants=(
+            metadata.get("available_grants", [])
+            if isinstance(metadata.get("available_grants"), list)
+            else []
+        ),
+    )
 
 
 def create_work_service(

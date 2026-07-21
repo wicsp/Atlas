@@ -7,7 +7,14 @@ from pathlib import Path
 
 from atlas.db.session import create_sqlite_session_factory
 
-from .models import AgentRecord, AgentRegistration, AgentRegistrationResponse
+from .models import (
+    AgentRecord,
+    AgentRegistration,
+    AgentRegistrationResponse,
+    RunnerRecord,
+    RunnerRegistration,
+    RunnerRegistrationResponse,
+)
 from .repository import AgentRepository
 
 
@@ -38,6 +45,46 @@ class AgentService:
             self._repository.touch(agent_id, current_time),
             now=current_time,
         )
+
+    def register_runner(
+        self,
+        registration: RunnerRegistration,
+        now: datetime | None = None,
+    ) -> RunnerRegistrationResponse:
+        """Persist runners through the v3 identity store during the compatibility phase."""
+        metadata = {
+            **registration.metadata,
+            "identity_kind": "runner",
+            "protocol_version": "atlas-runner-v1",
+            "node": registration.node.model_dump(),
+            "executors": [executor.model_dump() for executor in registration.executors],
+            "available_grants": registration.available_grants,
+        }
+        response = self.register_agent(
+            AgentRegistration(
+                agent_id=registration.runner_id,
+                name=registration.name,
+                capabilities=registration.legacy_capabilities,
+                metadata=metadata,
+            ),
+            now=now,
+        )
+        return RunnerRegistrationResponse(
+            runner_id=response.agent_id,
+            scoped_token=response.scoped_token,
+        )
+
+    def record_runner_heartbeat(
+        self, runner_id: str, now: datetime | None = None
+    ) -> RunnerRecord:
+        return _to_runner(self.record_heartbeat(runner_id, now=now))
+
+    def list_runners(self, now: datetime | None = None) -> list[RunnerRecord]:
+        return [
+            _to_runner(record)
+            for record in self.list_agents(now=now)
+            if record.metadata.get("identity_kind") == "runner"
+        ]
 
     def resolve_agent(self, token: str) -> AgentRecord | None:
         return self._repository.find_by_scoped_token(token)
@@ -80,4 +127,31 @@ def create_agent_service(database_path: Path, heartbeat_ttl_seconds: int) -> Age
     return AgentService(
         repository=AgentRepository(session_factory),
         heartbeat_ttl_seconds=heartbeat_ttl_seconds,
+    )
+
+
+def _to_runner(record: AgentRecord) -> RunnerRecord:
+    if record.metadata.get("identity_kind") != "runner":
+        raise ValueError(f"Identity {record.agent_id} is not a runner")
+    return RunnerRecord(
+        runner_id=record.agent_id,
+        name=record.name,
+        node=record.metadata.get("node", {}),
+        executors=record.metadata.get("executors", []),
+        available_grants=record.metadata.get("available_grants", []),
+        metadata={
+            key: value
+            for key, value in record.metadata.items()
+            if key
+            not in {
+                "identity_kind",
+                "protocol_version",
+                "node",
+                "executors",
+                "available_grants",
+            }
+        },
+        registered_at=record.registered_at,
+        last_seen_at=record.last_seen_at,
+        online=record.online,
     )

@@ -57,3 +57,8 @@ accepted RFC must define any change that crosses the Atlas/Lumio boundary.
 
 Runtime configuration, databases, logs, artifacts, credentials, and Obsidian content must never be
 committed.
+
+Atlas execution is runtime-neutral. Node Runners register available executors such as Pi, Codex,
+or scripts; versioned Workflows define business behavior and placement requirements. See
+[RFC 0010](docs/rfcs/0010-runtime-neutral-workflow-execution.md). The legacy Agent capability
+surface remains temporarily available for deployed clients.

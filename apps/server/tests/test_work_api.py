@@ -288,6 +288,47 @@ class TestClaimNext:
         res = scoped_client.get("/api/runs/next")
         assert res.json() is None
 
+    def test_workflow_requirements_route_by_node_executor_and_grant(
+        self, agent_client, atlas_app
+    ):
+        _create_project(agent_client, "workflow", "Workflow")
+        run = _enqueue_run(
+            agent_client,
+            "workflow",
+            "summarize",
+            workflow={"name": "bilibili-summary", "version": "5", "digest": "sha256:abc"},
+            step_name="summarize",
+            requirements={
+                "node_ids": ["macsp"],
+                "executors": ["pi", "codex"],
+                "node_labels": ["local-data"],
+                "grants": ["bilibili-cookie:read"],
+            },
+        )
+        assert run["workflow"]["name"] == "bilibili-summary"
+        assert run["metadata"] == {}
+
+        legacy, _ = _register_and_get_scoped(atlas_app, agent_id="legacy", capabilities=[])
+        assert legacy.get("/api/runs/next").json() is None
+
+        bootstrap = TestClient(atlas_app)
+        bootstrap.headers["Authorization"] = "Bearer test-token"
+        registration = bootstrap.post(
+            "/api/runners/register",
+            json={
+                "runner_id": "macsp-runner",
+                "node": {"node_id": "macsp", "labels": ["local-data"]},
+                "executors": [{"name": "pi", "kind": "agent"}],
+                "available_grants": ["bilibili-cookie:read"],
+            },
+        )
+        scoped = TestClient(atlas_app)
+        scoped.headers["Authorization"] = f"Bearer {registration.json()['scoped_token']}"
+        claimed = scoped.get("/api/runs/next")
+        assert claimed.status_code == 200, claimed.text
+        assert claimed.json()["run_id"] == run["run_id"]
+        assert claimed.json()["workflow"]["version"] == "5"
+
 class TestLeaseExpiry:
     def test_lease_expires_stale_claim(self, agent_client, scoped_client):
         _create_project(agent_client, "m2", "M2")
