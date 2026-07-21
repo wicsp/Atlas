@@ -98,6 +98,28 @@ def test_bilibili_v5_is_a_builtin_two_step_workflow(tmp_path: Path) -> None:
     assert bilibili["steps"][1]["depends_on"] == ["acquire"]
 
 
+def test_local_review_and_web_workflows_are_builtin(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    workflows = {
+        (item["name"], item["version"]): item
+        for item in client.get("/api/workflows").json()
+    }
+
+    assert workflows[("web.summary", "1")]["steps"][0]["name"] == "summarize"
+    assert workflows[("vortex.comment", "1")]["steps"][0]["requirements"][
+        "grants"
+    ] == ["obsidian-vault:write"]
+    assert workflows[("vortex.comment-sync", "1")]["steps"][0]["requirements"][
+        "grants"
+    ] == ["obsidian-vault:read", "atlas-control:write"]
+    assert workflows[("vortex.comparison", "1")]["steps"][0]["requirements"][
+        "executors"
+    ] == ["pi"]
+    assert workflows[("vortex.resource-purge", "1")]["steps"][0]["requirements"][
+        "grants"
+    ] == ["artifact-store:delete", "obsidian-vault:write"]
+
+
 def test_invocation_expands_steps_and_unblocks_dependency_with_context(tmp_path: Path) -> None:
     control = make_client(tmp_path)
     control.post("/api/workflows", json=definition())

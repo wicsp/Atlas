@@ -6,6 +6,7 @@ from atlas.content.models import CommentCreate
 from atlas.content.service import ContentService
 from atlas.work.models import ProjectCreate, RunCreate
 from atlas.work.service import WorkService
+from atlas.workflows.catalog import builtin_step_contract
 
 from .models import (
     CommentCompleteResponse,
@@ -65,15 +66,19 @@ class ReviewService:
                 description="Operator-requested, Mac-local Resource review actions.",
             )
         )
+        workflow, step, requirements = builtin_step_contract("vortex.comment", "1", "setup")
+        bundle = self._resource_bundle(resource_id)
         run = self._work.enqueue_run(
             RunCreate(
                 project_id=REVIEW_PROJECT_ID,
                 job_name=COMMENT_JOB_NAME,
-                capabilities_required=[COMMENT_JOB_NAME],
-                input={"resource_id": resource_id},
-                priority=COMMENT_RUN_PRIORITY,
-                max_attempts=3,
+                input={"resource_id": resource_id, "bundle": bundle},
+                priority=step.priority,
+                max_attempts=step.max_attempts,
                 metadata={"requested_via": "atlas-console"},
+                workflow=workflow,
+                step_name=step.name,
+                requirements=requirements,
             )
         )
         return CommentRequestResponse(run=run, reused=False)
@@ -98,15 +103,20 @@ class ReviewService:
                 description="Operator-requested, Mac-local Resource review actions.",
             )
         )
+        workflow, step, requirements = builtin_step_contract(
+            "vortex.comment-sync", "1", "sync"
+        )
         run = self._work.enqueue_run(
             RunCreate(
                 project_id=REVIEW_PROJECT_ID,
                 job_name=COMMENT_SYNC_JOB_NAME,
-                capabilities_required=[COMMENT_SYNC_JOB_NAME],
                 input={"resource_id": resource_id},
-                priority=COMMENT_SYNC_RUN_PRIORITY,
-                max_attempts=3,
+                priority=step.priority,
+                max_attempts=step.max_attempts,
                 metadata={"requested_via": "atlas-console"},
+                workflow=workflow,
+                step_name=step.name,
+                requirements=requirements,
             )
         )
         return CommentSyncRequestResponse(run=run, reused=False)
@@ -163,15 +173,45 @@ class ReviewService:
                 description="Operator-requested, Mac-local Resource review actions.",
             )
         )
+        workflow, step, requirements = builtin_step_contract(
+            "vortex.comparison", "1", "compare"
+        )
+        bundle = self._resource_bundle(resource_id)
+        comments = self._content.list_comments(source_id=resource.source_id, limit=500)
         run = self._work.enqueue_run(
             RunCreate(
                 project_id=REVIEW_PROJECT_ID,
                 job_name=COMPARISON_JOB_NAME,
-                capabilities_required=[COMPARISON_JOB_NAME],
-                input={"resource_id": resource_id},
-                priority=COMPARISON_RUN_PRIORITY,
-                max_attempts=2,
+                input={
+                    "resource_id": resource_id,
+                    "bundle": bundle,
+                    "comments": [comment.model_dump(mode="json") for comment in comments],
+                },
+                priority=step.priority,
+                max_attempts=step.max_attempts,
                 metadata={"requested_via": "atlas-console"},
+                workflow=workflow,
+                step_name=step.name,
+                requirements=requirements,
             )
         )
         return ComparisonRequestResponse(run=run, reused=False)
+
+    def _resource_bundle(self, resource_id: str) -> dict:
+        resource = self._content.get_resource(resource_id)
+        source = self._content.get_source(resource.source_id)
+        artifact = next(
+            (
+                item
+                for item in self._work.list_artifacts(resource.produced_by_run_id)
+                if item.artifact_id == resource.artifact_id
+            ),
+            None,
+        )
+        if artifact is None:
+            raise ValueError(f"Resource {resource_id} has no Artifact")
+        return {
+            "resource": resource.model_dump(mode="json"),
+            "source": source.model_dump(mode="json"),
+            "artifact": artifact.model_dump(mode="json"),
+        }

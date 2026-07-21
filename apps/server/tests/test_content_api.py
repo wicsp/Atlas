@@ -436,8 +436,12 @@ def test_comment_request_enqueues_only_fixed_capability_and_reuses_active_run(
     run = first.json()["run"]
     assert run["project_id"] == "resource-review"
     assert run["job_name"] == "vortex-comment-v1"
-    assert run["capabilities_required"] == ["vortex-comment-v1"]
-    assert run["input"] == {"resource_id": resource_id}
+    assert run["capabilities_required"] == []
+    assert run["input"]["resource_id"] == resource_id
+    assert run["input"]["bundle"]["resource"]["resource_id"] == resource_id
+    assert run["workflow"]["name"] == "vortex.comment"
+    assert run["step_name"] == "setup"
+    assert run["requirements"]["grants"] == ["obsidian-vault:write"]
     assert run["priority"] == 100
     assert run["metadata"] == {"requested_via": "atlas-console"}
     assert run["output"] is None
@@ -601,8 +605,12 @@ def test_comment_sync_request_enqueues_fixed_capability_and_reuses_active_run(
     assert replay.json()["reused"] is True
     assert replay.json()["run"]["run_id"] == first.json()["run"]["run_id"]
     assert first.json()["run"]["job_name"] == "vortex-comment-sync-v1"
-    assert first.json()["run"]["capabilities_required"] == [
-        "vortex-comment-sync-v1"
+    run = first.json()["run"]
+    assert run["capabilities_required"] == []
+    assert run["workflow"]["name"] == "vortex.comment-sync"
+    assert run["requirements"]["grants"] == [
+        "obsidian-vault:read",
+        "atlas-control:write",
     ]
 
 
@@ -624,7 +632,10 @@ def test_comparison_request_enqueues_fixed_capability_and_reuses_active_run(
     assert replay.json()["reused"] is True
     assert replay.json()["run"]["run_id"] == first.json()["run"]["run_id"]
     assert first.json()["run"]["job_name"] == "vortex-comparison-v1"
-    assert first.json()["run"]["capabilities_required"] == ["vortex-comparison-v1"]
+    run = first.json()["run"]
+    assert run["capabilities_required"] == []
+    assert run["workflow"]["name"] == "vortex.comparison"
+    assert run["input"]["bundle"]["resource"]["resource_id"] == resource_id
 
 
 def test_source_purge_atomically_removes_machine_resources_and_enqueues_cleanup(
@@ -664,7 +675,12 @@ def test_source_purge_atomically_removes_machine_resources_and_enqueues_cleanup(
 
     cleanup = first.json()["run"]
     assert cleanup["job_name"] == "vortex-resource-purge-v1"
-    assert cleanup["capabilities_required"] == ["vortex-resource-purge-v1"]
+    assert cleanup["capabilities_required"] == []
+    assert cleanup["workflow"]["name"] == "vortex.resource-purge"
+    assert cleanup["requirements"]["grants"] == [
+        "artifact-store:delete",
+        "obsidian-vault:write",
+    ]
     assert cleanup["input"]["source_id"] == source["source_id"]
     assert len(cleanup["input"]["resources"]) == 2
     assert all(item["artifact"] for item in cleanup["input"]["resources"])

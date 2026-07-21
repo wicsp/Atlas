@@ -12,8 +12,10 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from atlas.content.repository import KnowledgeRefRow, ResourceRow, SourceRow
 from atlas.db.session import create_sqlite_session_factory
+from atlas.work.models import EXECUTION_CONTRACT_METADATA_KEY
 from atlas.work.repository import ArtifactRow, EventRow, ProjectRow, RunRow
 from atlas.work.service import WorkService
+from atlas.workflows.catalog import builtin_step_contract
 
 from .models import PurgeSourceResponse
 
@@ -167,20 +169,34 @@ class ResourcePurgeRepository:
 
             run_id = f"run_{uuid.uuid4().hex}"
             run_input = {"source_id": source_id, "resources": manifest}
+            workflow, step, requirements = builtin_step_contract(
+                "vortex.resource-purge", "1", "purge"
+            )
             session.add(
                 RunRow(
                     run_id=run_id,
                     project_id=REVIEW_PROJECT_ID,
                     job_name=PURGE_JOB_NAME,
-                    capabilities_json=_dump_json([PURGE_JOB_NAME]),
+                    capabilities_json=_dump_json([]),
                     input_json=_dump_json(run_input),
                     status="pending",
                     agent_id=None,
                     lease_expires_at=None,
                     attempt_number=0,
-                    max_attempts=3,
-                    priority=10,
-                    metadata_json=_dump_json({"requested_via": "atlas-console"}),
+                    max_attempts=step.max_attempts,
+                    priority=step.priority,
+                    metadata_json=_dump_json(
+                        {
+                            "requested_via": "atlas-console",
+                            EXECUTION_CONTRACT_METADATA_KEY: {
+                                "workflow": workflow.model_dump(),
+                                "step_name": step.name,
+                                "requirements": requirements.model_dump(),
+                                "workflow_invocation_id": None,
+                                "depends_on_run_ids": [],
+                            },
+                        }
+                    ),
                     error_message=None,
                     created_at=now.isoformat(),
                     started_at=None,
