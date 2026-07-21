@@ -927,7 +927,9 @@ def _unblock_ready_dependents(session: Session, completed_run_id: str, now: date
         if completed_run_id not in dependencies:
             continue
         dependency_rows = [session.get(RunRow, dependency_id) for dependency_id in dependencies]
-        if dependency_rows and all(row is not None and row.status == "completed" for row in dependency_rows):
+        if dependency_rows and all(
+            row is not None and row.status == "completed" for row in dependency_rows
+        ):
             candidate.status = "pending"
             session.add(
                 EventRow(

@@ -4,7 +4,6 @@ from atlas.work.models import ExecutionRequirements, WorkflowRef
 
 from .models import WorkflowDefinitionCreate, WorkflowStepDefinition
 
-
 BUILTIN_WORKFLOWS = [
     WorkflowDefinitionCreate.model_validate(
         {
@@ -77,7 +76,9 @@ BUILTIN_WORKFLOWS = [
             "name": "vortex.comment-sync",
             "version": "1",
             "project_id": "resource-review",
-            "description": "Read a completed local Vortex comment and atomically publish it to Atlas.",
+            "description": (
+                "Read a completed local Vortex comment and atomically publish it to Atlas."
+            ),
             "steps": [
                 {
                     "name": "sync",

@@ -1,6 +1,6 @@
 # RFC 0010: Runtime-neutral workflow execution
 
-- **Status:** Accepted for incremental implementation
+- **Status:** Implemented
 - **Decision date:** 2026-07-21
 - **Owners:** Atlas execution protocol and node-side runner implementations
 - **Protocol:** `atlas-runner-v1`
@@ -43,8 +43,8 @@ A Runner owns:
 An Executor owns runtime-specific behavior. Agent executors construct sessions and load skills;
 script executors start allowlisted programs. Neither kind defines Atlas domain state.
 
-Lumio continues to own Pi interaction, extensions, prompts, themes, and local UX. Its current Atlas
-poller is the first compatibility implementation of a Pi executor, not the final scheduler.
+Lumio owns Pi interaction, extensions, prompts, themes, capture entrypoints, and local UX. It does
+not poll for or execute Atlas work. AtlasRunner is the only node-local execution plane.
 
 ## Placement and authorization
 
@@ -59,30 +59,30 @@ A Runner advertising an available grant does not give every task permission to u
 protocol slice uses the advertised set only for placement. A later runner daemon must validate the
 issued grant against a local allowlist before starting an executor.
 
-## Compatibility phase
+## Implemented migration
 
-`atlas-runner-v1` is additive:
+`atlas-runner-v1` provides:
 
 - `/api/runners/register`, `/api/runners/{id}/heartbeat`, and `/api/runners` provide the new identity
   surface;
 - Runner records temporarily reuse the existing scoped-credential store;
 - Run records add `workflow`, `step_name`, and `requirements` without changing the SQLite schema;
-- the existing `capabilities_required` field and `/api/agents` endpoints remain for deployed v3
-  clients;
-- Lumio registers Pi as an Executor while continuing to advertise legacy handler names until
-  existing Runs and enqueue paths migrate to versioned Workflow definitions.
+- the existing `capabilities_required` field and `/api/agents` endpoints remain only as protocol
+  compatibility surfaces;
+- Bilibili, Web summary, Vortex comparison, comment setup/sync, and Resource purge use versioned
+  Workflow references and AtlasRunner adapters;
+- Lumio registers only an interaction identity, advertises no local grants or legacy handlers, and
+  never claims Runs.
 
 New workflow-constrained Runs cannot be claimed by a legacy Agent identity. A matching Runner must
 satisfy node, executor, label, and available-grant placement requirements.
 
-## Follow-up slices
+## Remaining follow-up
 
-1. Define immutable WorkflowDefinition storage and validation.
-2. Introduce a standalone Atlas Runner daemon with Pi, Codex, and script adapters.
-3. Migrate Bilibili summary into a multi-step Workflow and remove handler-name capabilities.
-4. Separate Obsidian projection from summary production.
-5. Add transferable Artifact storage before scheduling dependent steps across nodes.
-6. Deprecate `atlas-agent-v3` work polling after all deployed nodes use Runner identities.
+1. Add transferable Artifact storage before scheduling dependent steps across nodes.
+2. Replace the temporary Runner bootstrap credential used by `atlas-control:write` with a scoped
+   per-Attempt control grant.
+3. Remove `atlas-agent-v3` work endpoints after deployed compatibility clients are retired.
 
 The Atlas scheduler remains deterministic code. An operator Agent may propose a workflow, but it
 cannot bypass Atlas placement, grant, lease, approval, or state-transition rules.

@@ -41,7 +41,9 @@ def definition() -> dict:
     }
 
 
-def register_runner(client: TestClient, runner_id: str, executors: list[str], grants=None) -> TestClient:
+def register_runner(
+    client: TestClient, runner_id: str, executors: list[str], grants=None
+) -> TestClient:
     response = client.post(
         "/api/runners/register",
         json={

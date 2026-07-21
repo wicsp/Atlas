@@ -7,10 +7,11 @@ This document turns the repository charter into concrete placement and dependenc
 ```text
 nix-config ──provisions──▶ Atlas service
      │
+     ├──────provisions──▶ AtlasRunner
      └──────provisions──▶ Lumio / pi runtime
 
 Lumio ─────public API───▶ Atlas
-Atlas ─────work/events──▶ protocol-compatible agents
+AtlasRunner ◀──work/API──▶ Atlas
 Console ───public API───▶ Atlas
 ```
 
@@ -21,27 +22,27 @@ The Console is an optional client: Atlas and Lumio continue to operate when it i
 
 ## Responsibility matrix
 
-| Concern | Atlas | Lumio | nix-config |
-| --- | --- | --- | --- |
-| Project and work status | Own | Read/report through API | No |
-| Agent registry and heartbeat | Own | Participate | Provision credentials/config |
-| Job scheduling and run history | Own | Claim and execute | Provision workers |
-| pi extensions and TUI | No | Own | Install/link |
-| Bilibili, paper, and browser workflow | Track status only | Own | Provide tools |
-| API schema | Own | Consume | Configure endpoint |
-| Database migrations | Own | No | Invoke during deployment if required |
-| launchd/systemd units | Describe runtime requirements | No | Own |
-| Secret values | No | No | No; reference secret store only |
-| Large files | Artifact references only | Produce/consume | Provision storage paths |
-| Human-authored comments | Own explicit completed copies | Own local drafts and upload | Provision applications/paths |
-| Source/Resource provenance | Own metadata and lifecycle | Acquire/derive/project | Provision paths only |
-| Resource review Console | Expose narrow APIs | Execute Mac-local mutations | Provision private service |
+| Concern | Atlas | AtlasRunner | Lumio | nix-config |
+| --- | --- | --- | --- | --- |
+| Project and work status | Own | Report through API | Read/trigger | No |
+| Runner registry and heartbeat | Own | Participate | Interaction presence only | Provision credentials/config |
+| Workflow scheduling and run history | Own | Claim and execute | Never claim | Provision runtime |
+| pi extensions and TUI | No | Launch Pi only as executor | Own | Install/link |
+| Bilibili, Web, and review workflows | Own definitions/state | Own adapters | Trigger/project | Provide tools |
+| API schema | Own | Consume | Consume | Configure endpoint |
+| Database migrations | Own | No | No | Invoke during deployment if required |
+| launchd/systemd units | Describe runtime requirements | Run as provisioned | No | Own |
+| Secret values | No | No | No | Reference secret store only |
+| Large files | Artifact references only | Produce/consume | Capture/project | Provision storage paths |
+| Human-authored comments | Own explicit completed copies | Create/read granted local drafts | Own direct editing interaction | Provision applications/paths |
+| Source/Resource provenance | Own metadata and lifecycle | Acquire/derive | Project/read | Provision paths only |
+| Resource review Console | Expose narrow APIs | Execute granted Mac-local mutations | Direct user interaction | Provision private service |
 
 The separately deployed Atlas Console is a browser client co-located in this repository, not a
 fourth authority. It may compose Atlas read models and request explicitly-scoped actions. It does
 not access Atlas SQLite, hold the shared control token, execute arbitrary Jobs, read Mac-local
 `file://` artifacts, or write the Vortex vault. Browser actions that require local files become
-capability-routed Runs for Lumio.
+versioned Runs for AtlasRunner.
 
 ## Control plane and data plane
 
@@ -61,9 +62,9 @@ copy every payload into SQLite merely to make it visible in the console.
 
 ## Reliability boundary
 
-Atlas and Lumio provide safe, bounded coordination rather than durable message delivery. A claimed
+Atlas and AtlasRunner provide safe, bounded coordination rather than durable message delivery. A claimed
 attempt uses an immutable attempt ID, an in-memory claim token, an Atlas-owned lease, atomic state
-transitions, and narrow idempotent terminal reporting. Lumio may retry an ambiguous request while
+transitions, and narrow idempotent terminal reporting. AtlasRunner may retry an ambiguous request while
 the lease remains valid, but it does not persist an outbox, claim credential, or report for replay
 after restart.
 

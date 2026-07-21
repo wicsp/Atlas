@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from atlas.db.session import create_sqlite_session_factory
-from atlas.work.models import RunCreate, WorkflowRef
+from atlas.work.models import ProjectCreate, RunCreate, WorkflowRef
 from atlas.work.service import WorkService
 
 from .catalog import BUILTIN_WORKFLOWS
@@ -40,6 +40,13 @@ class WorkflowService:
     def invoke(self, payload: WorkflowInvocationCreate) -> WorkflowInvocationRecord:
         definition = self._repository.get_definition(
             payload.workflow_name, payload.workflow_version
+        )
+        self._work.create_project(
+            ProjectCreate(
+                project_id=definition.project_id,
+                name=definition.project_id.replace("-", " ").title(),
+                description=f"Runs for {definition.name}@{definition.version}.",
+            )
         )
         invocation_id = f"wfi_{uuid.uuid4().hex}"
         run_ids = {step.name: f"run_{uuid.uuid4().hex}" for step in definition.steps}
