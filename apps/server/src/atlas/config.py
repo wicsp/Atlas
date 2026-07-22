@@ -55,6 +55,11 @@ class WorkSettings(BaseModel):
         return PROJECT_ROOT / value
 
 
+class SchedulerSettings(BaseModel):
+    enabled: bool = False
+    poll_interval_seconds: float = Field(default=30.0, ge=1.0, le=3600.0)
+
+
 class Sub2ApiSettings(BaseModel):
     enabled: bool = True
     docker_command: str = "docker"
@@ -132,6 +137,7 @@ class Settings(BaseModel):
     sub2api: Sub2ApiSettings = Field(default_factory=Sub2ApiSettings)
     probe_history: ProbeHistorySettings = Field(default_factory=ProbeHistorySettings)
     work: WorkSettings = Field(default_factory=WorkSettings)
+    scheduler: SchedulerSettings = Field(default_factory=SchedulerSettings)
     probes: list[ProbeTarget] = Field(default_factory=list)
     config_path: Path | None = None
 
@@ -202,6 +208,12 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
     if work_lease_ttl := os.getenv("ATLAS_WORK_LEASE_TTL_SECONDS"):
         work_data["lease_ttl_seconds"] = work_lease_ttl
 
+    scheduler_data = dict(data.get("scheduler", {}))
+    if "ATLAS_SCHEDULER_ENABLED" in os.environ:
+        scheduler_data["enabled"] = _env_bool("ATLAS_SCHEDULER_ENABLED")
+    if scheduler_poll := os.getenv("ATLAS_SCHEDULER_POLL_INTERVAL_SECONDS"):
+        scheduler_data["poll_interval_seconds"] = scheduler_poll
+
     probe_history_data = dict(data.get("probe_history", {}))
     if probe_history_database_path := os.getenv("ATLAS_PROBE_HISTORY_DATABASE_PATH"):
         probe_history_data["database_path"] = probe_history_database_path
@@ -220,6 +232,7 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
             sub2api=Sub2ApiSettings(**sub2api_data),
             probe_history=ProbeHistorySettings(**probe_history_data),
             work=WorkSettings(**work_data),
+            scheduler=SchedulerSettings(**scheduler_data),
             probes=[ProbeTarget(**item) for item in data.get("probes", [])],
             config_path=loaded_path,
         )

@@ -119,6 +119,11 @@ class WorkflowRepository:
                 raise KeyError(invocation_id)
             return _invocation_record(row)
 
+    def find_invocation(self, invocation_id: str) -> WorkflowInvocationRecord | None:
+        with self._session_factory() as session:
+            row = session.get(WorkflowInvocationRow, invocation_id)
+            return _invocation_record(row) if row is not None else None
+
     def set_invocation_status(
         self,
         invocation_id: str,

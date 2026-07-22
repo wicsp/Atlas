@@ -62,6 +62,8 @@ from .review.service import (
     ReviewService,
     UnsupportedReviewResourceError,
 )
+from .scheduling.models import ScheduleRecord
+from .scheduling.service import ScheduleCoordinator, create_schedule_coordinator
 from .security import (
     SESSION_COOKIE_NAME,
     create_session_token,
@@ -206,6 +208,21 @@ def _content_service(request: Request) -> ContentService:
     return service
 
 
+def _schedule_coordinator(request: Request) -> ScheduleCoordinator:
+    coordinator = getattr(request.app.state, "schedule_coordinator", None)
+    if coordinator is None:
+        settings: Settings = request.app.state.settings
+        coordinator = create_schedule_coordinator(
+            settings.work.database_path,
+            _work_service(request),
+            _workflow_service(request),
+            _content_service(request),
+            settings.scheduler.poll_interval_seconds,
+        )
+        request.app.state.schedule_coordinator = coordinator
+    return coordinator
+
+
 def _review_service(request: Request) -> ReviewService:
     return ReviewService(
         content=_content_service(request),
@@ -295,13 +312,18 @@ def require_control_auth(request: Request) -> None:
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     collector = getattr(app.state, "sub2api_collector", None)
     dashboard_collector = getattr(app.state, "dashboard_collector", None)
+    schedule_coordinator = getattr(app.state, "schedule_coordinator", None)
     if collector is not None:
         collector.start()
     if dashboard_collector is not None:
         dashboard_collector.start()
+    if schedule_coordinator is not None:
+        await schedule_coordinator.start()
     try:
         yield
     finally:
+        if schedule_coordinator is not None:
+            await schedule_coordinator.stop()
         if dashboard_collector is not None:
             await dashboard_collector.stop()
         if collector is not None:
@@ -318,12 +340,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.message_service = None
     app.state.work_service = None
     app.state.content_service = None
+    app.state.workflow_service = None
+    app.state.schedule_coordinator = None
     app.state.sub2api_collector = (
         Sub2ApiSnapshotCollector(resolved_settings.sub2api)
         if resolved_settings.sub2api.enabled
         else None
     )
     app.state.dashboard_collector = DashboardSnapshotCollector(resolved_settings)
+    if resolved_settings.scheduler.enabled:
+        app.state.work_service = create_work_service(
+            resolved_settings.work.database_path,
+            resolved_settings.work.lease_ttl_seconds,
+        )
+        app.state.content_service = create_content_service(resolved_settings.work.database_path)
+        app.state.workflow_service = create_workflow_service(
+            resolved_settings.work.database_path,
+            app.state.work_service,
+        )
+        app.state.schedule_coordinator = create_schedule_coordinator(
+            resolved_settings.work.database_path,
+            app.state.work_service,
+            app.state.workflow_service,
+            app.state.content_service,
+            resolved_settings.scheduler.poll_interval_seconds,
+        )
 
     app.add_middleware(
         CORSMiddleware,
@@ -339,6 +380,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/api/health", response_model=HealthResponse)
     async def health() -> HealthResponse:
         return HealthResponse(status="ok", version=__version__)
+
+    @app.get(
+        "/api/schedules",
+        response_model=list[ScheduleRecord],
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def list_schedules(request: Request) -> list[ScheduleRecord]:
+        return _schedule_coordinator(request).list_schedules()
 
     @app.post("/api/auth/login", response_model=AuthStatus)
     async def login(payload: LoginRequest, request: Request, response: Response) -> AuthStatus:

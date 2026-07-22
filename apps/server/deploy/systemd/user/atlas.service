@@ -11,6 +11,7 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=/home/wicsp/projects/Atlas/apps/server
 Environment=PYTHONUNBUFFERED=1
+Environment=ATLAS_SCHEDULER_ENABLED=true
 Environment=ATLAS_CONFIG=/home/wicsp/projects/Atlas/apps/server/config/atlas.toml
 UMask=0077
 EnvironmentFile=%h/.config/atlas/atlas.env

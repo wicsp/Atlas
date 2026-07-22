@@ -16,6 +16,11 @@ database_path = "data/atlas.sqlite3"
 shared_token = "replace-with-a-long-random-agent-token"
 heartbeat_ttl_seconds = 90
 
+[scheduler]
+# Atlas owns durable schedules. The built-in Atlas Bilibili favorites scan runs at 02:00 Asia/Shanghai.
+enabled = true
+poll_interval_seconds = 30.0
+
 [sub2api]
 # Atlas periodically snapshots account status from the local Dockerized sub2api Postgres container.
 enabled = true

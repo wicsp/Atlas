@@ -38,6 +38,33 @@ class WorkflowService:
         return self._repository.list_definitions()
 
     def invoke(self, payload: WorkflowInvocationCreate) -> WorkflowInvocationRecord:
+        return self._invoke(payload, f"wfi_{uuid.uuid4().hex}", deterministic=False)
+
+    def invoke_once(
+        self,
+        payload: WorkflowInvocationCreate,
+        idempotency_key: str,
+    ) -> WorkflowInvocationRecord:
+        """Invoke a workflow once for one deterministic control-plane occurrence."""
+        digest = hashlib.sha256(idempotency_key.encode()).hexdigest()
+        return self._invoke(payload, f"wfi_{digest[:32]}", deterministic=True)
+
+    def _invoke(
+        self,
+        payload: WorkflowInvocationCreate,
+        invocation_id: str,
+        *,
+        deterministic: bool,
+    ) -> WorkflowInvocationRecord:
+        existing = self._repository.find_invocation(invocation_id)
+        if existing is not None:
+            if (
+                existing.workflow_name != payload.workflow_name
+                or existing.workflow_version != payload.workflow_version
+                or existing.input != payload.input
+            ):
+                raise ValueError("workflow invocation idempotency key conflicts with existing data")
+            return existing
         definition = self._repository.get_definition(
             payload.workflow_name, payload.workflow_version
         )
@@ -48,9 +75,22 @@ class WorkflowService:
                 description=f"Runs for {definition.name}@{definition.version}.",
             )
         )
-        invocation_id = f"wfi_{uuid.uuid4().hex}"
-        run_ids = {step.name: f"run_{uuid.uuid4().hex}" for step in definition.steps}
+        run_ids = {
+            step.name: (
+                "run_"
+                + hashlib.sha256(f"{invocation_id}:{step.name}".encode()).hexdigest()[:32]
+                if deterministic
+                else f"run_{uuid.uuid4().hex}"
+            )
+            for step in definition.steps
+        }
         for step in definition.steps:
+            if deterministic:
+                try:
+                    self._work.get_run(run_ids[step.name])
+                    continue
+                except KeyError:
+                    pass
             dependencies = [run_ids[name] for name in step.depends_on]
             self._work.enqueue_run(
                 RunCreate(

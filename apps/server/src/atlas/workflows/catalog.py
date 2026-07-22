@@ -7,6 +7,29 @@ from .models import WorkflowDefinitionCreate, WorkflowStepDefinition
 BUILTIN_WORKFLOWS = [
     WorkflowDefinitionCreate.model_validate(
         {
+            "name": "bilibili.favorites-scan",
+            "version": "1",
+            "project_id": "bilibili-ingest",
+            "description": (
+                "Read the Atlas Bilibili favorites folder on macsp, remove each "
+                "accepted item, and return bounded inputs for summary fan-out."
+            ),
+            "steps": [
+                {
+                    "name": "scan",
+                    "requirements": {
+                        "node_ids": ["macsp"],
+                        "executors": ["script"],
+                        "grants": ["bilibili-cookie:read"],
+                    },
+                    "max_attempts": 3,
+                    "priority": 30,
+                }
+            ],
+        }
+    ),
+    WorkflowDefinitionCreate.model_validate(
+        {
             "name": "bilibili.summary",
             "version": "5",
             "project_id": "bilibili-capture",

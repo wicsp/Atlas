@@ -99,6 +99,15 @@ def test_bilibili_v5_is_a_builtin_two_step_workflow(tmp_path: Path) -> None:
     assert bilibili["steps"][0]["requirements"]["grants"] == ["bilibili-cookie:read"]
     assert bilibili["steps"][1]["depends_on"] == ["acquire"]
 
+    favorites = next(
+        item for item in workflows if item["name"] == "bilibili.favorites-scan"
+    )
+    assert favorites["version"] == "1"
+    assert favorites["steps"][0]["requirements"]["node_ids"] == ["macsp"]
+    assert favorites["steps"][0]["requirements"]["grants"] == [
+        "bilibili-cookie:read"
+    ]
+
 
 def test_local_review_and_web_workflows_are_builtin(tmp_path: Path) -> None:
     client = make_client(tmp_path)

@@ -1,5 +1,8 @@
 # RFC 0006: Nightly Bilibili Atlas Queue
 
+> Superseded on 2026-07-22 by RFC 0012. Atlas now owns the persistent 02:00 Schedule, AtlasRunner
+> executes a favorites-scan Run, and the Lumio/macOS LaunchAgent controller is retired.
+
 - **Status:** Accepted; implementation and manual E2E complete, activation pending
 - **Milestone:** 3.4
 - **Owners:** Atlas protocol and records; Lumio acquisition/orchestration; `nix-config` scheduling
