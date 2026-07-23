@@ -55,6 +55,7 @@ test("removes starter surfaces and keeps credentials out of client source", asyn
   assert.match(client, /阅读与评论/);
   assert.match(client, /保存评论/);
   assert.match(client, /评论直接保存在 Atlas/);
+  assert.doesNotMatch(client, /crypto\.subtle|content_hash:\s*await/);
   assert.match(client, /生成观点对比/);
   assert.match(client, /kind=comparison/);
   assert.match(client, /查看对比/);

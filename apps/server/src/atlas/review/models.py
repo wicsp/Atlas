@@ -35,7 +35,10 @@ class ComparisonRequestResponse(StrictModel):
 class CommentCompleteRequest(StrictModel):
     resource_id: str = Field(pattern=_RESOURCE_ID_PATTERN)
     body_markdown: str = Field(min_length=1, max_length=256 * 1024)
-    content_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    content_hash: str | None = Field(
+        default=None,
+        pattern=r"^sha256:[0-9a-f]{64}$",
+    )
 
     @field_validator("resource_id")
     @classmethod

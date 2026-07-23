@@ -587,7 +587,6 @@ def test_complete_comment_stores_markdown_and_marks_reviewed(
     payload = {
         "resource_id": resource_id,
         "body_markdown": markdown,
-        "content_hash": content_hash,
     }
     completed = dashboard_client.post(
         "/api/review-actions/complete-comment",
@@ -595,7 +594,7 @@ def test_complete_comment_stores_markdown_and_marks_reviewed(
     )
     replay = dashboard_client.post(
         "/api/review-actions/complete-comment",
-        json=payload,
+        json={**payload, "content_hash": content_hash},
     )
 
     assert completed.status_code == 200, completed.text
@@ -644,9 +643,6 @@ def test_complete_comment_requires_valid_content_and_summary_resource(
         json={
             "resource_id": transcript_id,
             "body_markdown": "written comment",
-            "content_hash": (
-                f"sha256:{hashlib.sha256(b'written comment').hexdigest()}"
-            ),
         },
     )
 

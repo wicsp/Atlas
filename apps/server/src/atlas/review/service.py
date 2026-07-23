@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+
 from atlas.content.models import CommentCreate
 from atlas.content.service import ContentService
 from atlas.work.models import ProjectCreate, RunCreate
@@ -123,7 +125,7 @@ class ReviewService:
         self,
         resource_id: str,
         body_markdown: str,
-        content_hash: str,
+        supplied_content_hash: str | None = None,
     ) -> CommentCompleteResponse:
         resource = self._content.get_resource(resource_id)
         if resource.kind != "summary":
@@ -133,6 +135,9 @@ class ReviewService:
 
         note_id = f"Atlas/Comments/{resource_id}"
         note_uri = f"/#resource-{resource_id}"
+        content_hash = f"sha256:{hashlib.sha256(body_markdown.encode()).hexdigest()}"
+        if supplied_content_hash is not None and supplied_content_hash != content_hash:
+            raise ValueError("Comment content_hash does not match body_markdown")
         reviewed, knowledge_ref, comment = self._content.complete_comment(
             CommentCreate(
                 resource_id=resource_id,

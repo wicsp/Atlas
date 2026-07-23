@@ -151,6 +151,23 @@ textarea:focus-visible {
   color: var(--muted);
 }
 
+.comment-editor .comment-button {
+  min-height: 38px;
+  padding: 0 0.85rem;
+  border: 1px solid var(--forest);
+  border-radius: 2px;
+  background: var(--forest);
+  color: white;
+  cursor: pointer;
+  font-weight: 650;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+.comment-editor .comment-button:hover:not(:disabled) {
+  border-color: #0f3e2d;
+  background: #0f3e2d;
+}
+
 a {
   color: inherit;
 }

@@ -142,13 +142,6 @@ function externalIdentity(source: SourceRecord | null): string | null {
   return null;
 }
 
-async function sha256(value: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  return `sha256:${Array.from(new Uint8Array(digest), (byte) =>
-    byte.toString(16).padStart(2, "0"),
-  ).join("")}`;
-}
-
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   return "发生了未知错误";
@@ -551,7 +544,6 @@ export function ReviewConsole() {
           body: JSON.stringify({
             resource_id: resourceId,
             body_markdown: body,
-            content_hash: await sha256(body),
           }),
         },
       );
