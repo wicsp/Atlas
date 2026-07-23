@@ -54,7 +54,13 @@ systemctl --user enable --now atlas-console.service atlas-console-proxy.service
 6. Choose `生成观点对比` to compare the selected summary only with comments for that Resource or
    Source. The resulting comparison is readable in Console and may optionally be projected to
    Obsidian.
-7. Choose `忽略` for irrelevant unreferenced Resources, or `恢复` to return one to pending.
+7. Choose `忽略` for any irrelevant Resource, including one with a saved Comment. Choose
+   `撤销忽略` to restore its previous `待判断` or `已评论` state.
+
+The ignored list is a bounded undo queue containing the 10 most recently ignored Resources. Ignoring
+an eleventh Resource permanently expires the oldest entry together with its Atlas Comment and
+KnowledgeRef, then schedules Mac-local artifact, Resource-card, and comment-note cleanup. There is
+no separate delete action.
 
 The chronological `时间上最新` badge is not a recommendation and does not select a preferred
 summary.

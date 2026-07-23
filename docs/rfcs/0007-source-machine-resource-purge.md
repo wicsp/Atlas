@@ -1,10 +1,14 @@
 # RFC 0007: Source Machine Resource Purge
 
-- **Status:** Accepted and implemented
+- **Status:** Superseded by RFC 0014
 - **Date:** 2026-07-19
 - **Owners:** Atlas control plane, Lumio local executor, Atlas Review Console
 
 ## Summary
+
+> The public Source purge operation and Console delete action described here were removed by
+> RFC 0014. The verified local cleanup workflow remains an internal retention mechanism for expired
+> ignored Resources.
 
 Some captured Sources turn out to have no lasting value. `dismiss` is intentionally reversible: it
 changes review state and removes a generated card, but preserves the Resource and its artifact. This
@@ -88,11 +92,8 @@ unexpected I/O failures use the bounded Run retry policy.
 
 ## Console behavior
 
-Each Source group exposes **彻底删除机器材料** separately from **忽略**. The button is disabled when
-the visible Source group is Knowledge-protected or a comment is active, while Atlas repeats the
-authoritative checks. A confirmation names the complete Source-scoped deletion and states that it is
-irreversible. After confirmation the UI removes the deleted Resource cards immediately and tracks
-the cleanup Run until local deletion succeeds or fails.
+Superseded: the Console exposes only **忽略** and **撤销忽略**. It no longer exposes a destructive
+Source-scoped action.
 
 ## Explicit non-goals
 

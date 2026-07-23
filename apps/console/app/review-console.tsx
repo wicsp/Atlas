@@ -30,10 +30,10 @@ interface WorkRequestResponse {
   reused: boolean;
 }
 
-interface PurgeSourceResponse {
-  run: RunRecord;
-  resource_ids: string[];
-  reused: boolean;
+interface ResourceIgnoreResponse {
+  resource: ResourceRecord;
+  evicted_resource_ids: string[];
+  cleanup_runs: RunRecord[];
 }
 
 interface CommentCompleteResponse {
@@ -164,9 +164,7 @@ export function ReviewConsole() {
   const [loadError, setLoadError] = useState("");
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [busyResources, setBusyResources] = useState<Set<string>>(new Set());
-  const [busySources, setBusySources] = useState<Set<string>>(new Set());
   const [feedback, setFeedback] = useState<Record<string, Feedback>>({});
-  const [purgeFeedback, setPurgeFeedback] = useState<Feedback | null>(null);
   const [openResourceId, setOpenResourceId] = useState<string | null>(null);
   const [documents, setDocuments] = useState<Record<string, ResourceDocument>>({});
   const [documentErrors, setDocumentErrors] = useState<Record<string, string>>({});
@@ -193,20 +191,6 @@ export function ReviewConsole() {
       setComments(nextComments);
       setRuns(nextRuns);
       setLastUpdated(new Date());
-
-      setPurgeFeedback((current) => {
-        if (!current?.runId) return current;
-        const run = nextRuns.find((candidate) => candidate.run_id === current.runId);
-        if (!run || isActiveRun(run)) return current;
-        return {
-          tone: run.status === "completed" ? "success" : "error",
-          message:
-            run.status === "completed"
-              ? "机器材料已彻底删除，本地 artifact 与 Obsidian 卡片也已清理。"
-              : run.error_message || "Atlas 元数据已删除，但本地清理失败；Run 会保留诊断。",
-          runId: run.run_id,
-        };
-      });
 
       const latest = latestCommentRunsByResource(nextRuns);
       setFeedback((current) => {
@@ -402,49 +386,10 @@ export function ReviewConsole() {
     });
   }
 
-  function setSourceBusy(sourceId: string, value: boolean) {
-    setBusySources((current) => {
-      const next = new Set(current);
-      if (value) next.add(sourceId);
-      else next.delete(sourceId);
-      return next;
-    });
-  }
-
-  async function purgeSource(sourceId: string, resourceIds: string[]) {
-    const confirmed = window.confirm(
-      `彻底删除这个来源的全部机器材料？\n\n将删除 ${resourceIds.length} 个可见 summary 版本，以及同一来源的 transcript、其他机器 Resource、artifact 文件和 Obsidian Resource 卡片。\n\nSource 与 Run 审计仍会保留。此操作不可恢复。`,
-    );
-    if (!confirmed) return;
-
-    setSourceBusy(sourceId, true);
-    setPurgeFeedback({ tone: "progress", message: "正在删除 Atlas Resource 元数据并安排 Mac 本地清理…" });
-    try {
-      const result = await api<PurgeSourceResponse>("/api/review-actions/purge-source", {
-        method: "POST",
-        body: JSON.stringify({ source_id: sourceId }),
-      });
-      const deleted = new Set(result.resource_ids);
-      setResources((current) => current.filter((resource) => !deleted.has(resource.resource_id)));
-      setRuns((current) => [
-        result.run,
-        ...current.filter((run) => run.run_id !== result.run.run_id),
-      ]);
-      setPurgeFeedback({
-        tone: isActiveRun(result.run) ? "progress" : "success",
-        message: result.reused
-          ? "Atlas 已删除机器材料；正在继续等待 Mac 完成本地清理。"
-          : `Atlas 已删除 ${result.resource_ids.length} 个机器 Resource；正在等待 Mac 清理 artifact 与卡片。`,
-        runId: result.run.run_id,
-      });
-    } catch (error) {
-      setPurgeFeedback({ tone: "error", message: errorMessage(error) });
-    } finally {
-      setSourceBusy(sourceId, false);
-    }
-  }
-
-  async function changeReviewStatus(resourceId: string, status: ReviewStatus) {
+  async function changeReviewStatus(
+    resourceId: string,
+    status: "dismissed" | "pending",
+  ) {
     setResourceBusy(resourceId, true);
     setFeedback((current) => ({
       ...current,
@@ -454,26 +399,40 @@ export function ReviewConsole() {
       },
     }));
     try {
-      const updated = await api<ResourceRecord>(
-        `/api/resources/${encodeURIComponent(resourceId)}/review`,
+      const result = await api<ResourceIgnoreResponse>(
+        status === "dismissed"
+          ? "/api/review-actions/ignore-resource"
+          : "/api/review-actions/restore-resource",
         {
-          method: "PATCH",
-          body: JSON.stringify({ review_status: status }),
+          method: "POST",
+          body: JSON.stringify({ resource_id: resourceId }),
         },
       );
+      const evicted = new Set(result.evicted_resource_ids);
       setResources((current) =>
-        current.map((resource) =>
-          resource.resource_id === resourceId ? updated : resource,
-        ),
+        current
+          .filter((resource) => !evicted.has(resource.resource_id))
+          .map((resource) =>
+            resource.resource_id === resourceId ? result.resource : resource,
+          ),
       );
+      if (result.cleanup_runs.length > 0) {
+        const cleanupIds = new Set(result.cleanup_runs.map((run) => run.run_id));
+        setRuns((current) => [
+          ...result.cleanup_runs,
+          ...current.filter((run) => !cleanupIds.has(run.run_id)),
+        ]);
+      }
       setFeedback((current) => ({
         ...current,
         [resourceId]: {
           tone: "success",
           message:
             status === "dismissed"
-              ? "Atlas 已标记为忽略；Lumio reconciliation 会移除生成卡片。"
-              : "已恢复到待判断；Lumio reconciliation 会重建生成卡片。",
+              ? result.evicted_resource_ids.length > 0
+                ? `已忽略；回收站保持 10 项，最旧的 ${result.evicted_resource_ids.length} 项已永久清理。`
+                : "已移入忽略列表；最近 10 项内可随时撤销。"
+              : `已撤销忽略，恢复为「${statusLabel(result.resource.review_status)}」。`,
         },
       }));
     } catch (error) {
@@ -749,13 +708,6 @@ export function ReviewConsole() {
         </div>
       ) : null}
 
-      {purgeFeedback ? (
-        <div className={`global-feedback ${purgeFeedback.tone}`} role="status">
-          <span>{purgeFeedback.message}</span>
-          <button type="button" onClick={() => setPurgeFeedback(null)}>关闭</button>
-        </div>
-      ) : null}
-
       <section className="inbox-heading">
         <div>
           <p className="eyebrow">SOURCE LEDGER</p>
@@ -779,18 +731,6 @@ export function ReviewConsole() {
 
         {visibleGroups.map((group, groupIndex) => {
           const source = group.source;
-          const sourceBusy = busySources.has(group.sourceId);
-          const sourceKnowledgeProtected = group.resources.some((resource) =>
-            knowledgeByResource.has(resource.resource_id),
-          );
-          const sourceResourceIds = new Set(group.resources.map((resource) => resource.resource_id));
-          const sourceReviewActive = runs.some((run) =>
-            isActiveRun(run)
-            && ["vortex-comment-v1", "vortex-comment-sync-v1", "vortex-comparison-v1"].includes(run.job_name)
-            && typeof run.input.resource_id === "string"
-            && sourceResourceIds.has(run.input.resource_id)
-          );
-          const purgeDisabled = sourceBusy || sourceKnowledgeProtected || sourceReviewActive;
           return (
             <article className="source-card" key={group.sourceId}>
               <header className="source-header">
@@ -817,24 +757,6 @@ export function ReviewConsole() {
                   ) : (
                     <span className="missing-source">Source metadata missing</span>
                   )}
-                  <button
-                    className="purge-button"
-                    type="button"
-                    disabled={purgeDisabled}
-                    title={
-                      sourceKnowledgeProtected
-                        ? "已有 KnowledgeRef 的机器材料不能删除"
-                        : sourceReviewActive
-                          ? "审阅或观点关系检查完成前不能删除"
-                          : "删除该来源的全部机器 Resource、artifact 与生成卡片"
-                    }
-                    onClick={() => void purgeSource(
-                      group.sourceId,
-                      group.resources.map((resource) => resource.resource_id),
-                    )}
-                  >
-                    {sourceBusy ? "删除中…" : "彻底删除机器材料"}
-                  </button>
                 </div>
               </header>
 
@@ -939,9 +861,23 @@ export function ReviewConsole() {
                               <strong>{comment ? "评论保存在 Atlas" : "已建立知识引用"}</strong>
                               <small>{knowledge.note_id}</small>
                             </div>
-                            {knowledge.uri.startsWith("obsidian:") ? (
-                              <a href={knowledge.uri}>在 Obsidian 打开</a>
-                            ) : null}
+                            <div className="knowledge-strip-actions">
+                              {knowledge.uri.startsWith("obsidian:") ? (
+                                <a href={knowledge.uri}>在 Obsidian 打开</a>
+                              ) : null}
+                              {comment && resource.review_status !== "dismissed" ? (
+                                <button
+                                  className="dismiss-button"
+                                  type="button"
+                                  disabled={isBusy}
+                                  onClick={() =>
+                                    void changeReviewStatus(resource.resource_id, "dismissed")
+                                  }
+                                >
+                                  忽略评论与 Resource
+                                </button>
+                              ) : null}
+                            </div>
                           </div>
                         ) : null}
 
@@ -998,14 +934,13 @@ export function ReviewConsole() {
                               disabled={isBusy}
                               onClick={() => void changeReviewStatus(resource.resource_id, "pending")}
                             >
-                              恢复
+                              撤销忽略
                             </button>
                           ) : (
                             <button
                               className="dismiss-button"
                               type="button"
-                              disabled={Boolean(knowledge) || isBusy}
-                              title={knowledge ? "已有 KnowledgeRef 的 Resource 不能忽略" : undefined}
+                              disabled={isBusy}
                               onClick={() => void changeReviewStatus(resource.resource_id, "dismissed")}
                             >
                               忽略

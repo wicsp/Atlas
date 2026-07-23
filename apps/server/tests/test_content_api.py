@@ -182,6 +182,28 @@ def _publish_content(control: TestClient, scoped: TestClient) -> tuple[dict, dic
     return source, payload
 
 
+def _publish_variant(
+    control: TestClient,
+    scoped: TestClient,
+    source_id: str,
+    seed: int,
+) -> str:
+    claimed = _claimed_run(control, scoped, source_id)
+    payload = _completion_payload(claimed, source_id)
+    for index, (artifact, resource) in enumerate(
+        zip(payload["artifacts"], payload["resources"], strict=True)
+    ):
+        checksum = f"sha256:{hashlib.sha256(f'{seed}:{index}'.encode()).hexdigest()}"
+        artifact["name"] = f"{artifact['name']}-{seed}"
+        artifact["checksum"] = checksum
+        resource["artifact_name"] = artifact["name"]
+        resource["content_hash"] = checksum
+        resource["resource_id"] = _resource_id(source_id, resource["kind"], checksum)
+    completed = scoped.post(f"/api/runs/{claimed['run_id']}/complete", json=payload)
+    assert completed.status_code == 200, completed.text
+    return payload["resources"][1]["resource_id"]
+
+
 def test_source_upsert_is_stable_and_enriches_metadata(control_client: TestClient) -> None:
     first = _source(control_client)
     second = _source(control_client, title="A useful video")
@@ -379,12 +401,13 @@ def test_resource_review_state_is_explicit(
         f"/api/resources/{resource_id}/review", json={"review_status": "pending"}
     )
     assert restored.status_code == 200, restored.text
-    assert restored.json()["review_status"] == "pending"
+    assert restored.json()["review_status"] == "reviewed"
 
 
-def test_resource_referenced_by_human_knowledge_cannot_be_dismissed(
+def test_commented_resource_can_be_ignored_and_restored_to_reviewed(
     control_client: TestClient,
     scoped_client: TestClient,
+    dashboard_client: TestClient,
 ) -> None:
     source = _source(control_client)
     claimed = _claimed_run(control_client, scoped_client, source["source_id"])
@@ -395,28 +418,93 @@ def test_resource_referenced_by_human_knowledge_cannot_be_dismissed(
     assert completed.status_code == 200, completed.text
     resource_id = payload["resources"][1]["resource_id"]
 
-    reviewed = control_client.patch(
-        f"/api/resources/{resource_id}/review", json={"review_status": "reviewed"}
-    )
-    assert reviewed.status_code == 200, reviewed.text
-    knowledge_ref = control_client.post(
-        "/api/knowledge-refs",
+    commented = dashboard_client.post(
+        "/api/review-actions/complete-comment",
         json={
-            "note_id": "Knowledge/Comments/kept-evidence",
-            "uri": "obsidian://open?vault=Vortex&file=Knowledge%2FComments%2Fkept-evidence",
-            "resource_ids": [resource_id],
+            "resource_id": resource_id,
+            "body_markdown": "This is my retained comment.",
         },
     )
-    assert knowledge_ref.status_code == 200, knowledge_ref.text
+    assert commented.status_code == 200, commented.text
 
-    rejected = control_client.patch(
-        f"/api/resources/{resource_id}/review", json={"review_status": "dismissed"}
+    ignored = dashboard_client.post(
+        "/api/review-actions/ignore-resource",
+        json={"resource_id": resource_id},
     )
-    assert rejected.status_code == 409, rejected.text
-    assert "KnowledgeRef" in rejected.json()["detail"]
-    current = control_client.get(f"/api/resources/{resource_id}")
-    assert current.status_code == 200
-    assert current.json()["review_status"] == "reviewed"
+    assert ignored.status_code == 200, ignored.text
+    assert ignored.json()["resource"]["review_status"] == "dismissed"
+    assert ignored.json()["evicted_resource_ids"] == []
+    assert dashboard_client.get(
+        f"/api/comments?resource_id={resource_id}"
+    ).json()[0]["body_markdown"] == "This is my retained comment."
+
+    restored = dashboard_client.post(
+        "/api/review-actions/restore-resource",
+        json={"resource_id": resource_id},
+    )
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["resource"]["review_status"] == "reviewed"
+    assert dashboard_client.post(
+        "/api/review-actions/purge-source",
+        json={"source_id": source["source_id"]},
+    ).status_code == 404
+
+
+def test_ignore_list_keeps_ten_and_permanently_cleans_oldest(
+    control_client: TestClient,
+    scoped_client: TestClient,
+    dashboard_client: TestClient,
+) -> None:
+    source = _source(control_client)
+    resource_ids = [
+        _publish_variant(
+            control_client,
+            scoped_client,
+            source["source_id"],
+            seed,
+        )
+        for seed in range(11)
+    ]
+    comment = dashboard_client.post(
+        "/api/review-actions/complete-comment",
+        json={
+            "resource_id": resource_ids[0],
+            "body_markdown": "Oldest ignored comment.",
+        },
+    )
+    assert comment.status_code == 200, comment.text
+
+    last_ignore = None
+    for resource_id in resource_ids:
+        last_ignore = dashboard_client.post(
+            "/api/review-actions/ignore-resource",
+            json={"resource_id": resource_id},
+        )
+        assert last_ignore.status_code == 200, last_ignore.text
+
+    assert last_ignore is not None
+    result = last_ignore.json()
+    assert result["evicted_resource_ids"] == [resource_ids[0]]
+    assert len(result["cleanup_runs"]) == 1
+    cleanup = result["cleanup_runs"][0]
+    assert cleanup["job_name"] == "vortex-resource-purge-v1"
+    assert cleanup["metadata"]["requested_via"] == "ignored-resource-retention"
+    expired = cleanup["input"]["resources"][0]
+    assert expired["resource_id"] == resource_ids[0]
+    assert expired["remove_comment"] is True
+
+    assert dashboard_client.get(f"/api/resources/{resource_ids[0]}").status_code == 404
+    ignored = dashboard_client.get(
+        "/api/resources?kind=summary&review_status=dismissed&limit=500"
+    ).json()
+    assert len(ignored) == 10
+    assert dashboard_client.get(
+        f"/api/comments?resource_id={resource_ids[0]}"
+    ).json() == []
+    assert all(
+        resource_ids[0] not in item["resource_ids"]
+        for item in dashboard_client.get("/api/knowledge-refs?limit=500").json()
+    )
 
 
 def test_knowledge_ref_rejects_prose_and_derives_source_relation(
@@ -702,134 +790,3 @@ def test_comparison_request_enqueues_fixed_capability_and_reuses_active_run(
     assert run["capabilities_required"] == []
     assert run["workflow"]["name"] == "vortex.comparison"
     assert run["input"]["bundle"]["resource"]["resource_id"] == resource_id
-
-
-def test_source_purge_atomically_removes_machine_resources_and_enqueues_cleanup(
-    control_client: TestClient,
-    scoped_client: TestClient,
-    dashboard_client: TestClient,
-) -> None:
-    source, _ = _publish_content(control_client, scoped_client)
-    before = control_client.get(
-        f"/api/resources?source_id={source['source_id']}"
-    ).json()
-    produced_run_id = before[0]["produced_by_run_id"]
-
-    first = dashboard_client.post(
-        "/api/review-actions/purge-source",
-        json={"source_id": source["source_id"]},
-    )
-    replay = dashboard_client.post(
-        "/api/review-actions/purge-source",
-        json={"source_id": source["source_id"]},
-    )
-
-    assert first.status_code == 200, first.text
-    assert replay.status_code == 200, replay.text
-    assert first.json()["reused"] is False
-    assert replay.json()["reused"] is True
-    assert replay.json()["run"]["run_id"] == first.json()["run"]["run_id"]
-    assert set(first.json()["resource_ids"]) == {
-        resource["resource_id"] for resource in before
-    }
-    assert control_client.get(
-        f"/api/resources?source_id={source['source_id']}"
-    ).json() == []
-    assert dashboard_client.get(
-        f"/api/runs/{produced_run_id}/artifacts"
-    ).json() == []
-
-    cleanup = first.json()["run"]
-    assert cleanup["job_name"] == "vortex-resource-purge-v1"
-    assert cleanup["capabilities_required"] == []
-    assert cleanup["workflow"]["name"] == "vortex.resource-purge"
-    assert cleanup["requirements"]["grants"] == [
-        "artifact-store:delete",
-        "obsidian-vault:write",
-    ]
-    assert cleanup["input"]["source_id"] == source["source_id"]
-    assert len(cleanup["input"]["resources"]) == 2
-    assert all(item["artifact"] for item in cleanup["input"]["resources"])
-
-
-def test_source_purge_rejects_human_evidence_without_changing_resources(
-    control_client: TestClient,
-    scoped_client: TestClient,
-    dashboard_client: TestClient,
-) -> None:
-    source, publication = _publish_content(control_client, scoped_client)
-    summary_id = publication["resources"][1]["resource_id"]
-    knowledge_ref = control_client.post(
-        "/api/knowledge-refs",
-        json={
-            "note_id": "Knowledge/Comments/protected",
-            "uri": "obsidian://open?vault=Vortex&file=Knowledge%2FComments%2Fprotected",
-            "resource_ids": [summary_id],
-        },
-    )
-    assert knowledge_ref.status_code == 200, knowledge_ref.text
-
-    response = dashboard_client.post(
-        "/api/review-actions/purge-source",
-        json={"source_id": source["source_id"]},
-    )
-
-    assert response.status_code == 409, response.text
-    assert "KnowledgeRef" in response.json()["detail"]
-    assert len(control_client.get(
-        f"/api/resources?source_id={source['source_id']}"
-    ).json()) == 2
-
-
-def test_source_purge_rejects_active_comment_run(
-    control_client: TestClient,
-    scoped_client: TestClient,
-    dashboard_client: TestClient,
-) -> None:
-    source, publication = _publish_content(control_client, scoped_client)
-    summary_id = publication["resources"][1]["resource_id"]
-    comment = dashboard_client.post(
-        "/api/review-actions/comment",
-        json={"resource_id": summary_id},
-    )
-    assert comment.status_code == 200, comment.text
-
-    response = dashboard_client.post(
-        "/api/review-actions/purge-source",
-        json={"source_id": source["source_id"]},
-    )
-
-    assert response.status_code == 409, response.text
-    assert "active review Run" in response.json()["detail"]
-    assert len(control_client.get(
-        f"/api/resources?source_id={source['source_id']}"
-    ).json()) == 2
-
-
-def test_source_purge_rejects_active_producer_run(
-    control_client: TestClient,
-    scoped_client: TestClient,
-    dashboard_client: TestClient,
-) -> None:
-    source, _ = _publish_content(control_client, scoped_client)
-    active = control_client.post(
-        "/api/runs/enqueue",
-        json={
-            "project_id": "bilibili-capture",
-            "job_name": "bilibili-summary-v4",
-            "capabilities_required": ["bilibili-summary-v4"],
-            "input": {"source_id": source["source_id"], "url": source["canonical_uri"]},
-        },
-    )
-    assert active.status_code == 200, active.text
-
-    response = dashboard_client.post(
-        "/api/review-actions/purge-source",
-        json={"source_id": source["source_id"]},
-    )
-
-    assert response.status_code == 409, response.text
-    assert "active producer Run" in response.json()["detail"]
-    assert len(control_client.get(
-        f"/api/resources?source_id={source['source_id']}"
-    ).json()) == 2

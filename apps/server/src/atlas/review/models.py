@@ -6,7 +6,6 @@ from atlas.content.models import CommentRecord, KnowledgeRefRecord, ResourceReco
 from atlas.work.models import RunRecord
 
 _RESOURCE_ID_PATTERN = r"^res_[A-Za-z0-9._-]{8,120}$"
-_SOURCE_ID_PATTERN = r"^src_[A-Za-z0-9._-]{8,120}$"
 
 
 class StrictModel(BaseModel):
@@ -57,16 +56,16 @@ class CommentSyncRequestResponse(StrictModel):
     reused: bool
 
 
-class PurgeSourceRequest(StrictModel):
-    source_id: str = Field(pattern=_SOURCE_ID_PATTERN)
+class ResourceIgnoreResponse(StrictModel):
+    resource: ResourceRecord
+    evicted_resource_ids: list[str]
+    cleanup_runs: list[RunRecord]
 
-    @field_validator("source_id")
+
+class ResourceIgnoreRequest(StrictModel):
+    resource_id: str = Field(pattern=_RESOURCE_ID_PATTERN)
+
+    @field_validator("resource_id")
     @classmethod
-    def strip_source_id(cls, value: str) -> str:
+    def strip_resource_id(cls, value: str) -> str:
         return value.strip()
-
-
-class PurgeSourceResponse(StrictModel):
-    run: RunRecord
-    resource_ids: list[str]
-    reused: bool

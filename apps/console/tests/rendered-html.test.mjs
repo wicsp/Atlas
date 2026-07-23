@@ -49,9 +49,11 @@ test("removes starter surfaces and keeps credentials out of client source", asyn
   assert.match(client, /\/api\/comments\?limit=500/);
   assert.match(client, /\/api\/review-actions\/complete-comment/);
   assert.match(client, /\/api\/review-actions\/compare/);
-  assert.match(client, /\/api\/review-actions\/purge-source/);
-  assert.match(client, /彻底删除机器材料/);
-  assert.match(client, /window\.confirm/);
+  assert.match(client, /\/api\/review-actions\/ignore-resource/);
+  assert.match(client, /\/api\/review-actions\/restore-resource/);
+  assert.match(client, /忽略评论与 Resource/);
+  assert.match(client, /最近 10 项内可随时撤销/);
+  assert.doesNotMatch(client, /purge-source|彻底删除机器材料|window\.confirm/);
   assert.match(client, /阅读与评论/);
   assert.match(client, /保存评论/);
   assert.match(client, /评论直接保存在 Atlas/);

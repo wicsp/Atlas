@@ -33,7 +33,6 @@ from .content.models import (
     SourceRecord,
     SourceUpsert,
 )
-from .content.repository import ReferencedResourceDismissalError
 from .content.service import ContentService, create_content_service
 from .dashboard import DashboardSnapshot, DashboardSnapshotCollector
 from .messages.models import MessageAck, MessageClaim, MessageCreate, MessageRecord
@@ -41,6 +40,10 @@ from .messages.service import MessageService, MessageStateError, create_message_
 from .network import NetworkConnectivity
 from .probes import ProbeHistorySummary, ProbeResult
 from .rate_limit import login_rate_limiter
+from .review.ignore import (
+    ResourceIgnoreService,
+    create_resource_ignore_service,
+)
 from .review.models import (
     CommentCompleteRequest,
     CommentCompleteResponse,
@@ -48,14 +51,8 @@ from .review.models import (
     CommentRequestResponse,
     CommentSyncRequestResponse,
     ComparisonRequestResponse,
-    PurgeSourceRequest,
-    PurgeSourceResponse,
-)
-from .review.purge import (
-    NoResourcesToPurgeError,
-    ResourcePurgeConflictError,
-    ResourcePurgeService,
-    create_resource_purge_service,
+    ResourceIgnoreRequest,
+    ResourceIgnoreResponse,
 )
 from .review.service import (
     ResourceAlreadyCommentedError,
@@ -230,15 +227,15 @@ def _review_service(request: Request) -> ReviewService:
     )
 
 
-def _resource_purge_service(request: Request) -> ResourcePurgeService:
-    service = getattr(request.app.state, "resource_purge_service", None)
+def _resource_ignore_service(request: Request) -> ResourceIgnoreService:
+    service = getattr(request.app.state, "resource_ignore_service", None)
     if service is None:
         settings: Settings = request.app.state.settings
-        service = create_resource_purge_service(
+        service = create_resource_ignore_service(
             settings.work.database_path,
             _work_service(request),
         )
-        request.app.state.resource_purge_service = service
+        request.app.state.resource_ignore_service = service
     return service
 
 
@@ -659,16 +656,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         payload: ResourceReviewUpdate,
     ) -> ResourceRecord:
         try:
+            if payload.review_status == "dismissed":
+                return _resource_ignore_service(request).ignore(resource_id).resource
+            current = _content_service(request).get_resource(resource_id)
+            if payload.review_status == "pending" and current.review_status == "dismissed":
+                return _resource_ignore_service(request).restore(resource_id).resource
             return _content_service(request).update_resource_review(resource_id, payload)
         except KeyError as exc:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Resource not found",
-            ) from exc
-        except ReferencedResourceDismissalError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=str(exc),
             ) from exc
 
     @app.post(
@@ -814,25 +811,37 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ) from exc
 
     @app.post(
-        "/api/review-actions/purge-source",
-        response_model=PurgeSourceResponse,
+        "/api/review-actions/ignore-resource",
+        response_model=ResourceIgnoreResponse,
         dependencies=[Depends(require_control_auth)],
     )
-    async def request_source_resource_purge(
+    async def ignore_resource(
         request: Request,
-        payload: PurgeSourceRequest,
-    ) -> PurgeSourceResponse:
+        payload: ResourceIgnoreRequest,
+    ) -> ResourceIgnoreResponse:
         try:
-            return _resource_purge_service(request).request(payload.source_id)
+            return _resource_ignore_service(request).ignore(payload.resource_id)
         except KeyError as exc:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Source not found",
+                detail="Resource not found",
             ) from exc
-        except (NoResourcesToPurgeError, ResourcePurgeConflictError) as exc:
+
+    @app.post(
+        "/api/review-actions/restore-resource",
+        response_model=ResourceIgnoreResponse,
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def restore_resource(
+        request: Request,
+        payload: ResourceIgnoreRequest,
+    ) -> ResourceIgnoreResponse:
+        try:
+            return _resource_ignore_service(request).restore(payload.resource_id)
+        except KeyError as exc:
             raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=str(exc),
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Resource not found",
             ) from exc
 
     @app.post(

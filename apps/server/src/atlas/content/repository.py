@@ -25,10 +25,6 @@ from .models import (
 )
 
 
-class ReferencedResourceDismissalError(ValueError):
-    """Raised when a Resource is still evidence for human-authored Knowledge."""
-
-
 class SourceRow(Base):
     __tablename__ = "sources"
 
@@ -173,21 +169,6 @@ class ContentRepository:
             row = session.get(ResourceRow, resource_id)
             if row is None:
                 raise KeyError(resource_id)
-            if review_status == "dismissed":
-                referenced_by = next(
-                    (
-                        knowledge_ref
-                        for knowledge_ref in session.scalars(select(KnowledgeRefRow)).all()
-                        if resource_id
-                        in _load_json(knowledge_ref.resource_ids_json, [])
-                    ),
-                    None,
-                )
-                if referenced_by is not None:
-                    raise ReferencedResourceDismissalError(
-                        f"Resource {resource_id} is referenced by KnowledgeRef "
-                        f"{referenced_by.knowledge_ref_id}"
-                    )
             row.review_status = review_status
             row.updated_at = now.isoformat()
             session.flush()
@@ -256,6 +237,9 @@ class ContentRepository:
             if resource.review_status != "reviewed":
                 resource.review_status = "reviewed"
                 resource.updated_at = now.isoformat()
+            resource_metadata = _load_json(resource.metadata_json, {})
+            if resource_metadata.pop("_atlas_review_status_before_ignore", None) is not None:
+                resource.metadata_json = _dump_json(resource_metadata)
             session.flush()
             return (
                 _to_resource(resource),
@@ -419,6 +403,8 @@ def _to_source(row: SourceRow) -> SourceRecord:
 
 
 def _to_resource(row: ResourceRow) -> ResourceRecord:
+    metadata = _load_json(row.metadata_json, {})
+    metadata.pop("_atlas_review_status_before_ignore", None)
     return ResourceRecord(
         resource_id=row.resource_id,
         source_id=row.source_id,
@@ -428,7 +414,7 @@ def _to_resource(row: ResourceRow) -> ResourceRecord:
         title=row.title,
         content_hash=row.content_hash,
         generator=_load_json(row.generator_json, {}),
-        metadata=_load_json(row.metadata_json, {}),
+        metadata=metadata,
         review_status=row.review_status,  # type: ignore[arg-type]
         created_at=datetime.fromisoformat(row.created_at),
         updated_at=datetime.fromisoformat(row.updated_at),
