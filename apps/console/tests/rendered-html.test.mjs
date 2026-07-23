@@ -51,7 +51,11 @@ test("removes starter surfaces and keeps credentials out of client source", asyn
   assert.match(client, /\/api\/review-actions\/compare/);
   assert.match(client, /\/api\/review-actions\/ignore-resource/);
   assert.match(client, /\/api\/review-actions\/restore-resource/);
-  assert.match(client, /忽略评论与 Resource/);
+  assert.doesNotMatch(client, /忽略评论与 Resource/);
+  assert.equal(
+    client.match(/changeReviewStatus\(resource\.resource_id,\s*"dismissed"\)/g)?.length,
+    1,
+  );
   assert.match(client, /最近 10 项内可随时撤销/);
   assert.doesNotMatch(client, /purge-source|彻底删除机器材料|window\.confirm/);
   assert.match(client, /阅读与评论/);

@@ -861,23 +861,9 @@ export function ReviewConsole() {
                               <strong>{comment ? "评论保存在 Atlas" : "已建立知识引用"}</strong>
                               <small>{knowledge.note_id}</small>
                             </div>
-                            <div className="knowledge-strip-actions">
-                              {knowledge.uri.startsWith("obsidian:") ? (
-                                <a href={knowledge.uri}>在 Obsidian 打开</a>
-                              ) : null}
-                              {comment && resource.review_status !== "dismissed" ? (
-                                <button
-                                  className="dismiss-button"
-                                  type="button"
-                                  disabled={isBusy}
-                                  onClick={() =>
-                                    void changeReviewStatus(resource.resource_id, "dismissed")
-                                  }
-                                >
-                                  忽略评论与 Resource
-                                </button>
-                              ) : null}
-                            </div>
+                            {knowledge.uri.startsWith("obsidian:") ? (
+                              <a href={knowledge.uri}>在 Obsidian 打开</a>
+                            ) : null}
                           </div>
                         ) : null}
 

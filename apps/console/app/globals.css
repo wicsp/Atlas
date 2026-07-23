@@ -920,27 +920,6 @@ button:disabled {
   text-underline-offset: 3px;
 }
 
-.knowledge-strip > .knowledge-strip-actions {
-  display: flex;
-  flex-direction: row;
-  gap: 0.55rem;
-  align-items: center;
-}
-
-.knowledge-strip-actions button {
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--coral);
-  font: inherit;
-  font-size: 0.68rem;
-  cursor: pointer;
-}
-
-.knowledge-strip-actions button:hover:not(:disabled) {
-  border-color: #d8aaa0;
-  background: var(--coral-soft);
-}
-
 .run-strip {
   grid-template-columns: auto 1fr auto;
   border-color: #a7bdc4;
@@ -1234,7 +1213,7 @@ button:disabled {
     grid-template-columns: auto 1fr;
   }
 
-  .knowledge-strip .knowledge-strip-actions,
+  .knowledge-strip > a,
   .run-strip > span:last-child:not(.run-indicator) {
     grid-column: 2;
     justify-self: start;

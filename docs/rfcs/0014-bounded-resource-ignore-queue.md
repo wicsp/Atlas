@@ -64,7 +64,8 @@ records remain.
 
 ## User interface
 
-The Resource card and the saved Comment strip expose the same **忽略** action. The ignored view shows
+Each Resource card exposes exactly one **忽略** action. A saved Comment follows its Resource through
+ignore and undo; the Comment strip does not add a second action. The ignored view shows
 **撤销忽略** and explains that only the latest 10 entries are recoverable. There is no separate
 delete button or confirmation flow.
 
