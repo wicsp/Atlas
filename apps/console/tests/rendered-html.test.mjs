@@ -63,6 +63,9 @@ test("removes starter surfaces and keeps credentials out of client source", asyn
   assert.match(client, /评论直接保存在 Atlas/);
   assert.doesNotMatch(client, /crypto\.subtle|content_hash:\s*await/);
   assert.match(client, /生成观点对比/);
+  assert.match(client, /\/api\/paper-actions\/accept/);
+  assert.match(client, /加入 Zotero 并总结全文/);
+  assert.match(client, /project_id=paper-library/);
   assert.match(client, /kind=comparison/);
   assert.match(client, /查看对比/);
   assert.match(client, /comparisonByResource/);

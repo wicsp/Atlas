@@ -1,5 +1,6 @@
 export type ReviewStatus = "pending" | "reviewed" | "dismissed";
 export type RunStatus =
+  | "blocked"
   | "pending"
   | "claimed"
   | "completed"
@@ -98,6 +99,14 @@ export interface RunRecord {
   max_attempts: number;
   priority: number;
   metadata: Record<string, unknown>;
+  workflow: {
+    name: string;
+    version: string;
+    digest: string;
+  } | null;
+  step_name: string | null;
+  workflow_invocation_id: string | null;
+  depends_on_run_ids: string[];
   error_message: string | null;
   created_at: string;
   started_at: string | null;
@@ -201,7 +210,48 @@ export function latestCommentRunsByResource(
 }
 
 export function isActiveRun(run: RunRecord | undefined): boolean {
-  return run?.status === "pending" || run?.status === "claimed";
+  return (
+    run?.status === "blocked"
+    || run?.status === "pending"
+    || run?.status === "claimed"
+  );
+}
+
+export function isPaperPreview(resource: ResourceRecord): boolean {
+  return (
+    resource.kind === "summary"
+    && resource.metadata.profile_id === "paper-preview-v1"
+    && resource.metadata.basis === "abstract"
+  );
+}
+
+export function paperFulltextForPreview(
+  resources: ResourceRecord[],
+  preview: ResourceRecord,
+): ResourceRecord | undefined {
+  return resources.find((resource) =>
+    resource.source_id === preview.source_id
+    && resource.kind === "summary"
+    && resource.metadata.profile_id === "paper-fulltext-v1"
+    && resource.metadata.source_preview_resource_id === preview.resource_id
+  );
+}
+
+export function paperAcceptRunForPreview(
+  runs: RunRecord[],
+  previewResourceId: string,
+): RunRecord | undefined {
+  return runs.find((run) => {
+    const workflowInput = run.input.workflow_input;
+    return (
+      run.workflow?.name === "paper.accept"
+      && run.step_name === "summarize"
+      && typeof workflowInput === "object"
+      && workflowInput !== null
+      && "preview_resource_id" in workflowInput
+      && workflowInput.preview_resource_id === previewResourceId
+    );
+  });
 }
 
 function isVortexCommentUri(value: unknown): value is string {

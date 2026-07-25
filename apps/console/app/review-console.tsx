@@ -4,7 +4,10 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
   groupResourcesBySource,
   isActiveRun,
+  isPaperPreview,
   latestCommentRunsByResource,
+  paperAcceptRunForPreview,
+  paperFulltextForPreview,
   type CommentRecord,
   type KnowledgeRefRecord,
   type ResourceDocument,
@@ -34,6 +37,18 @@ interface ResourceIgnoreResponse {
   resource: ResourceRecord;
   evicted_resource_ids: string[];
   cleanup_runs: RunRecord[];
+}
+
+interface WorkflowInvocation {
+  invocation_id: string;
+  status: "running" | "completed" | "failed" | "cancelled";
+  step_runs: Record<string, string>;
+}
+
+interface PaperAcceptResponse {
+  invocation: WorkflowInvocation | null;
+  reused: boolean;
+  fulltext_resource: ResourceRecord | null;
 }
 
 interface CommentCompleteResponse {
@@ -110,18 +125,37 @@ function runLabel(run: RunRecord): string {
     return {
       pending: "等待同步评论",
       claimed: "正在同步评论",
+      blocked: "等待前置步骤",
       completed: "评论已同步",
       failed: "评论同步失败",
       cancelled: "同步已取消",
     }[run.status];
   }
   return {
+    blocked: "等待前置步骤",
     pending: "等待 Mac Lumio",
     claimed: "正在创建评论",
     completed: "评论已创建",
     failed: "评论创建失败",
     cancelled: "请求已取消",
   }[run.status];
+}
+
+function paperRunMessage(run: RunRecord): string {
+  if (run.status === "completed") return "PDF 全文总结已生成。";
+  if (run.status === "failed" || run.status === "cancelled") {
+    return run.error_message || "论文全文处理失败。";
+  }
+  if (run.status === "claimed") {
+    return "PDF 已就绪；正在根据全文生成总结…";
+  }
+  return "正在等待 Zotero 导入条目、下载并索引 PDF…";
+}
+
+function paperProfileLabel(resource: ResourceRecord): string | null {
+  if (resource.metadata.profile_id === "paper-preview-v1") return "摘要预览";
+  if (resource.metadata.profile_id === "paper-fulltext-v1") return "PDF 全文";
+  return null;
 }
 
 function generatorLabel(resource: ResourceRecord): string {
@@ -175,7 +209,15 @@ export function ReviewConsole() {
     if (!quiet) setLoading(true);
     setLoadError("");
     try {
-      const [nextSources, nextResources, nextComparisons, nextKnowledgeRefs, nextComments, nextRuns] =
+      const [
+        nextSources,
+        nextResources,
+        nextComparisons,
+        nextKnowledgeRefs,
+        nextComments,
+        reviewRuns,
+        paperRuns,
+      ] =
         await Promise.all([
           api<SourceRecord[]>("/api/sources?limit=500"),
           api<ResourceRecord[]>("/api/resources?kind=summary&limit=500"),
@@ -183,7 +225,9 @@ export function ReviewConsole() {
           api<KnowledgeRefRecord[]>("/api/knowledge-refs?limit=500"),
           api<CommentRecord[]>("/api/comments?limit=500"),
           api<RunRecord[]>("/api/runs?project_id=resource-review&limit=500"),
+          api<RunRecord[]>("/api/runs?project_id=paper-library&limit=500"),
         ]);
+      const nextRuns = [...reviewRuns, ...paperRuns];
       setSources(nextSources);
       setResources(nextResources);
       setComparisons(nextComparisons);
@@ -200,6 +244,19 @@ export function ReviewConsole() {
           const run = nextRuns.find((candidate) => candidate.run_id === entry.runId)
             ?? latest[resourceId];
           if (!run || run.run_id !== entry.runId) continue;
+          if (run.workflow?.name === "paper.accept") {
+            updated[resourceId] = {
+              tone:
+                run.status === "completed"
+                  ? "success"
+                  : run.status === "failed" || run.status === "cancelled"
+                    ? "error"
+                    : "progress",
+              message: paperRunMessage(run),
+              runId: run.run_id,
+            };
+            continue;
+          }
           const comparison = run.job_name === "vortex-comparison-v1";
           const commentSync = run.job_name === "vortex-comment-sync-v1";
           if (run.status === "pending") {
@@ -569,6 +626,63 @@ export function ReviewConsole() {
     }
   }
 
+  async function acceptPaper(resource: ResourceRecord) {
+    const resourceId = resource.resource_id;
+    setResourceBusy(resourceId, true);
+    setFeedback((current) => ({
+      ...current,
+      [resourceId]: {
+        tone: "progress",
+        message: "正在安排 Zotero 导入与 PDF 全文总结…",
+      },
+    }));
+    try {
+      const result = await api<PaperAcceptResponse>("/api/paper-actions/accept", {
+        method: "POST",
+        body: JSON.stringify({ resource_id: resourceId }),
+      });
+      if (result.fulltext_resource) {
+        setResources((current) => [
+          result.fulltext_resource as ResourceRecord,
+          ...current.filter(
+            (item) => item.resource_id !== result.fulltext_resource?.resource_id,
+          ),
+        ]);
+        setFeedback((current) => ({
+          ...current,
+          [resourceId]: {
+            tone: "success",
+            message: "这篇论文已有 PDF 全文总结。",
+          },
+        }));
+        await openResource(result.fulltext_resource);
+        return;
+      }
+      const summarizeRunId = result.invocation?.step_runs.summarize;
+      if (!summarizeRunId) {
+        throw new Error("Atlas 没有返回全文总结任务。");
+      }
+      setFeedback((current) => ({
+        ...current,
+        [resourceId]: {
+          tone: "progress",
+          message: result.reused
+            ? "已有相同的 Zotero/PDF 全文任务正在执行。"
+            : "已排队：Zotero 导入 → PDF 索引 → 全文总结。",
+          runId: summarizeRunId,
+        },
+      }));
+      await loadReviewData(true);
+    } catch (error) {
+      setFeedback((current) => ({
+        ...current,
+        [resourceId]: { tone: "error", message: errorMessage(error) },
+      }));
+    } finally {
+      setResourceBusy(resourceId, false);
+    }
+  }
+
   if (auth === "checking") {
     return (
       <main className="center-stage" aria-live="polite">
@@ -771,6 +885,14 @@ export function ReviewConsole() {
                     && candidate.input.resource_id === resource.resource_id
                     && isActiveRun(candidate)
                   );
+                  const paperPreview = source?.kind === "paper" && isPaperPreview(resource);
+                  const fulltextResource = paperPreview
+                    ? paperFulltextForPreview(group.resources, resource)
+                    : undefined;
+                  const paperRun = paperPreview
+                    ? paperAcceptRunForPreview(runs, resource.resource_id)
+                    : undefined;
+                  const activePaperRun = isActiveRun(paperRun);
                   const isBusy = busyResources.has(resource.resource_id);
                   const resourceFeedback = feedback[resource.resource_id];
                   const comparisonOpen = comparison?.resource_id === openResourceId;
@@ -798,6 +920,9 @@ export function ReviewConsole() {
                               {statusLabel(resource.review_status)}
                             </span>
                             <span className="badge generated">AI Resource</span>
+                            {paperProfileLabel(resource) ? (
+                              <span className="badge generated">{paperProfileLabel(resource)}</span>
+                            ) : null}
                           </div>
                           <time dateTime={resource.created_at}>{formatTime(resource.created_at)}</time>
                         </div>
@@ -896,6 +1021,21 @@ export function ReviewConsole() {
                           >
                             {documentOpen ? "收起 Resource" : comment ? "阅读与编辑评论" : "阅读与评论"}
                           </button>
+                          {paperPreview ? (
+                            <button
+                              type="button"
+                              disabled={isBusy || activePaperRun}
+                              onClick={() => fulltextResource
+                                ? void openResource(fulltextResource)
+                                : void acceptPaper(resource)}
+                            >
+                              {fulltextResource
+                                ? "查看 PDF 全文总结"
+                                : activePaperRun
+                                  ? "正在处理 PDF"
+                                  : "加入 Zotero 并总结全文"}
+                            </button>
+                          ) : null}
                           {resource.review_status !== "dismissed" && comment ? (
                             <button
                               type="button"

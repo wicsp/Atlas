@@ -204,6 +204,71 @@ def _publish_variant(
     return payload["resources"][1]["resource_id"]
 
 
+def _publish_paper_preview(
+    control: TestClient,
+    scoped: TestClient,
+) -> tuple[dict, str]:
+    source_response = control.post(
+        "/api/sources",
+        json={
+            "source_key": "arxiv:2607.01234",
+            "kind": "paper",
+            "canonical_uri": "https://arxiv.org/abs/2607.01234",
+            "title": "A Useful Paper",
+            "external_ids": {"arxiv_id": "2607.01234"},
+            "metadata": {"captured_via": "test"},
+        },
+    )
+    assert source_response.status_code == 200, source_response.text
+    source = source_response.json()
+    claimed = _claimed_run(control, scoped, source["source_id"])
+    checksum = f"sha256:{'c' * 64}"
+    resource_id = _resource_id(source["source_id"], "summary", checksum)
+    completed = scoped.post(
+        f"/api/runs/{claimed['run_id']}/complete",
+        json={
+            "attempt_id": claimed["attempt_id"],
+            "claim_token": claimed["claim_token"],
+            "agent_id": "ignored",
+            "output": {"preview_resource_id": resource_id},
+            "artifacts": [
+                {
+                    "name": "paper-preview-2607.01234",
+                    "uri": "file:///private/atlas/paper-preview.md",
+                    "content_type": "text/markdown; charset=utf-8",
+                    "size_bytes": 80,
+                    "checksum": checksum,
+                }
+            ],
+            "resources": [
+                {
+                    "resource_id": resource_id,
+                    "source_id": source["source_id"],
+                    "kind": "summary",
+                    "title": "A Useful Paper — abstract preview",
+                    "artifact_name": "paper-preview-2607.01234",
+                    "content_hash": checksum,
+                    "generator": {
+                        "mode": "ai",
+                        "name": "atlas-runner-paper-preview",
+                        "version": "1",
+                        "model_provider": "test",
+                        "model_id": "test",
+                        "prompt_version": "paper-preview-v1",
+                    },
+                    "metadata": {
+                        "profile_id": "paper-preview-v1",
+                        "basis": "abstract",
+                        "arxiv_id": "2607.01234",
+                    },
+                }
+            ],
+        },
+    )
+    assert completed.status_code == 200, completed.text
+    return source, resource_id
+
+
 def test_source_upsert_is_stable_and_enriches_metadata(control_client: TestClient) -> None:
     first = _source(control_client)
     second = _source(control_client, title="A useful video")
@@ -215,6 +280,56 @@ def test_source_upsert_is_stable_and_enriches_metadata(control_client: TestClien
     response = control_client.get("/api/sources")
     assert response.status_code == 200
     assert len(response.json()) == 1
+
+
+def test_paper_accept_enqueues_fixed_workflow_and_reuses_active_invocation(
+    control_client: TestClient,
+    scoped_client: TestClient,
+    dashboard_client: TestClient,
+) -> None:
+    source, resource_id = _publish_paper_preview(control_client, scoped_client)
+
+    first = dashboard_client.post(
+        "/api/paper-actions/accept",
+        json={"resource_id": resource_id},
+    )
+    replay = dashboard_client.post(
+        "/api/paper-actions/accept",
+        json={"resource_id": resource_id},
+    )
+
+    assert first.status_code == 200, first.text
+    assert replay.status_code == 200, replay.text
+    assert first.json()["reused"] is False
+    assert replay.json()["reused"] is True
+    assert replay.json()["invocation"]["invocation_id"] == (
+        first.json()["invocation"]["invocation_id"]
+    )
+    invocation = first.json()["invocation"]
+    assert invocation["workflow_name"] == "paper.accept"
+    assert invocation["workflow_version"] == "1"
+    assert invocation["input"] == {
+        "source_id": source["source_id"],
+        "preview_resource_id": resource_id,
+        "arxiv_id": "2607.01234",
+        "canonical_uri": "https://arxiv.org/abs/2607.01234",
+    }
+
+
+def test_paper_accept_rejects_non_preview_summary(
+    control_client: TestClient,
+    scoped_client: TestClient,
+    dashboard_client: TestClient,
+) -> None:
+    _, publication = _publish_content(control_client, scoped_client)
+
+    response = dashboard_client.post(
+        "/api/paper-actions/accept",
+        json={"resource_id": publication["resources"][1]["resource_id"]},
+    )
+
+    assert response.status_code == 409
+    assert "paper-preview-v1" in response.json()["detail"]
 
 
 def test_content_endpoints_require_control_auth(atlas_app: FastAPI) -> None:

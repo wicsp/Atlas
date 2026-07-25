@@ -89,6 +89,47 @@ BUILTIN_WORKFLOWS = [
     ),
     WorkflowDefinitionCreate.model_validate(
         {
+            "name": "paper.accept",
+            "version": "1",
+            "project_id": "paper-library",
+            "description": (
+                "Accept one abstract-previewed paper into the local Zotero library, "
+                "read Zotero-indexed PDF text, and publish a full-text summary."
+            ),
+            "steps": [
+                {
+                    "name": "zotero_import",
+                    "requirements": {
+                        "node_ids": ["macsp"],
+                        "executors": ["script"],
+                        "grants": ["zotero-library:write"],
+                    },
+                    "max_attempts": 3,
+                    "priority": 20,
+                },
+                {
+                    "name": "extract",
+                    "depends_on": ["zotero_import"],
+                    "requirements": {
+                        "node_ids": ["macsp"],
+                        "executors": ["script"],
+                        "grants": ["zotero-library:read"],
+                    },
+                    "max_attempts": 3,
+                    "priority": 20,
+                },
+                {
+                    "name": "summarize",
+                    "depends_on": ["extract"],
+                    "requirements": {"executors": ["pi"]},
+                    "max_attempts": 2,
+                    "priority": 20,
+                },
+            ],
+        }
+    ),
+    WorkflowDefinitionCreate.model_validate(
+        {
             "name": "web.summary",
             "version": "1",
             "project_id": "web-capture",

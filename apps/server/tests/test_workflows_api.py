@@ -126,6 +126,19 @@ def test_local_review_and_web_workflows_are_builtin(tmp_path: Path) -> None:
         "grants": [],
     }
     assert paper["steps"][1]["depends_on"] == ["acquire"]
+    accepted = workflows[("paper.accept", "1")]
+    assert [step["name"] for step in accepted["steps"]] == [
+        "zotero_import",
+        "extract",
+        "summarize",
+    ]
+    assert accepted["steps"][0]["requirements"]["grants"] == [
+        "zotero-library:write"
+    ]
+    assert accepted["steps"][1]["requirements"]["grants"] == [
+        "zotero-library:read"
+    ]
+    assert accepted["steps"][2]["depends_on"] == ["extract"]
     assert workflows[("vortex.comment", "1")]["steps"][0]["requirements"][
         "grants"
     ] == ["obsidian-vault:write"]

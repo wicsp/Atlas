@@ -6,6 +6,8 @@ import {
   groupResourcesBySource,
   isActiveRun,
   latestCommentRunsByResource,
+  paperAcceptRunForPreview,
+  paperFulltextForPreview,
 } from "../app/review-model.ts";
 
 const source = {
@@ -117,6 +119,38 @@ test("tracks only the newest comment run for each Resource", () => {
   assert.equal(latest.res_one000.run_id, "run_new");
   assert.equal(isActiveRun(latest.res_one000), true);
   assert.equal(isActiveRun({ ...claimed, status: "completed" }), false);
+});
+
+test("links a paper preview to its full-text Resource and workflow", () => {
+  const preview = {
+    ...resource("res_preview", source.source_id, "2026-07-20T11:00:00Z"),
+    metadata: { profile_id: "paper-preview-v1", basis: "abstract" },
+  };
+  const fulltext = {
+    ...resource("res_fulltext", source.source_id, "2026-07-21T11:00:00Z"),
+    metadata: {
+      profile_id: "paper-fulltext-v1",
+      basis: "pdf-text",
+      source_preview_resource_id: preview.resource_id,
+    },
+  };
+  const summaryRun = {
+    ...run("run_summary", preview.resource_id, "2026-07-21T10:00:00Z", "blocked"),
+    project_id: "paper-library",
+    input: { workflow_input: { preview_resource_id: preview.resource_id } },
+    workflow: { name: "paper.accept", version: "1", digest: "sha256:test" },
+    step_name: "summarize",
+  };
+
+  assert.equal(
+    paperFulltextForPreview([preview, fulltext], preview)?.resource_id,
+    fulltext.resource_id,
+  );
+  assert.equal(
+    paperAcceptRunForPreview([summaryRun], preview.resource_id)?.run_id,
+    summaryRun.run_id,
+  );
+  assert.equal(isActiveRun(summaryRun), true);
 });
 
 test("returns only a completed Vortex Knowledge Comment deep link", () => {
