@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from atlas.db.session import create_sqlite_session_factory
-from atlas.work.models import ProjectCreate, RunCreate, WorkflowRef
+from atlas.work.models import ProjectCreate, RunCancel, RunCreate, WorkflowRef
 from atlas.work.service import WorkService
 
 from .catalog import BUILTIN_WORKFLOWS
@@ -131,7 +131,15 @@ class WorkflowService:
         if statuses and all(status == "completed" for status in statuses):
             return self._repository.set_invocation_status(invocation_id, "completed", _now())
         if any(status in {"failed", "cancelled"} for status in statuses):
-            return self._repository.set_invocation_status(invocation_id, "failed", _now())
+            invocation = self._repository.set_invocation_status(invocation_id, "failed", _now())
+            for run_id in invocation.step_runs.values():
+                try:
+                    run = self._work.get_run(run_id)
+                    if run.status in ("blocked", "pending"):
+                        self._work.cancel(run_id, RunCancel())
+                except Exception:
+                    pass
+            return invocation
         return invocation
 
 
