@@ -117,6 +117,15 @@ def test_local_review_and_web_workflows_are_builtin(tmp_path: Path) -> None:
     }
 
     assert workflows[("web.summary", "1")]["steps"][0]["name"] == "summarize"
+    paper = workflows[("paper.preview", "1")]
+    assert [step["name"] for step in paper["steps"]] == ["acquire", "summarize"]
+    assert paper["steps"][0]["requirements"] == {
+        "node_ids": ["macsp"],
+        "executors": ["script"],
+        "node_labels": [],
+        "grants": [],
+    }
+    assert paper["steps"][1]["depends_on"] == ["acquire"]
     assert workflows[("vortex.comment", "1")]["steps"][0]["requirements"][
         "grants"
     ] == ["obsidian-vault:write"]

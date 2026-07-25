@@ -60,6 +60,35 @@ BUILTIN_WORKFLOWS = [
     ),
     WorkflowDefinitionCreate.model_validate(
         {
+            "name": "paper.preview",
+            "version": "1",
+            "project_id": "paper-discovery",
+            "description": (
+                "Acquire bounded scholarly metadata for one arXiv paper, then create an "
+                "explicitly abstract-based preview through a replaceable agent executor."
+            ),
+            "steps": [
+                {
+                    "name": "acquire",
+                    "requirements": {
+                        "node_ids": ["macsp"],
+                        "executors": ["script"],
+                    },
+                    "max_attempts": 3,
+                    "priority": 10,
+                },
+                {
+                    "name": "summarize",
+                    "depends_on": ["acquire"],
+                    "requirements": {"executors": ["pi"]},
+                    "max_attempts": 2,
+                    "priority": 10,
+                },
+            ],
+        }
+    ),
+    WorkflowDefinitionCreate.model_validate(
+        {
             "name": "web.summary",
             "version": "1",
             "project_id": "web-capture",

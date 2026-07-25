@@ -43,8 +43,10 @@ A Runner owns:
 An Executor owns runtime-specific behavior. Agent executors construct sessions and load skills;
 script executors start allowlisted programs. Neither kind defines Atlas domain state.
 
-Lumio owns Pi interaction, extensions, prompts, themes, capture entrypoints, and local UX. It does
-not poll for or execute Atlas work. AtlasRunner is the only node-local execution plane.
+Lumio owns Pi interaction, extensions, prompts, themes, browser capture UI, and local UX. It does
+not poll for or execute Atlas work. AtlasRunner is the only node-local execution plane, including
+the loopback ingress that turns a browser capture into a local Artifact and Atlas Workflow
+invocation.
 
 ## Placement and authorization
 
@@ -71,6 +73,8 @@ issued grant against a local allowlist before starting an executor.
   compatibility surfaces;
 - Bilibili, Web summary, Vortex comparison, comment setup/sync, and Resource purge use versioned
   Workflow references and AtlasRunner adapters;
+- the Chrome capture extension starts sending when its toolbar popup opens, while AtlasRunner owns
+  the credential-free loopback bridge and local extraction Artifact write;
 - Lumio registers only an interaction identity, advertises no local grants or legacy handlers, and
   never claims Runs.
 
