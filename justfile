@@ -52,5 +52,16 @@ health:
 
 deploy: ci build install-units restart health
 
+restart-runner:
+    launchctl unload ~/Library/LaunchAgents/org.nix-community.home.atlas-runner.plist 2>/dev/null || true
+    sleep 1
+    launchctl load ~/Library/LaunchAgents/org.nix-community.home.atlas-runner.plist
+    @echo "Runner restarted. Check: tail -f ~/.local/state/atlas-runner/runner.log"
+
+push-deploy:
+    git push origin main
+    ssh 100.100.10.3 "cd /home/wicsp/projects/Atlas && git pull && just build-console && just restart && just health"
+    @echo "Atlas deployed to amax."
+
 status:
     git status --short

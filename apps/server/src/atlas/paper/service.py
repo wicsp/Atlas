@@ -93,5 +93,7 @@ class PaperService:
                 and workflow_input.get("preview_resource_id") == preview_resource_id
                 and run.workflow_invocation_id
             ):
-                return self._workflows.get_invocation(run.workflow_invocation_id)
+                invocation = self._workflows.get_invocation(run.workflow_invocation_id)
+                if invocation is not None and invocation.status == "running":
+                    return invocation
         return None
