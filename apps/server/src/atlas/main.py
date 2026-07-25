@@ -38,8 +38,13 @@ from .dashboard import DashboardSnapshot, DashboardSnapshotCollector
 from .messages.models import MessageAck, MessageClaim, MessageCreate, MessageRecord
 from .messages.service import MessageService, MessageStateError, create_message_service
 from .network import NetworkConnectivity
-from .paper.models import PaperAcceptRequest, PaperAcceptResponse
-from .paper.service import PaperService, UnsupportedPaperAcceptError
+from .paper.models import (
+    PaperFulltextRequest,
+    PaperFulltextResponse,
+    PaperIngestRequest,
+    PaperIngestResponse,
+)
+from .paper.service import PaperService, UnsupportedPaperIngestError
 from .probes import ProbeHistorySummary, ProbeResult
 from .rate_limit import login_rate_limiter
 from .review.ignore import (
@@ -965,22 +970,46 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ) from exc
 
     @app.post(
-        "/api/paper-actions/accept",
-        response_model=PaperAcceptResponse,
+        "/api/paper/ingest",
+        response_model=PaperIngestResponse,
         dependencies=[Depends(require_control_auth)],
     )
-    async def accept_paper(
+    async def ingest_paper(
         request: Request,
-        payload: PaperAcceptRequest,
-    ) -> PaperAcceptResponse:
+        payload: PaperIngestRequest,
+    ) -> PaperIngestResponse:
         try:
-            return _paper_service(request).accept(payload.resource_id)
+            return _paper_service(request).ingest(payload.source_id)
         except KeyError as exc:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Paper Resource or Source not found",
+                detail="Paper Source not found",
             ) from exc
-        except UnsupportedPaperAcceptError as exc:
+        except UnsupportedPaperIngestError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
+            ) from exc
+
+    @app.post(
+        "/api/paper/fulltext",
+        response_model=PaperFulltextResponse,
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def fulltext_paper(
+        request: Request,
+        payload: PaperFulltextRequest,
+    ) -> PaperFulltextResponse:
+        try:
+            return _paper_service(request).fulltext(
+                payload.source_id, payload.preview_resource_id
+            )
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Paper Source not found",
+            ) from exc
+        except UnsupportedPaperIngestError as exc:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=str(exc),

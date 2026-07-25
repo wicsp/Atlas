@@ -221,7 +221,7 @@ export function isPaperPreview(resource: ResourceRecord): boolean {
   return (
     resource.kind === "summary"
     && resource.metadata.profile_id === "paper-preview-v1"
-    && resource.metadata.basis === "abstract"
+    && (resource.metadata.basis === "abstract" || resource.metadata.basis === "pdf-leading")
   );
 }
 
@@ -237,14 +237,14 @@ export function paperFulltextForPreview(
   );
 }
 
-export function paperAcceptRunForPreview(
+export function paperFulltextRunForPreview(
   runs: RunRecord[],
   previewResourceId: string,
 ): RunRecord | undefined {
   return runs.find((run) => {
     const workflowInput = run.input.workflow_input;
     return (
-      run.workflow?.name === "paper.accept"
+      run.workflow?.name === "paper.fulltext"
       && run.step_name === "summarize"
       && typeof workflowInput === "object"
       && workflowInput !== null

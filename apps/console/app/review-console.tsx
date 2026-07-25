@@ -6,7 +6,7 @@ import {
   isActiveRun,
   isPaperPreview,
   latestCommentRunsByResource,
-  paperAcceptRunForPreview,
+  paperFulltextRunForPreview,
   paperFulltextForPreview,
   type CommentRecord,
   type KnowledgeRefRecord,
@@ -45,7 +45,7 @@ interface WorkflowInvocation {
   step_runs: Record<string, string>;
 }
 
-interface PaperAcceptResponse {
+interface PaperFulltextResponse {
   invocation: WorkflowInvocation | null;
   reused: boolean;
   fulltext_resource: ResourceRecord | null;
@@ -244,7 +244,7 @@ export function ReviewConsole() {
           const run = nextRuns.find((candidate) => candidate.run_id === entry.runId)
             ?? latest[resourceId];
           if (!run || run.run_id !== entry.runId) continue;
-          if (run.workflow?.name === "paper.accept") {
+          if (run.workflow?.name === "paper.fulltext" || run.workflow?.name === "paper.ingest") {
             updated[resourceId] = {
               tone:
                 run.status === "completed"
@@ -633,13 +633,16 @@ export function ReviewConsole() {
       ...current,
       [resourceId]: {
         tone: "progress",
-        message: "正在安排 Zotero 导入与 PDF 全文总结…",
+        message: "正在安排 PDF 全文总结…",
       },
     }));
     try {
-      const result = await api<PaperAcceptResponse>("/api/paper-actions/accept", {
+      const result = await api<PaperFulltextResponse>("/api/paper/fulltext", {
         method: "POST",
-        body: JSON.stringify({ resource_id: resourceId }),
+        body: JSON.stringify({
+          source_id: resource.source_id,
+          preview_resource_id: resourceId,
+        }),
       });
       if (result.fulltext_resource) {
         setResources((current) => [
@@ -890,7 +893,7 @@ export function ReviewConsole() {
                     ? paperFulltextForPreview(group.resources, resource)
                     : undefined;
                   const paperRun = paperPreview
-                    ? paperAcceptRunForPreview(runs, resource.resource_id)
+                    ? paperFulltextRunForPreview(runs, resource.resource_id)
                     : undefined;
                   const activePaperRun = isActiveRun(paperRun);
                   const isBusy = busyResources.has(resource.resource_id);
@@ -1033,7 +1036,7 @@ export function ReviewConsole() {
                                 ? "查看 PDF 全文总结"
                                 : activePaperRun
                                   ? "正在处理 PDF"
-                                  : "加入 Zotero 并总结全文"}
+                                  : "总结全文"}
                             </button>
                           ) : null}
                           {resource.review_status !== "dismissed" && comment ? (

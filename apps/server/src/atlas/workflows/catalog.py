@@ -60,41 +60,44 @@ BUILTIN_WORKFLOWS = [
     ),
     WorkflowDefinitionCreate.model_validate(
         {
-            "name": "paper.preview",
+            "name": "paper.ingest",
             "version": "1",
-            "project_id": "paper-discovery",
+            "project_id": "paper-library",
             "description": (
-                "Acquire bounded scholarly metadata for one arXiv paper, then create an "
-                "explicitly abstract-based preview through a replaceable agent executor."
+                "Import one paper into the local Zotero library, extract abstract "
+                "(or PDF leading text if abstract is unavailable), and publish a "
+                "paper-preview-v1 summary resource."
             ),
             "steps": [
                 {
-                    "name": "acquire",
+                    "name": "ingest",
                     "requirements": {
                         "node_ids": ["macsp"],
                         "executors": ["script"],
+                        "grants": ["zotero-library:write", "zotero-library:read"],
                     },
                     "max_attempts": 3,
-                    "priority": 10,
+                    "priority": 20,
                 },
                 {
                     "name": "summarize",
-                    "depends_on": ["acquire"],
+                    "depends_on": ["ingest"],
                     "requirements": {"executors": ["pi"]},
                     "max_attempts": 2,
-                    "priority": 10,
+                    "priority": 20,
                 },
             ],
         }
     ),
     WorkflowDefinitionCreate.model_validate(
         {
-            "name": "paper.accept",
+            "name": "paper.fulltext",
             "version": "1",
             "project_id": "paper-library",
             "description": (
-                "Accept one abstract-previewed paper into the local Zotero library, "
-                "read Zotero-indexed PDF text, and publish a full-text summary."
+                "Read Zotero-indexed PDF text for an ingested paper (importing to "
+                "Zotero first when the paper arrived via a fallback path), and publish "
+                "a full-text summary resource."
             ),
             "steps": [
                 {
@@ -105,7 +108,7 @@ BUILTIN_WORKFLOWS = [
                         "grants": ["zotero-library:write"],
                     },
                     "max_attempts": 3,
-                    "priority": 20,
+                    "priority": 25,
                 },
                 {
                     "name": "extract",
@@ -116,14 +119,14 @@ BUILTIN_WORKFLOWS = [
                         "grants": ["zotero-library:read"],
                     },
                     "max_attempts": 3,
-                    "priority": 20,
+                    "priority": 25,
                 },
                 {
                     "name": "summarize",
                     "depends_on": ["extract"],
                     "requirements": {"executors": ["pi"]},
                     "max_attempts": 2,
-                    "priority": 20,
+                    "priority": 25,
                 },
             ],
         }

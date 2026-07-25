@@ -282,20 +282,32 @@ def test_source_upsert_is_stable_and_enriches_metadata(control_client: TestClien
     assert len(response.json()) == 1
 
 
-def test_paper_accept_enqueues_fixed_workflow_and_reuses_active_invocation(
+def test_paper_ingest_enqueues_workflow_and_reuses_active_invocation(
     control_client: TestClient,
     scoped_client: TestClient,
     dashboard_client: TestClient,
 ) -> None:
-    source, resource_id = _publish_paper_preview(control_client, scoped_client)
+    source_response = control_client.post(
+        "/api/sources",
+        json={
+            "source_key": "arxiv:2607.01234",
+            "kind": "paper",
+            "canonical_uri": "https://arxiv.org/abs/2607.01234",
+            "title": "A Useful Paper",
+            "external_ids": {"arxiv_id": "2607.01234"},
+            "metadata": {"captured_via": "test"},
+        },
+    )
+    assert source_response.status_code == 200, source_response.text
+    source = source_response.json()
 
     first = dashboard_client.post(
-        "/api/paper-actions/accept",
-        json={"resource_id": resource_id},
+        "/api/paper/ingest",
+        json={"source_id": source["source_id"]},
     )
     replay = dashboard_client.post(
-        "/api/paper-actions/accept",
-        json={"resource_id": resource_id},
+        "/api/paper/ingest",
+        json={"source_id": source["source_id"]},
     )
 
     assert first.status_code == 200, first.text
@@ -306,30 +318,37 @@ def test_paper_accept_enqueues_fixed_workflow_and_reuses_active_invocation(
         first.json()["invocation"]["invocation_id"]
     )
     invocation = first.json()["invocation"]
-    assert invocation["workflow_name"] == "paper.accept"
+    assert invocation["workflow_name"] == "paper.ingest"
     assert invocation["workflow_version"] == "1"
     assert invocation["input"] == {
         "source_id": source["source_id"],
-        "preview_resource_id": resource_id,
         "arxiv_id": "2607.01234",
         "canonical_uri": "https://arxiv.org/abs/2607.01234",
     }
 
 
-def test_paper_accept_rejects_non_preview_summary(
+def test_paper_ingest_rejects_non_paper_source(
     control_client: TestClient,
-    scoped_client: TestClient,
     dashboard_client: TestClient,
 ) -> None:
-    _, publication = _publish_content(control_client, scoped_client)
+    source_response = control_client.post(
+        "/api/sources",
+        json={
+            "source_key": "https://example.com/video",
+            "kind": "video",
+            "canonical_uri": "https://example.com/video",
+            "title": "A Video",
+        },
+    )
+    assert source_response.status_code == 200
+    source = source_response.json()
 
     response = dashboard_client.post(
-        "/api/paper-actions/accept",
-        json={"resource_id": publication["resources"][1]["resource_id"]},
+        "/api/paper/ingest",
+        json={"source_id": source["source_id"]},
     )
 
     assert response.status_code == 409
-    assert "paper-preview-v1" in response.json()["detail"]
 
 
 def test_content_endpoints_require_control_auth(atlas_app: FastAPI) -> None:

@@ -117,16 +117,16 @@ def test_local_review_and_web_workflows_are_builtin(tmp_path: Path) -> None:
     }
 
     assert workflows[("web.summary", "1")]["steps"][0]["name"] == "summarize"
-    paper = workflows[("paper.preview", "1")]
-    assert [step["name"] for step in paper["steps"]] == ["acquire", "summarize"]
+    paper = workflows[("paper.ingest", "1")]
+    assert [step["name"] for step in paper["steps"]] == ["ingest", "summarize"]
     assert paper["steps"][0]["requirements"] == {
         "node_ids": ["macsp"],
         "executors": ["script"],
         "node_labels": [],
-        "grants": [],
+        "grants": ["zotero-library:write", "zotero-library:read"],
     }
-    assert paper["steps"][1]["depends_on"] == ["acquire"]
-    accepted = workflows[("paper.accept", "1")]
+    assert paper["steps"][1]["depends_on"] == ["ingest"]
+    accepted = workflows[("paper.fulltext", "1")]
     assert [step["name"] for step in accepted["steps"]] == [
         "zotero_import",
         "extract",
