@@ -1046,18 +1046,17 @@ export function ReviewConsole() {
 
                         <div className="resource-actions">
                           {source ? (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                // Open source first — PiP requestWindow() consumes the user
-                                // gesture, which would otherwise block window.open().
-                                window.open(source.canonical_uri, "_blank", "noopener,noreferrer");
+                            <a
+                              href={source.canonical_uri}
+                              target="_blank"
+                              rel="noreferrer"
+                              onClick={(e) => {
                                 const draft = commentDrafts[resource.resource_id] ?? "";
                                 void openPip(resource.resource_id, resource.title, draft);
                               }}
                             >
                               原始材料
-                            </button>
+                            </a>
                           ) : null}
                           <button
                             className="comment-button"
