@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePictureInPictureComment } from "./use-pip-comment";
 import {
   groupResourcesBySource,
   isActiveRun,
@@ -204,6 +205,8 @@ export function ReviewConsole() {
   const [documentErrors, setDocumentErrors] = useState<Record<string, string>>({});
   const [loadingDocuments, setLoadingDocuments] = useState<Set<string>>(new Set());
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
+  const { openPip, pip, closePip } = usePictureInPictureComment();
+  const saveCommentRef = useRef<(resourceId: string, body?: string) => Promise<void>>(async () => {});
 
   const loadReviewData = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
@@ -346,6 +349,34 @@ export function ReviewConsole() {
     }, ACTIVE_RUN_POLL_INTERVAL_MS);
     return () => window.clearInterval(interval);
   }, [auth, hasActiveRuns, loadReviewData]);
+
+  // BroadcastChannel listener for PiP comment window messages
+  useEffect(() => {
+    const channel = new BroadcastChannel("atlas-pip-comment");
+    const handler = (event: MessageEvent) => {
+      const { type, resourceId, text } = event.data ?? {};
+      if (!resourceId) return;
+      if (type === "draft") {
+        setCommentDrafts((current) => ({ ...current, [resourceId]: text }));
+      } else if (type === "save") {
+        setCommentDrafts((current) => ({ ...current, [resourceId]: text }));
+        saveCommentRef.current(resourceId, text).then(
+          () => channel.postMessage({ type: "saved", resourceId }),
+          (error: unknown) =>
+            channel.postMessage({
+              type: "save-error",
+              resourceId,
+              message: errorMessage(error),
+            }),
+        );
+      }
+    };
+    channel.addEventListener("message", handler);
+    return () => {
+      channel.removeEventListener("message", handler);
+      channel.close();
+    };
+  }, []);
 
   const knowledgeByResource = useMemo(() => {
     const index = new Map<string, KnowledgeRefRecord>();
@@ -538,8 +569,8 @@ export function ReviewConsole() {
     }
   }
 
-  async function saveComment(resourceId: string) {
-    const body = commentDrafts[resourceId] ?? "";
+  async function saveComment(resourceId: string, bodyOverride?: string) {
+    const body = bodyOverride ?? commentDrafts[resourceId] ?? "";
     if (!body.trim()) {
       setFeedback((current) => ({
         ...current,
@@ -590,6 +621,9 @@ export function ReviewConsole() {
       setResourceBusy(resourceId, false);
     }
   }
+
+  // Keep the ref current so the BroadcastChannel handler always calls the latest version.
+  saveCommentRef.current = saveComment;
 
   async function requestComparison(resourceId: string) {
     setResourceBusy(resourceId, true);
@@ -1012,9 +1046,16 @@ export function ReviewConsole() {
 
                         <div className="resource-actions">
                           {source ? (
-                            <a href={source.canonical_uri} target="_blank" rel="noreferrer">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const draft = commentDrafts[resource.resource_id] ?? "";
+                                void openPip(resource.resource_id, resource.title, draft);
+                                window.open(source.canonical_uri, "_blank", "noopener,noreferrer");
+                              }}
+                            >
                               原始材料
-                            </a>
+                            </button>
                           ) : null}
                           <button
                             className="comment-button"
