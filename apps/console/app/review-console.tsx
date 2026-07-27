@@ -1049,9 +1049,11 @@ export function ReviewConsole() {
                             <button
                               type="button"
                               onClick={() => {
+                                // Open source first — PiP requestWindow() consumes the user
+                                // gesture, which would otherwise block window.open().
+                                window.open(source.canonical_uri, "_blank", "noopener,noreferrer");
                                 const draft = commentDrafts[resource.resource_id] ?? "";
                                 void openPip(resource.resource_id, resource.title, draft);
-                                window.open(source.canonical_uri, "_blank", "noopener,noreferrer");
                               }}
                             >
                               原始材料
