@@ -1,3 +1,7 @@
+{
+	auto_https disable_redirects
+}
+
 https://100.100.10.3:8787 {
 	bind 100.100.10.3
 	tls internal
