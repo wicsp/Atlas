@@ -378,6 +378,21 @@ export function ReviewConsole() {
     };
   }, []);
 
+  // Auto-close PiP when the source-material tab is closed.
+  useEffect(() => {
+    if (!pip) return;
+    const sourceWinName = `atlas-src-${pip.resourceId}`;
+    const interval = window.setInterval(() => {
+      // window.open('', name) returns a ref to an existing named window
+      // without consuming a user gesture.
+      const sourceWin = window.open("", sourceWinName);
+      if (!sourceWin || sourceWin.closed) {
+        closePip();
+      }
+    }, 800);
+    return () => window.clearInterval(interval);
+  }, [pip, closePip]);
+
   const knowledgeByResource = useMemo(() => {
     const index = new Map<string, KnowledgeRefRecord>();
     for (const reference of knowledgeRefs) {
@@ -1048,9 +1063,9 @@ export function ReviewConsole() {
                           {source ? (
                             <a
                               href={source.canonical_uri}
-                              target="_blank"
+                              target={`atlas-src-${resource.resource_id}`}
                               rel="noreferrer"
-                              onClick={(e) => {
+                              onClick={() => {
                                 const draft = commentDrafts[resource.resource_id] ?? "";
                                 void openPip(resource.resource_id, resource.title, draft);
                               }}
