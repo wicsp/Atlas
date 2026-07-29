@@ -52,6 +52,31 @@ interface PaperFulltextResponse {
   fulltext_resource: ResourceRecord | null;
 }
 
+interface PaperLibraryRecord {
+  source: SourceRecord;
+  tags: string[];
+  categories: string[];
+  citation_source_ids: string[];
+  summary_resource_ids: string[];
+  summary_excerpt: string | null;
+}
+
+interface PaperMetadataDraft {
+  tags: string;
+  categories: string;
+  citations: string;
+}
+
+interface PaperComparisonResponse {
+  papers: PaperLibraryRecord[];
+  shared_tags: string[];
+  shared_categories: string[];
+  citation_edges: Array<{
+    citing_source_id: string;
+    cited_source_id: string;
+  }>;
+}
+
 interface CommentCompleteResponse {
   resource: ResourceRecord;
   knowledge_ref: KnowledgeRefRecord;
@@ -182,6 +207,17 @@ function errorMessage(error: unknown): string {
   return "发生了未知错误";
 }
 
+function commaSeparated(value: string): string[] {
+  return Array.from(
+    new Set(
+      value
+        .split(/[,，\n]/)
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
 export function ReviewConsole() {
   const [auth, setAuth] = useState<AuthState>("checking");
   const [password, setPassword] = useState("");
@@ -196,6 +232,15 @@ export function ReviewConsole() {
   const [runs, setRuns] = useState<RunRecord[]>([]);
   const [runners, setRunners] = useState<RunnerRecord[]>([]);
   const [recentRuns, setRecentRuns] = useState<RunRecord[]>([]);
+  const [paperLibrary, setPaperLibrary] = useState<PaperLibraryRecord[]>([]);
+  const [paperQuery, setPaperQuery] = useState("");
+  const [paperTag, setPaperTag] = useState("");
+  const [paperCategory, setPaperCategory] = useState("");
+  const [paperLibraryBusy, setPaperLibraryBusy] = useState(false);
+  const [paperDrafts, setPaperDrafts] = useState<Record<string, PaperMetadataDraft>>({});
+  const [selectedPaperIds, setSelectedPaperIds] = useState<Set<string>>(new Set());
+  const [paperComparison, setPaperComparison] = useState<PaperComparisonResponse | null>(null);
+  const [paperLibraryMessage, setPaperLibraryMessage] = useState("");
   const [filter, setFilter] = useState<Filter>("pending");
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState("");
@@ -222,6 +267,7 @@ export function ReviewConsole() {
         paperRuns,
         nextRunners,
         nextRecentRuns,
+        nextPaperLibrary,
       ] =
         await Promise.all([
           api<SourceRecord[]>("/api/sources?limit=500"),
@@ -233,6 +279,7 @@ export function ReviewConsole() {
           api<RunRecord[]>("/api/runs?project_id=paper-library&limit=500"),
           api<RunnerRecord[]>("/api/runners"),
           api<RunRecord[]>("/api/runs?limit=100"),
+          api<PaperLibraryRecord[]>("/api/papers?limit=20"),
         ]);
       const nextRuns = [...reviewRuns, ...paperRuns];
       setSources(nextSources);
@@ -243,6 +290,18 @@ export function ReviewConsole() {
       setRuns(nextRuns);
       setRunners(nextRunners);
       setRecentRuns(nextRecentRuns);
+      setPaperLibrary(nextPaperLibrary);
+      setPaperDrafts((current) => {
+        const updated = { ...current };
+        for (const paper of nextPaperLibrary) {
+          updated[paper.source.source_id] ??= {
+            tags: paper.tags.join(", "),
+            categories: paper.categories.join(", "),
+            citations: paper.citation_source_ids.join(", "),
+          };
+        }
+        return updated;
+      });
       setLastUpdated(new Date());
 
       const latest = latestCommentRunsByResource(nextRuns);
@@ -448,6 +507,10 @@ export function ReviewConsole() {
     setRuns([]);
     setRunners([]);
     setRecentRuns([]);
+    setPaperLibrary([]);
+    setPaperDrafts({});
+    setSelectedPaperIds(new Set());
+    setPaperComparison(null);
   }
 
   function setResourceBusy(resourceId: string, value: boolean) {
@@ -702,6 +765,78 @@ export function ReviewConsole() {
     }
   }
 
+  async function searchPapers(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPaperLibraryBusy(true);
+    setPaperLibraryMessage("");
+    try {
+      const params = new URLSearchParams({ limit: "100" });
+      if (paperQuery.trim()) params.set("q", paperQuery.trim());
+      if (paperTag.trim()) params.set("tag", paperTag.trim());
+      if (paperCategory.trim()) params.set("category", paperCategory.trim());
+      const records = await api<PaperLibraryRecord[]>(`/api/papers?${params.toString()}`);
+      setPaperLibrary(records);
+      setPaperLibraryMessage(`找到 ${records.length} 篇论文。`);
+    } catch (error) {
+      setPaperLibraryMessage(errorMessage(error));
+    } finally {
+      setPaperLibraryBusy(false);
+    }
+  }
+
+  async function savePaperMetadata(sourceId: string) {
+    const draft = paperDrafts[sourceId] ?? { tags: "", categories: "", citations: "" };
+    setPaperLibraryBusy(true);
+    setPaperLibraryMessage("");
+    try {
+      const updated = await api<PaperLibraryRecord>(
+        `/api/papers/${encodeURIComponent(sourceId)}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            tags: commaSeparated(draft.tags),
+            categories: commaSeparated(draft.categories),
+            citation_source_ids: commaSeparated(draft.citations),
+          }),
+        },
+      );
+      setPaperLibrary((current) => current.map((paper) =>
+        paper.source.source_id === sourceId ? updated : paper
+      ));
+      setPaperLibraryMessage(`已保存「${updated.source.title ?? sourceId}」的论文元数据。`);
+    } catch (error) {
+      setPaperLibraryMessage(errorMessage(error));
+    } finally {
+      setPaperLibraryBusy(false);
+    }
+  }
+
+  function togglePaperSelection(sourceId: string) {
+    setSelectedPaperIds((current) => {
+      const next = new Set(current);
+      if (next.has(sourceId)) next.delete(sourceId);
+      else if (next.size < 8) next.add(sourceId);
+      return next;
+    });
+  }
+
+  async function compareSelectedPapers() {
+    setPaperLibraryBusy(true);
+    setPaperLibraryMessage("");
+    try {
+      const comparison = await api<PaperComparisonResponse>("/api/papers/compare", {
+        method: "POST",
+        body: JSON.stringify({ source_ids: [...selectedPaperIds] }),
+      });
+      setPaperComparison(comparison);
+      setPaperLibraryMessage(`已生成 ${comparison.papers.length} 篇论文的确定性对比视图。`);
+    } catch (error) {
+      setPaperLibraryMessage(errorMessage(error));
+    } finally {
+      setPaperLibraryBusy(false);
+    }
+  }
+
   if (auth === "checking") {
     return (
       <main className="center-stage" aria-live="polite">
@@ -815,6 +950,136 @@ export function ReviewConsole() {
           <strong>Atlas</strong>
           <small>Resource 内容</small>
         </div>
+      </section>
+
+      <section className="paper-library" aria-label="论文库">
+        <header>
+          <div>
+            <p className="eyebrow">PAPER LIBRARY</p>
+            <h2>检索、组织与对比论文</h2>
+          </div>
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={paperLibraryBusy || selectedPaperIds.size < 2}
+            onClick={() => void compareSelectedPapers()}
+          >
+            对比已选 {selectedPaperIds.size > 0 ? `(${selectedPaperIds.size})` : ""}
+          </button>
+        </header>
+        <form className="paper-search" onSubmit={searchPapers}>
+          <input
+            aria-label="论文全文搜索"
+            placeholder="标题、arXiv、标签或 Atlas 摘要"
+            value={paperQuery}
+            onChange={(event) => setPaperQuery(event.target.value)}
+          />
+          <input
+            aria-label="论文标签"
+            placeholder="标签"
+            value={paperTag}
+            onChange={(event) => setPaperTag(event.target.value)}
+          />
+          <input
+            aria-label="论文分类"
+            placeholder="分类"
+            value={paperCategory}
+            onChange={(event) => setPaperCategory(event.target.value)}
+          />
+          <button className="primary-button" type="submit" disabled={paperLibraryBusy}>
+            {paperLibraryBusy ? "处理中…" : "搜索"}
+          </button>
+        </form>
+        {paperLibraryMessage ? <p className="paper-library-message">{paperLibraryMessage}</p> : null}
+        <div className="paper-results">
+          {paperLibrary.map((paper) => {
+            const sourceId = paper.source.source_id;
+            const draft = paperDrafts[sourceId] ?? {
+              tags: paper.tags.join(", "),
+              categories: paper.categories.join(", "),
+              citations: paper.citation_source_ids.join(", "),
+            };
+            return (
+              <article key={sourceId} className="paper-result">
+                <label className="paper-select">
+                  <input
+                    type="checkbox"
+                    checked={selectedPaperIds.has(sourceId)}
+                    onChange={() => togglePaperSelection(sourceId)}
+                  />
+                  <span>选择对比</span>
+                </label>
+                <h3>{paper.source.title ?? sourceId}</h3>
+                <code>{shortId(sourceId)}</code>
+                {paper.summary_excerpt ? <p>{paper.summary_excerpt.slice(0, 240)}</p> : null}
+                <div className="paper-fields">
+                  <label>
+                    标签
+                    <input
+                      value={draft.tags}
+                      placeholder="agent, safety"
+                      onChange={(event) => setPaperDrafts((current) => ({
+                        ...current,
+                        [sourceId]: { ...draft, tags: event.target.value },
+                      }))}
+                    />
+                  </label>
+                  <label>
+                    分类
+                    <input
+                      value={draft.categories}
+                      placeholder="安全, 评测"
+                      onChange={(event) => setPaperDrafts((current) => ({
+                        ...current,
+                        [sourceId]: { ...draft, categories: event.target.value },
+                      }))}
+                    />
+                  </label>
+                  <label>
+                    引用 Source
+                    <input
+                      value={draft.citations}
+                      placeholder="src_…，多个用逗号分隔"
+                      onChange={(event) => setPaperDrafts((current) => ({
+                        ...current,
+                        [sourceId]: { ...draft, citations: event.target.value },
+                      }))}
+                    />
+                  </label>
+                </div>
+                <div className="paper-result-actions">
+                  <a href={paper.source.canonical_uri} target="_blank" rel="noreferrer">打开论文</a>
+                  <button
+                    type="button"
+                    disabled={paperLibraryBusy}
+                    onClick={() => void savePaperMetadata(sourceId)}
+                  >
+                    保存组织信息
+                  </button>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+        {paperComparison ? (
+          <section className="paper-comparison">
+            <h3>多论文对比</h3>
+            <p>
+              共同标签：{paperComparison.shared_tags.join("、") || "无"} ·
+              共同分类：{paperComparison.shared_categories.join("、") || "无"} ·
+              选中论文间引用：{paperComparison.citation_edges.length}
+            </p>
+            <div>
+              {paperComparison.papers.map((paper) => (
+                <article key={paper.source.source_id}>
+                  <strong>{paper.source.title ?? paper.source.source_id}</strong>
+                  <small>{paper.tags.join(" · ") || "未标记"}</small>
+                  <p>{paper.summary_excerpt?.slice(0, 500) || "暂无 Atlas 摘要"}</p>
+                </article>
+              ))}
+            </div>
+          </section>
+        ) : null}
       </section>
 
       <section className="review-toolbar" aria-label="Resource 过滤与刷新">

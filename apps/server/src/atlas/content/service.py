@@ -14,6 +14,7 @@ from .models import (
     ResourceReviewUpdate,
     ReviewStatus,
     SourceRecord,
+    SourceUpdate,
     SourceUpsert,
 )
 from .repository import ContentRepository
@@ -28,6 +29,9 @@ class ContentService:
 
     def get_source(self, source_id: str) -> SourceRecord:
         return self._repository.get_source(source_id)
+
+    def update_source(self, payload: SourceUpdate) -> SourceRecord:
+        return self._repository.update_source(payload, _now())
 
     def list_sources(self, kind: str | None = None, limit: int = 100) -> list[SourceRecord]:
         return self._repository.list_sources(kind=kind, limit=limit)

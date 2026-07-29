@@ -39,10 +39,14 @@ from .messages.models import MessageAck, MessageClaim, MessageCreate, MessageRec
 from .messages.service import MessageService, MessageStateError, create_message_service
 from .network import NetworkConnectivity
 from .paper.models import (
+    PaperComparisonRequest,
+    PaperComparisonResponse,
     PaperFulltextRequest,
     PaperFulltextResponse,
     PaperIngestRequest,
     PaperIngestResponse,
+    PaperLibraryRecord,
+    PaperLibraryUpdate,
 )
 from .paper.service import PaperService, UnsupportedPaperIngestError
 from .probes import ProbeHistorySummary, ProbeResult
@@ -325,19 +329,31 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     collector = getattr(app.state, "sub2api_collector", None)
     dashboard_collector = getattr(app.state, "dashboard_collector", None)
     schedule_coordinator = getattr(app.state, "schedule_coordinator", None)
+    work_service = getattr(app.state, "work_service", None)
     workflow_service = getattr(app.state, "workflow_service", None)
-    if workflow_service is None:
+    if work_service is None:
         settings: Settings = app.state.settings
         work_service = create_work_service(
             settings.work.database_path,
             settings.work.lease_ttl_seconds,
         )
         app.state.work_service = work_service
+    if workflow_service is None:
         workflow_service = create_workflow_service(
-            settings.work.database_path,
+            app.state.settings.work.database_path,
             work_service,
         )
         app.state.workflow_service = workflow_service
+    agent_service = getattr(app.state, "agent_service", None)
+    if agent_service is None:
+        settings = app.state.settings
+        agent_service = create_agent_service(
+            settings.agents.database_path,
+            settings.agents.heartbeat_ttl_seconds,
+        )
+        app.state.agent_service = agent_service
+    agent_service.archive_stale_runners()
+    work_service.archive_orphaned_legacy_artifacts()
     workflow_service.reconcile_running_invocations()
     if collector is not None:
         collector.start()
@@ -1018,6 +1034,75 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return _paper_service(request).fulltext(
                 payload.source_id, payload.preview_resource_id
             )
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Paper Source not found",
+            ) from exc
+        except UnsupportedPaperIngestError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
+            ) from exc
+
+    @app.get(
+        "/api/papers",
+        response_model=list[PaperLibraryRecord],
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def search_papers(
+        request: Request,
+        q: str | None = Query(default=None, max_length=200),
+        tag: str | None = Query(default=None, max_length=64),
+        category: str | None = Query(default=None, max_length=64),
+        limit: int = Query(default=100, ge=1, le=500),
+    ) -> list[PaperLibraryRecord]:
+        return _paper_service(request).search_library(
+            query=q,
+            tag=tag,
+            category=category,
+            limit=limit,
+        )
+
+    @app.patch(
+        "/api/papers/{source_id}",
+        response_model=PaperLibraryRecord,
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def update_paper_library(
+        request: Request,
+        source_id: str,
+        payload: PaperLibraryUpdate,
+    ) -> PaperLibraryRecord:
+        try:
+            return _paper_service(request).update_library(source_id, payload)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Paper Source not found",
+            ) from exc
+        except UnsupportedPaperIngestError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=str(exc),
+            ) from exc
+
+    @app.post(
+        "/api/papers/compare",
+        response_model=PaperComparisonResponse,
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def compare_papers(
+        request: Request,
+        payload: PaperComparisonRequest,
+    ) -> PaperComparisonResponse:
+        try:
+            return _paper_service(request).compare_library(payload.source_ids)
         except KeyError as exc:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

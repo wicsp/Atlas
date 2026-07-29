@@ -128,6 +128,15 @@ class ContentRepository:
                 raise KeyError(source_id)
             return _to_source(row)
 
+    def update_source(self, payload: SourceUpdate, now: datetime) -> SourceRecord:
+        with self._session_factory() as session, session.begin():
+            apply_source_updates(session, [payload], now)
+            row = session.get(SourceRow, payload.source_id)
+            if row is None:
+                raise KeyError(payload.source_id)
+            session.flush()
+            return _to_source(row)
+
     def list_sources(self, kind: str | None = None, limit: int = 100) -> list[SourceRecord]:
         with self._session_factory() as session:
             stmt = select(SourceRow).order_by(SourceRow.created_at.desc()).limit(limit)

@@ -11,7 +11,7 @@ from sqlalchemy import Integer, String, Text, select, update
 from sqlalchemy.orm import Mapped, Session, mapped_column, sessionmaker
 
 from atlas.content.models import ResourceCreate, SourceUpdate
-from atlas.content.repository import apply_source_updates, publish_resources
+from atlas.content.repository import ResourceRow, apply_source_updates, publish_resources
 from atlas.db.base import Base
 
 from .models import (
@@ -92,6 +92,15 @@ class ArtifactContentRow(Base):
     content: Mapped[str] = mapped_column(Text)
     created_at: Mapped[str] = mapped_column(String(64))
     updated_at: Mapped[str] = mapped_column(String(64))
+
+
+class ArtifactArchiveRow(Base):
+    __tablename__ = "artifact_archives"
+
+    artifact_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    reason: Mapped[str] = mapped_column(String(128))
+    manifest_json: Mapped[str] = mapped_column(Text)
+    archived_at: Mapped[str] = mapped_column(String(64))
 
 
 class IdempotencyRow(Base):
@@ -827,6 +836,41 @@ class WorkRepository:
                 .order_by(ArtifactRow.created_at)
             ).all()
             return [_to_artifact(row) for row in rows]
+
+    def archive_orphaned_legacy_artifacts(self, now: datetime) -> int:
+        archived_count = 0
+        with self._session_factory() as session, session.begin():
+            archived_ids = set(session.scalars(select(ArtifactArchiveRow.artifact_id)).all())
+            rows = session.scalars(
+                select(ArtifactRow)
+                .outerjoin(ResourceRow, ResourceRow.artifact_id == ArtifactRow.artifact_id)
+                .where(ResourceRow.artifact_id.is_(None))
+                .where(ArtifactRow.uri.like("file://%"))
+            ).all()
+            for row in rows:
+                if row.artifact_id in archived_ids:
+                    continue
+                session.add(
+                    ArtifactArchiveRow(
+                        artifact_id=row.artifact_id,
+                        reason="legacy-local-manifest-without-resource",
+                        manifest_json=_dump_json(_to_artifact(row).model_dump(mode="json")),
+                        archived_at=now.isoformat(),
+                    )
+                )
+                archived_count += 1
+        return archived_count
+
+    def list_archived_artifact_ids(self) -> list[str]:
+        with self._session_factory() as session:
+            return list(
+                session.scalars(
+                    select(ArtifactArchiveRow.artifact_id).order_by(
+                        ArtifactArchiveRow.archived_at,
+                        ArtifactArchiveRow.artifact_id,
+                    )
+                ).all()
+            )
 
     def get_artifact_content(self, artifact_id: str) -> ArtifactContentRecord:
         with self._session_factory() as session:

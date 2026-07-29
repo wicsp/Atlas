@@ -1,7 +1,12 @@
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from atlas.agents.models import AgentRegistration
+from atlas.agents.models import (
+    AgentRegistration,
+    ExecutorDescriptor,
+    NodeDescriptor,
+    RunnerRegistration,
+)
 from atlas.agents.service import create_agent_service
 
 
@@ -91,6 +96,34 @@ def test_heartbeat_unknown_agent_raises_not_found(tmp_path: Path) -> None:
         assert exc.args == ("missing-agent",)
     else:
         raise AssertionError("Expected missing heartbeat target to raise KeyError")
+
+
+def test_archives_stale_ephemeral_lumio_runners_and_restores_on_registration(
+    tmp_path: Path,
+) -> None:
+    service = make_service(tmp_path, heartbeat_ttl_seconds=60)
+    registered_at = datetime(2026, 7, 6, 9, 0, tzinfo=UTC)
+    registration = RunnerRegistration(
+        runner_id="macsp.lumio.session-one",
+        name="Lumio session",
+        node=NodeDescriptor(node_id="macsp"),
+        executors=[ExecutorDescriptor(name="pi", kind="agent")],
+        metadata={"distribution": "lumio"},
+    )
+    service.register_runner(registration, now=registered_at)
+
+    assert service.archive_stale_runners(
+        now=registered_at + timedelta(seconds=61)
+    ) == 1
+    assert service.list_runners(now=registered_at + timedelta(seconds=61)) == []
+    assert [agent.agent_id for agent in service.list_agents()] == [
+        "macsp.lumio.session-one"
+    ]
+
+    service.register_runner(registration, now=registered_at + timedelta(seconds=62))
+    assert [runner.runner_id for runner in service.list_runners()] == [
+        "macsp.lumio.session-one"
+    ]
 
 
 def test_v3_registration_derives_opaque_identity_from_separate_fields(tmp_path: Path) -> None:

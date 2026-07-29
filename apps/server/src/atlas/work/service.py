@@ -151,6 +151,12 @@ class WorkService:
     def list_artifacts(self, run_id: str) -> list[ArtifactRef]:
         return self._repository.list_artifacts(run_id)
 
+    def archive_orphaned_legacy_artifacts(self) -> int:
+        return self._repository.archive_orphaned_legacy_artifacts(_now())
+
+    def list_archived_artifact_ids(self) -> list[str]:
+        return self._repository.list_archived_artifact_ids()
+
     def get_artifact_content(self, artifact_id: str) -> ArtifactContentRecord:
         return self._repository.get_artifact_content(artifact_id)
 

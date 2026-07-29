@@ -1,12 +1,21 @@
 from __future__ import annotations
 
-from atlas.content.models import ResourceRecord, ResourceReviewUpdate
+import json
+
+from atlas.content.models import ResourceRecord, ResourceReviewUpdate, SourceRecord, SourceUpdate
 from atlas.content.service import ContentService
 from atlas.work.service import WorkService
 from atlas.workflows.models import WorkflowInvocationCreate
 from atlas.workflows.service import WorkflowService
 
-from .models import PaperFulltextResponse, PaperIngestResponse
+from .models import (
+    PaperCitationEdge,
+    PaperComparisonResponse,
+    PaperFulltextResponse,
+    PaperIngestResponse,
+    PaperLibraryRecord,
+    PaperLibraryUpdate,
+)
 
 PAPER_LIBRARY_PROJECT_ID = "paper-library"
 PREVIEW_PROFILE_ID = "paper-preview-v1"
@@ -111,6 +120,119 @@ class PaperService:
         )
         return PaperFulltextResponse(invocation=invocation, reused=False)
 
+    def update_library(
+        self,
+        source_id: str,
+        payload: PaperLibraryUpdate,
+    ) -> PaperLibraryRecord:
+        source = self._paper_source(source_id)
+        if source_id in payload.citation_source_ids:
+            raise ValueError("a paper cannot cite itself")
+        for cited_source_id in payload.citation_source_ids:
+            self._paper_source(cited_source_id)
+        source = self._content.update_source(
+            SourceUpdate(
+                source_id=source_id,
+                metadata={
+                    "paper_tags": payload.tags,
+                    "paper_categories": payload.categories,
+                    "paper_citation_source_ids": payload.citation_source_ids,
+                },
+            )
+        )
+        return self._library_record(source)
+
+    def search_library(
+        self,
+        query: str | None = None,
+        tag: str | None = None,
+        category: str | None = None,
+        limit: int = 100,
+    ) -> list[PaperLibraryRecord]:
+        query_text = (query or "").strip().casefold()
+        tag_text = (tag or "").strip().casefold()
+        category_text = (category or "").strip().casefold()
+        matches: list[PaperLibraryRecord] = []
+        for source in self._content.list_sources(kind="paper", limit=500):
+            record = self._library_record(source)
+            if tag_text and tag_text not in {item.casefold() for item in record.tags}:
+                continue
+            if category_text and category_text not in {
+                item.casefold() for item in record.categories
+            }:
+                continue
+            haystack = " ".join(
+                [
+                    source.title or "",
+                    source.canonical_uri,
+                    json.dumps(source.external_ids, ensure_ascii=False),
+                    " ".join(record.tags),
+                    " ".join(record.categories),
+                    record.summary_excerpt or "",
+                ]
+            ).casefold()
+            if query_text and query_text not in haystack:
+                continue
+            matches.append(record)
+            if len(matches) >= limit:
+                break
+        return matches
+
+    def compare_library(self, source_ids: list[str]) -> PaperComparisonResponse:
+        papers = [self._library_record(self._paper_source(source_id)) for source_id in source_ids]
+        shared_tags = _shared_labels([paper.tags for paper in papers])
+        shared_categories = _shared_labels([paper.categories for paper in papers])
+        selected = set(source_ids)
+        edges = [
+            PaperCitationEdge(
+                citing_source_id=paper.source.source_id,
+                cited_source_id=cited_source_id,
+            )
+            for paper in papers
+            for cited_source_id in paper.citation_source_ids
+            if cited_source_id in selected
+        ]
+        return PaperComparisonResponse(
+            papers=papers,
+            shared_tags=shared_tags,
+            shared_categories=shared_categories,
+            citation_edges=edges,
+        )
+
+    def _paper_source(self, source_id: str) -> SourceRecord:
+        source = self._content.get_source(source_id)
+        if source.kind != "paper":
+            raise UnsupportedPaperIngestError("Paper library operations require a paper Source")
+        return source
+
+    def _library_record(self, source: SourceRecord) -> PaperLibraryRecord:
+        resources = [
+            resource
+            for resource in self._content.list_resources(
+                source_id=source.source_id,
+                kind="summary",
+                limit=500,
+            )
+            if resource.review_status != "dismissed"
+        ]
+        excerpt = None
+        for resource in resources:
+            try:
+                excerpt = self._work.get_artifact_content(resource.artifact_id).content[:4000]
+                break
+            except KeyError:
+                continue
+        return PaperLibraryRecord(
+            source=source,
+            tags=_metadata_labels(source.metadata.get("paper_tags")),
+            categories=_metadata_labels(source.metadata.get("paper_categories")),
+            citation_source_ids=_metadata_source_ids(
+                source.metadata.get("paper_citation_source_ids")
+            ),
+            summary_resource_ids=[resource.resource_id for resource in resources],
+            summary_excerpt=excerpt,
+        )
+
     def _find_preview(self, source_id: str) -> ResourceRecord | None:
         for resource in self._content.list_resources(
             source_id=source_id,
@@ -206,3 +328,23 @@ class PaperService:
                 ):
                     return invocation
         return None
+
+
+def _metadata_labels(value: object) -> list[str]:
+    return [item for item in value if isinstance(item, str)] if isinstance(value, list) else []
+
+
+def _metadata_source_ids(value: object) -> list[str]:
+    return [
+        item for item in _metadata_labels(value) if item.startswith("src_")
+    ]
+
+
+def _shared_labels(groups: list[list[str]]) -> list[str]:
+    if not groups:
+        return []
+    shared = {item.casefold(): item for item in groups[0]}
+    for group in groups[1:]:
+        present = {item.casefold() for item in group}
+        shared = {key: value for key, value in shared.items() if key in present}
+    return sorted(shared.values(), key=str.casefold)

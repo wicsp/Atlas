@@ -80,11 +80,18 @@ class AgentService:
         return _to_runner(self.record_heartbeat(runner_id, now=now))
 
     def list_runners(self, now: datetime | None = None) -> list[RunnerRecord]:
+        current_time = now or datetime.now(UTC)
         return [
-            _to_runner(record)
-            for record in self.list_agents(now=now)
-            if record.metadata.get("identity_kind") == "runner"
+            _to_runner(self._with_online_status(record, now=current_time))
+            for record in self._repository.list_unarchived_runners()
         ]
+
+    def archive_stale_runners(self, now: datetime | None = None) -> int:
+        current_time = now or datetime.now(UTC)
+        return self._repository.archive_stale_lumio_runners(
+            current_time,
+            older_than=self._heartbeat_ttl,
+        )
 
     def resolve_agent(self, token: str) -> AgentRecord | None:
         return self._repository.find_by_scoped_token(token)
