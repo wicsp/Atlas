@@ -18,7 +18,8 @@ Paper organization is stored on the paper Source metadata under bounded, server-
 
 The paper APIs provide:
 
-- bounded search over titles, identifiers, organization metadata, and Atlas-owned generated text;
+- bounded search over titles, identifiers, organization metadata, Atlas-owned generated text, and
+  centrally stored PDF extraction text;
 - explicit tag, category, and citation updates;
 - a deterministic comparison view for two to eight selected papers.
 

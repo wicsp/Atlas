@@ -168,7 +168,7 @@ class PaperService:
                     json.dumps(source.external_ids, ensure_ascii=False),
                     " ".join(record.tags),
                     " ".join(record.categories),
-                    record.summary_excerpt or "",
+                    self._atlas_text_for_source(source.source_id),
                 ]
             ).casefold()
             if query_text and query_text not in haystack:
@@ -232,6 +232,31 @@ class PaperService:
             summary_resource_ids=[resource.resource_id for resource in resources],
             summary_excerpt=excerpt,
         )
+
+    def _atlas_text_for_source(self, source_id: str) -> str:
+        chunks: list[str] = []
+        total_bytes = 0
+        for run in self._work.list_runs(project_id=PAPER_LIBRARY_PROJECT_ID, limit=500):
+            workflow_input = run.input.get("workflow_input")
+            if not isinstance(workflow_input, dict):
+                workflow_input = run.input
+            if workflow_input.get("source_id") != source_id:
+                continue
+            for artifact in self._work.list_artifacts(run.run_id):
+                try:
+                    content = self._work.get_artifact_content(artifact.artifact_id).content
+                except KeyError:
+                    continue
+                encoded = content.encode()
+                remaining = 2 * 1024 * 1024 - total_bytes
+                if remaining <= 0:
+                    return "\n".join(chunks)
+                if len(encoded) > remaining:
+                    content = encoded[:remaining].decode(errors="ignore")
+                    encoded = content.encode()
+                chunks.append(content)
+                total_bytes += len(encoded)
+        return "\n".join(chunks)
 
     def _find_preview(self, source_id: str) -> ResourceRecord | None:
         for resource in self._content.list_resources(
