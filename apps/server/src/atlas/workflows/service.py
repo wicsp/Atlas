@@ -142,6 +142,14 @@ class WorkflowService:
             return invocation
         return invocation
 
+    def reconcile_running_invocations(self) -> dict[str, int]:
+        """Converge legacy lazy statuses from their authoritative Run states."""
+        result = {"completed": 0, "failed": 0, "running": 0}
+        for invocation in self._repository.list_invocations(status="running"):
+            reconciled = self.get_invocation(invocation.invocation_id)
+            result[reconciled.status] += 1
+        return result
+
 
 def create_workflow_service(database_path: Path, work: WorkService) -> WorkflowService:
     return WorkflowService(

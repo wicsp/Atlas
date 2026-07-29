@@ -124,6 +124,21 @@ class WorkflowRepository:
             row = session.get(WorkflowInvocationRow, invocation_id)
             return _invocation_record(row) if row is not None else None
 
+    def list_invocations(
+        self,
+        status: str | None = None,
+    ) -> list[WorkflowInvocationRecord]:
+        with self._session_factory() as session:
+            statement = select(WorkflowInvocationRow).order_by(
+                WorkflowInvocationRow.created_at
+            )
+            if status is not None:
+                statement = statement.where(WorkflowInvocationRow.status == status)
+            return [
+                _invocation_record(row)
+                for row in session.scalars(statement).all()
+            ]
+
     def set_invocation_status(
         self,
         invocation_id: str,

@@ -325,6 +325,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     collector = getattr(app.state, "sub2api_collector", None)
     dashboard_collector = getattr(app.state, "dashboard_collector", None)
     schedule_coordinator = getattr(app.state, "schedule_coordinator", None)
+    workflow_service = getattr(app.state, "workflow_service", None)
+    if workflow_service is None:
+        settings: Settings = app.state.settings
+        work_service = create_work_service(
+            settings.work.database_path,
+            settings.work.lease_ttl_seconds,
+        )
+        app.state.work_service = work_service
+        workflow_service = create_workflow_service(
+            settings.work.database_path,
+            work_service,
+        )
+        app.state.workflow_service = workflow_service
+    workflow_service.reconcile_running_invocations()
     if collector is not None:
         collector.start()
     if dashboard_collector is not None:

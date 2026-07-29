@@ -1,4 +1,5 @@
 import hashlib
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -212,3 +213,11 @@ def test_invocation_expands_steps_and_unblocks_dependency_with_context(tmp_path:
         f"/api/workflow-invocations/{invocation['invocation_id']}"
     ).json()
     assert status["status"] == "completed"
+
+    service = control.app.state.workflow_service
+    service._repository.set_invocation_status(
+        invocation["invocation_id"],
+        "running",
+        datetime.now(UTC),
+    )
+    assert service.reconcile_running_invocations()["completed"] == 1
