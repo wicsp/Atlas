@@ -69,6 +69,10 @@ test("removes starter surfaces and keeps credentials out of client source", asyn
   assert.match(client, /kind=comparison/);
   assert.match(client, /查看对比/);
   assert.match(client, /comparisonByResource/);
+  assert.match(client, /<strong>\{onlineRunnerCount\}<\/strong>/);
+  assert.doesNotMatch(client, /online\)\.length\}\/\{runners\.length\}/);
+  assert.match(client, /<span>活动 Run<\/span>/);
+  assert.match(client, /\{executingRunCount\} 执行 · \{waitingRunCount\} 等待/);
   assert.doesNotMatch(client, /openObsidianPair|obsidianCommentCreateUri/);
   assert.doesNotMatch(client, /shared[_-]?token|control[_-]?token|localStorage/i);
   assert.doesNotMatch(packageJson, /react-loading-skeleton|drizzle/);

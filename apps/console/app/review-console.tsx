@@ -347,6 +347,11 @@ export function ReviewConsole() {
 
   const latestRuns = useMemo(() => latestCommentRunsByResource(runs), [runs]);
   const hasActiveRuns = runs.some(isActiveRun);
+  const onlineRunnerCount = runners.filter((runner) => runner.online).length;
+  const executingRunCount = recentRuns.filter((run) => run.status === "claimed").length;
+  const waitingRunCount = recentRuns.filter(
+    (run) => run.status === "pending" || run.status === "blocked",
+  ).length;
 
   useEffect(() => {
     if (auth !== "authenticated" || !hasActiveRuns) return;
@@ -792,13 +797,13 @@ export function ReviewConsole() {
       <section className="operations-strip" aria-label="Atlas 运行状态">
         <div>
           <span>Runner</span>
-          <strong>{runners.filter((runner) => runner.online).length}/{runners.length}</strong>
+          <strong>{onlineRunnerCount}</strong>
           <small>在线</small>
         </div>
         <div>
-          <span>运行中</span>
-          <strong>{recentRuns.filter((run) => isActiveRun(run)).length}</strong>
-          <small>Run</small>
+          <span>活动 Run</span>
+          <strong>{executingRunCount + waitingRunCount}</strong>
+          <small>{executingRunCount} 执行 · {waitingRunCount} 等待</small>
         </div>
         <div>
           <span>近期失败</span>
