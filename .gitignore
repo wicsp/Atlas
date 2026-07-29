@@ -35,3 +35,4 @@ logs/
 /apps/console/.wrangler/
 /apps/console/outputs/
 /apps/console/work/
+*.tsbuildinfo

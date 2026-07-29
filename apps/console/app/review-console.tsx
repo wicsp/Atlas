@@ -13,6 +13,7 @@ import {
   type ResourceDocument,
   type ResourceRecord,
   type ReviewStatus,
+  type RunnerRecord,
   type RunRecord,
   type SourceRecord,
 } from "./review-model";
@@ -193,6 +194,8 @@ export function ReviewConsole() {
   const [knowledgeRefs, setKnowledgeRefs] = useState<KnowledgeRefRecord[]>([]);
   const [comments, setComments] = useState<CommentRecord[]>([]);
   const [runs, setRuns] = useState<RunRecord[]>([]);
+  const [runners, setRunners] = useState<RunnerRecord[]>([]);
+  const [recentRuns, setRecentRuns] = useState<RunRecord[]>([]);
   const [filter, setFilter] = useState<Filter>("pending");
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState("");
@@ -217,6 +220,8 @@ export function ReviewConsole() {
         nextComments,
         reviewRuns,
         paperRuns,
+        nextRunners,
+        nextRecentRuns,
       ] =
         await Promise.all([
           api<SourceRecord[]>("/api/sources?limit=500"),
@@ -226,6 +231,8 @@ export function ReviewConsole() {
           api<CommentRecord[]>("/api/comments?limit=500"),
           api<RunRecord[]>("/api/runs?project_id=resource-review&limit=500"),
           api<RunRecord[]>("/api/runs?project_id=paper-library&limit=500"),
+          api<RunnerRecord[]>("/api/runners"),
+          api<RunRecord[]>("/api/runs?limit=100"),
         ]);
       const nextRuns = [...reviewRuns, ...paperRuns];
       setSources(nextSources);
@@ -234,6 +241,8 @@ export function ReviewConsole() {
       setKnowledgeRefs(nextKnowledgeRefs);
       setComments(nextComments);
       setRuns(nextRuns);
+      setRunners(nextRunners);
+      setRecentRuns(nextRecentRuns);
       setLastUpdated(new Date());
 
       const latest = latestCommentRunsByResource(nextRuns);
@@ -432,6 +441,8 @@ export function ReviewConsole() {
     setKnowledgeRefs([]);
     setComments([]);
     setRuns([]);
+    setRunners([]);
+    setRecentRuns([]);
   }
 
   function setResourceBusy(resourceId: string, value: boolean) {
@@ -775,6 +786,29 @@ export function ReviewConsole() {
         <div className="hero-count" aria-label={`${counts.pending} 个待判断 Resource`}>
           <strong>{counts.pending.toString().padStart(2, "0")}</strong>
           <span>待判断</span>
+        </div>
+      </section>
+
+      <section className="operations-strip" aria-label="Atlas 运行状态">
+        <div>
+          <span>Runner</span>
+          <strong>{runners.filter((runner) => runner.online).length}/{runners.length}</strong>
+          <small>在线</small>
+        </div>
+        <div>
+          <span>运行中</span>
+          <strong>{recentRuns.filter((run) => isActiveRun(run)).length}</strong>
+          <small>Run</small>
+        </div>
+        <div>
+          <span>近期失败</span>
+          <strong>{recentRuns.filter((run) => run.status === "failed").length}</strong>
+          <small>最近 100 项</small>
+        </div>
+        <div>
+          <span>中心存储</span>
+          <strong>Atlas</strong>
+          <small>Resource 内容</small>
         </div>
       </section>
 

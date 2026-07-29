@@ -580,12 +580,20 @@ class WorkRepository:
             for art in artifacts:
                 artifact_id = f"art_{uuid.uuid4().hex}"
                 artifacts_by_name[art.name] = artifact_id
+                # Once bytes are present in Atlas, Atlas is the authoritative
+                # location. Never persist a Runner-local file:// URI as the
+                # canonical reference for centrally managed content.
+                uri = (
+                    f"atlas://artifacts/{artifact_id}"
+                    if art.content is not None
+                    else art.uri
+                )
                 session.add(
                     ArtifactRow(
                         artifact_id=artifact_id,
                         run_id=run_id,
                         name=art.name,
-                        uri=art.uri,
+                        uri=uri,
                         content_type=art.content_type,
                         size_bytes=art.size_bytes,
                         checksum=art.checksum,
@@ -828,6 +836,12 @@ class WorkRepository:
                 raise KeyError(artifact_id)
             return _to_artifact_content(artifact, content)
 
+    def find_artifact_content(self, artifact_id: str) -> ArtifactContentRecord | None:
+        try:
+            return self.get_artifact_content(artifact_id)
+        except KeyError:
+            return None
+
     def upsert_artifact_content(
         self,
         artifact_id: str,
@@ -844,6 +858,7 @@ class WorkRepository:
                 raise ValueError("artifact content size does not match manifest")
             if artifact.checksum is not None and artifact.checksum != digest:
                 raise ValueError("artifact content checksum does not match manifest")
+            artifact.uri = f"atlas://artifacts/{artifact_id}"
             row = session.get(ArtifactContentRow, artifact_id)
             if row is None:
                 row = ArtifactContentRow(

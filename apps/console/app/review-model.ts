@@ -113,6 +113,14 @@ export interface RunRecord {
   completed_at: string | null;
 }
 
+export interface RunnerRecord {
+  runner_id: string;
+  name: string | null;
+  node: { node_id: string; labels: string[] };
+  last_seen_at: string;
+  online: boolean;
+}
+
 export interface ReviewGroup {
   source: SourceRecord | null;
   sourceId: string;

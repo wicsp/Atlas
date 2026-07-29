@@ -23,10 +23,9 @@ As observed during RFC 0003 implementation on 2026-07-15:
 - nix-config provisions Atlas endpoint, node identity, artifact root, Obsidian vault path, and the
   agenix-managed control credential.
 
-The immediate operational risk is byte locality: Atlas can reference a Mac-local `file://` artifact
-that AMAX or a future mobile Console cannot read directly. This is accepted for the first personal
-slice; measured cross-node review demand should drive a later artifact-store RFC. v3 Lumio must not
-be deployed before v3 Atlas acknowledges the protocol.
+Bounded generated text is now stored in Atlas and addressed through `atlas://` Artifact URIs.
+Runner-local files are caches rather than authoritative data. PDF originals remain Zotero-managed
+until an explicit binary-ingest and attachment-identity contract is accepted.
 
 ## Milestone 0: Stable baselines
 
@@ -240,14 +239,16 @@ action; purge is an explicitly confirmed, irreversible lifecycle operation.
 
 ## Milestone 4: Academic source workflow
 
-**Status:** Ready for a focused RFC; not started.
+**Status:** arXiv/Zotero ingest, preview, PDF-text extraction, full-text summary, and Console review
+are implemented. DOI-only ingest, page/section anchors, and centralized PDF originals remain
+future work.
 
 **Outcome:** Papers can be discovered and triaged without duplicating Zotero's authority.
 
-- DOI/arXiv/Zotero identifiers;
+- arXiv and Zotero identifiers are implemented; DOI-only ingest is explicitly rejected;
 - source-version and page/section anchors;
-- PDF extraction and AI summary Resources;
-- Zotero links rather than a second bibliography database;
+- PDF extraction and AI summary Resources are implemented;
+- Atlas owns metadata, extracted text, summaries, and review state; Zotero currently owns PDF bytes;
 - human comments linked to original evidence;
 - explicit human confirmation for semantic relations.
 

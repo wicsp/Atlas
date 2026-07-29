@@ -1032,6 +1032,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         request: Request,
         payload: WorkflowInvocationCreate,
     ) -> WorkflowInvocationRecord:
+        if payload.workflow_name in {"paper.ingest", "paper.fulltext"}:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Paper workflows must use /api/paper/ingest or "
+                    "/api/paper/fulltext so domain validation and idempotency apply"
+                ),
+            )
         try:
             return _workflow_service(request).invoke(payload)
         except KeyError as exc:
@@ -1165,9 +1173,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         payload.agent_id = agent.agent_id
         idempotency_key = request.headers.get("Idempotency-Key")
         try:
-            return _work_service(request).complete(
+            completed = _work_service(request).complete(
                 run_id, payload, idempotency_key=idempotency_key
             )
+            if completed.workflow_invocation_id:
+                _workflow_service(request).get_invocation(
+                    completed.workflow_invocation_id
+                )
+            return completed
         except KeyError as exc:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -1192,9 +1205,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         payload.agent_id = agent.agent_id
         idempotency_key = request.headers.get("Idempotency-Key")
         try:
-            return _work_service(request).fail(
+            failed = _work_service(request).fail(
                 run_id, payload, idempotency_key=idempotency_key
             )
+            if failed.workflow_invocation_id:
+                _workflow_service(request).get_invocation(failed.workflow_invocation_id)
+            return failed
         except KeyError as exc:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

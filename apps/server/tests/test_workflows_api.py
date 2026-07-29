@@ -1,3 +1,4 @@
+import hashlib
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -42,13 +43,17 @@ def definition() -> dict:
 
 
 def register_runner(
-    client: TestClient, runner_id: str, executors: list[str], grants=None
+    client: TestClient,
+    runner_id: str,
+    executors: list[str],
+    grants=None,
+    node_id: str = "macsp",
 ) -> TestClient:
     response = client.post(
         "/api/runners/register",
         json={
             "runner_id": runner_id,
-            "node": {"node_id": "macsp", "labels": ["local-data"]},
+            "node": {"node_id": node_id, "labels": ["local-data"]},
             "executors": [
                 {"name": name, "kind": "agent" if name in {"pi", "codex"} else "script"}
                 for name in executors
@@ -62,7 +67,12 @@ def register_runner(
     return scoped
 
 
-def complete(scoped: TestClient, run: dict, output: dict) -> None:
+def complete(
+    scoped: TestClient,
+    run: dict,
+    output: dict,
+    artifacts: list[dict] | None = None,
+) -> None:
     response = scoped.post(
         f"/api/runs/{run['run_id']}/complete",
         json={
@@ -70,6 +80,7 @@ def complete(scoped: TestClient, run: dict, output: dict) -> None:
             "claim_token": run["claim_token"],
             "agent_id": "ignored-server-derived",
             "output": output,
+            "artifacts": artifacts or [],
         },
     )
     assert response.status_code == 200, response.text
@@ -170,13 +181,31 @@ def test_invocation_expands_steps_and_unblocks_dependency_with_context(tmp_path:
     extracted = script.get("/api/runs/next").json()
     assert extracted["step_name"] == "extract"
     assert extracted["workflow"]["name"] == "test.pipeline"
-    complete(script, extracted, {"transcript": "hello"})
+    content = "hello from macsp"
+    checksum = f"sha256:{hashlib.sha256(content.encode()).hexdigest()}"
+    complete(
+        script,
+        extracted,
+        {"transcript": "hello"},
+        [
+            {
+                "name": "transcript",
+                "uri": "file:///macsp/private/transcript.txt",
+                "content_type": "text/plain",
+                "size_bytes": len(content.encode()),
+                "checksum": checksum,
+                "content": content,
+            }
+        ],
+    )
 
-    agent = register_runner(control, "macsp-pi", ["pi"])
+    agent = register_runner(control, "amax-pi", ["pi"], node_id="amax")
     summarized = agent.get("/api/runs/next").json()
     assert summarized["step_name"] == "summarize"
     upstream = summarized["execution_context"][extracted["run_id"]]
     assert upstream["output"] == {"transcript": "hello"}
+    assert upstream["artifacts"][0]["uri"].startswith("atlas://artifacts/")
+    assert upstream["artifacts"][0]["content"] == content
     complete(agent, summarized, {"summary": "short"})
 
     status = control.get(

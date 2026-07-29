@@ -51,9 +51,11 @@ an explicit command and is never part of CI.
 
 ## System boundary
 
-Atlas coordinates and persists server-owned state. Lumio executes Mac-local work and projects
-machine resources into Obsidian. Human-authored knowledge remains under explicit user control; an
-accepted RFC must define any change that crosses the Atlas/Lumio boundary.
+Atlas coordinates and persists server-owned state and generated Resource bytes. AtlasRunner
+executes node-local work; Lumio provides interactive commands and optional Obsidian projections.
+Runner-local artifact files are caches, while uploaded `atlas://` Artifacts are authoritative.
+Human-authored knowledge remains under explicit user control; an accepted RFC must define any
+change that crosses repository boundaries.
 
 Runtime configuration, databases, logs, artifacts, credentials, and Obsidian content must never be
 committed.

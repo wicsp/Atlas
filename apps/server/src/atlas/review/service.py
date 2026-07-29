@@ -210,8 +210,15 @@ class ReviewService:
         )
         if artifact is None:
             raise ValueError(f"Resource {resource_id} has no Artifact")
+        try:
+            content = self._work.get_artifact_content(artifact.artifact_id).content
+        except KeyError:
+            content = None
+        artifact_data = artifact.model_dump(mode="json")
+        if content is not None:
+            artifact_data["content"] = content
         return {
             "resource": resource.model_dump(mode="json"),
             "source": source.model_dump(mode="json"),
-            "artifact": artifact.model_dump(mode="json"),
+            "artifact": artifact_data,
         }

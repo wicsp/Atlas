@@ -167,11 +167,14 @@ class WorkService:
                 raise ValueError(f"workflow dependency {dependency_id} is not completed")
             context[dependency_id] = {
                 "output": dependency.output or {},
-                "artifacts": [
-                    artifact.model_dump(mode="json")
-                    for artifact in self.list_artifacts(dependency_id)
-                ],
+                "artifacts": [],
             }
+            for artifact in self.list_artifacts(dependency_id):
+                manifest = artifact.model_dump(mode="json")
+                content = self._repository.find_artifact_content(artifact.artifact_id)
+                if content is not None:
+                    manifest["content"] = content.content
+                context[dependency_id]["artifacts"].append(manifest)
         return context
 
 

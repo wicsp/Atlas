@@ -13,6 +13,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from atlas.content.models import ResourceCreate, SourceUpdate
 
+MAX_INLINE_ARTIFACT_BYTES = 8 * 1024 * 1024
+
 RunStatus = Literal["blocked", "pending", "claimed", "completed", "failed", "cancelled"]
 
 AttemptStatus = Literal["active", "accepted", "failed", "superseded", "cancelled"]
@@ -144,15 +146,15 @@ class ArtifactRefCreate(BaseModel):
     content_type: str | None = Field(default=None, max_length=128)
     size_bytes: int | None = Field(default=None, ge=0)
     checksum: str | None = Field(default=None, max_length=128)
-    content: str | None = Field(default=None, max_length=1024 * 1024)
+    content: str | None = Field(default=None, max_length=MAX_INLINE_ARTIFACT_BYTES)
 
     @model_validator(mode="after")
     def validate_inline_content(self) -> ArtifactRefCreate:
         if self.content is None:
             return self
         encoded = self.content.encode()
-        if len(encoded) > 1024 * 1024:
-            raise ValueError("inline artifact content exceeds 1 MiB")
+        if len(encoded) > MAX_INLINE_ARTIFACT_BYTES:
+            raise ValueError("inline artifact content exceeds 8 MiB")
         if self.size_bytes is not None and self.size_bytes != len(encoded):
             raise ValueError("inline artifact size does not match size_bytes")
         digest = f"sha256:{hashlib.sha256(encoded).hexdigest()}"
@@ -162,13 +164,13 @@ class ArtifactRefCreate(BaseModel):
 
 
 class ArtifactContentUpsert(BaseModel):
-    content: str = Field(max_length=1024 * 1024)
+    content: str = Field(max_length=MAX_INLINE_ARTIFACT_BYTES)
 
     @field_validator("content")
     @classmethod
     def bound_encoded_content(cls, value: str) -> str:
-        if len(value.encode()) > 1024 * 1024:
-            raise ValueError("artifact content exceeds 1 MiB")
+        if len(value.encode()) > MAX_INLINE_ARTIFACT_BYTES:
+            raise ValueError("artifact content exceeds 8 MiB")
         return value
 
 

@@ -222,7 +222,16 @@ def _publish_paper_preview(
     assert source_response.status_code == 200, source_response.text
     source = source_response.json()
     claimed = _claimed_run(control, scoped, source["source_id"])
-    checksum = f"sha256:{'c' * 64}"
+    preview = (
+        "# A Useful Paper\n\n"
+        "## 一句话结论\n有用。\n"
+        "## 研究问题\n问题。\n"
+        "## 方法思路\n方法。\n"
+        "## 作者声称的结果\n结果。\n"
+        "## 主要贡献\n贡献。\n"
+        "## 局限与待核查\n待核查。\n"
+    )
+    checksum = f"sha256:{hashlib.sha256(preview.encode()).hexdigest()}"
     resource_id = _resource_id(source["source_id"], "summary", checksum)
     completed = scoped.post(
         f"/api/runs/{claimed['run_id']}/complete",
@@ -236,8 +245,9 @@ def _publish_paper_preview(
                     "name": "paper-preview-2607.01234",
                     "uri": "file:///private/atlas/paper-preview.md",
                     "content_type": "text/markdown; charset=utf-8",
-                    "size_bytes": 80,
+                    "size_bytes": len(preview.encode()),
                     "checksum": checksum,
+                    "content": preview,
                 }
             ],
             "resources": [
@@ -351,6 +361,59 @@ def test_paper_ingest_rejects_non_paper_source(
     assert response.status_code == 409
 
 
+def test_paper_workflows_cannot_bypass_domain_api(
+    dashboard_client: TestClient,
+) -> None:
+    response = dashboard_client.post(
+        "/api/workflow-invocations",
+        json={
+            "workflow_name": "paper.ingest",
+            "workflow_version": "1",
+            "input": {"source_id": "src_bypass"},
+        },
+    )
+    assert response.status_code == 409
+    assert "/api/paper/ingest" in response.json()["detail"]
+
+
+def test_paper_fulltext_validates_preview_source_and_profile(
+    control_client: TestClient,
+    scoped_client: TestClient,
+    dashboard_client: TestClient,
+) -> None:
+    source, preview_resource_id = _publish_paper_preview(
+        control_client, scoped_client
+    )
+    accepted = dashboard_client.post(
+        "/api/paper/fulltext",
+        json={
+            "source_id": source["source_id"],
+            "preview_resource_id": preview_resource_id,
+        },
+    )
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["reused"] is False
+
+    other = control_client.post(
+        "/api/sources",
+        json={
+            "source_key": "arxiv:2607.09999",
+            "kind": "paper",
+            "canonical_uri": "https://arxiv.org/abs/2607.09999",
+            "external_ids": {"arxiv_id": "2607.09999"},
+        },
+    ).json()
+    rejected = dashboard_client.post(
+        "/api/paper/fulltext",
+        json={
+            "source_id": other["source_id"],
+            "preview_resource_id": preview_resource_id,
+        },
+    )
+    assert rejected.status_code == 409
+    assert "does not belong" in rejected.json()["detail"]
+
+
 def test_content_endpoints_require_control_auth(atlas_app: FastAPI) -> None:
     client = TestClient(atlas_app)
     assert client.get("/api/sources").status_code == 401
@@ -442,6 +505,7 @@ def test_resource_content_is_uploaded_atomically_and_readable_in_console(
     assert document.status_code == 200, document.text
     assert document.json()["content"] == markdown
     assert document.json()["artifact"]["checksum"] == checksum
+    assert document.json()["artifact"]["uri"].startswith("atlas://artifacts/")
 
 
 def test_existing_artifact_content_can_be_backfilled_once(
@@ -477,6 +541,8 @@ def test_existing_artifact_content_can_be_backfilled_once(
     )
     assert uploaded.status_code == 200, uploaded.text
     assert uploaded.json()["content"] == markdown
+    bundle = control_client.get(f"/api/resources/{resource_id}/bundle").json()
+    assert bundle["artifact"]["uri"].startswith("atlas://artifacts/")
     document = control_client.get(f"/api/resources/{resource_id}/content")
     assert document.status_code == 200, document.text
     assert document.json()["content"] == markdown
