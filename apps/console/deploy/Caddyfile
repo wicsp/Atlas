@@ -1,10 +1,5 @@
-{
-	auto_https disable_redirects
-}
-
-https://100.100.10.3:8787 {
+http://100.100.10.3:8787 {
 	bind 100.100.10.3
-	tls internal
 
 	header {
 		Content-Security-Policy "default-src 'self'; base-uri 'none'; connect-src 'self'; font-src 'self' data:; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'"
