@@ -7,21 +7,14 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 KnowledgeNoteStatus = Literal["draft", "active", "superseded", "archived"]
-KnowledgeRelationStatus = Literal["suggested", "confirmed", "rejected"]
 KnowledgeOrigin = Literal["human", "ai"]
-KnowledgeRelationType = Literal[
-    "supports",
-    "contradicts",
-    "extends",
-    "refines",
-    "example_of",
-    "applies_to",
-    "supersedes",
-    "related_to",
-]
+KnowledgeLinkKind = Literal["related", "supersedes"]
+KnowledgeLinkOrigin = Literal["markdown", "human"]
+KnowledgeAssessmentType = Literal["supports", "tension", "duplicate"]
 
 _KNOWLEDGE_NOTE_ID_PATTERN = r"^kn_[0-9a-f]{32}$"
-_KNOWLEDGE_RELATION_ID_PATTERN = r"^krel_[0-9a-f]{32}$"
+_KNOWLEDGE_LINK_ID_PATTERN = r"^kln_[0-9a-f]{32}$"
+_KNOWLEDGE_ASSESSMENT_ID_PATTERN = r"^kas_[0-9a-f]{32}$"
 _SOURCE_ID_PATTERN = r"^src_[A-Za-z0-9._-]{8,120}$"
 _RESOURCE_ID_PATTERN = r"^res_[A-Za-z0-9._-]{8,120}$"
 _COMMENT_ID_PATTERN = r"^cmt_[A-Za-z0-9._-]{8,120}$"
@@ -68,15 +61,9 @@ class KnowledgeNoteCreate(StrictModel):
     claim: str = Field(min_length=1, max_length=8_000)
     body_markdown: str = Field(default="", max_length=256 * 1024)
     tags: list[str] = Field(default_factory=list)
-    source_ids: list[str] = Field(
-        default_factory=list, max_length=100
-    )
-    resource_ids: list[str] = Field(
-        default_factory=list, max_length=100
-    )
-    comment_ids: list[str] = Field(
-        default_factory=list, max_length=100
-    )
+    source_ids: list[str] = Field(default_factory=list, max_length=100)
+    resource_ids: list[str] = Field(default_factory=list, max_length=100)
+    comment_ids: list[str] = Field(default_factory=list, max_length=100)
     status: KnowledgeNoteStatus = "draft"
     origin: KnowledgeOrigin = "human"
 
@@ -137,29 +124,17 @@ class KnowledgeNoteUpdate(StrictModel):
     @field_validator("source_ids")
     @classmethod
     def validate_source_ids(cls, value: list[str] | None) -> list[str] | None:
-        return (
-            _validate_ids(value, _SOURCE_ID_PATTERN, "Source")
-            if value is not None
-            else None
-        )
+        return _validate_ids(value, _SOURCE_ID_PATTERN, "Source") if value is not None else None
 
     @field_validator("resource_ids")
     @classmethod
     def validate_resource_ids(cls, value: list[str] | None) -> list[str] | None:
-        return (
-            _validate_ids(value, _RESOURCE_ID_PATTERN, "Resource")
-            if value is not None
-            else None
-        )
+        return _validate_ids(value, _RESOURCE_ID_PATTERN, "Resource") if value is not None else None
 
     @field_validator("comment_ids")
     @classmethod
     def validate_comment_ids(cls, value: list[str] | None) -> list[str] | None:
-        return (
-            _validate_ids(value, _COMMENT_ID_PATTERN, "Comment")
-            if value is not None
-            else None
-        )
+        return _validate_ids(value, _COMMENT_ID_PATTERN, "Comment") if value is not None else None
 
     @model_validator(mode="after")
     def require_change(self) -> KnowledgeNoteUpdate:
@@ -188,63 +163,49 @@ class KnowledgeNoteRecord(StrictModel):
     updated_at: datetime
 
 
-class KnowledgeRelationCreate(StrictModel):
+class KnowledgeLinkCreate(StrictModel):
     from_note_id: str = Field(pattern=_KNOWLEDGE_NOTE_ID_PATTERN)
     to_note_id: str = Field(pattern=_KNOWLEDGE_NOTE_ID_PATTERN)
-    relation_type: KnowledgeRelationType
-    rationale_markdown: str = Field(min_length=1, max_length=64 * 1024)
-    status: KnowledgeRelationStatus = "confirmed"
-    origin: KnowledgeOrigin = "human"
-    confidence: float | None = Field(default=None, ge=0, le=1)
+    kind: KnowledgeLinkKind = "related"
+    origin: KnowledgeLinkOrigin = "human"
 
-    _strip_ids_and_rationale = field_validator(
-        "from_note_id", "to_note_id", "rationale_markdown"
-    )(_strip_required)
+    _strip_ids = field_validator("from_note_id", "to_note_id")(_strip_required)
 
     @model_validator(mode="after")
-    def validate_relation(self) -> KnowledgeRelationCreate:
+    def validate_link(self) -> KnowledgeLinkCreate:
         if self.from_note_id == self.to_note_id:
-            raise ValueError("Knowledge Relation cannot connect a note to itself")
-        if self.origin == "ai" and self.status != "suggested":
-            raise ValueError("AI-origin Knowledge Relations must start as suggested")
-        if self.origin == "human" and self.confidence is not None:
-            raise ValueError("human Knowledge Relations do not use model confidence")
+            raise ValueError("Knowledge Link cannot connect a note to itself")
+        if self.kind == "supersedes" and self.origin != "human":
+            raise ValueError("supersedes must be explicitly confirmed by a human")
         return self
 
 
-class KnowledgeRelationUpdate(StrictModel):
-    expected_revision: int = Field(ge=1)
-    rationale_markdown: str | None = Field(
-        default=None, min_length=1, max_length=64 * 1024
-    )
-    status: KnowledgeRelationStatus | None = None
-    confidence: float | None = Field(default=None, ge=0, le=1)
-
-    @field_validator("rationale_markdown")
-    @classmethod
-    def normalize_rationale(cls, value: str | None) -> str | None:
-        return _strip_required(value) if value is not None else None
-
-    @model_validator(mode="after")
-    def require_change(self) -> KnowledgeRelationUpdate:
-        if self.model_fields_set == {"expected_revision"}:
-            raise ValueError("Knowledge Relation update must change at least one field")
-        for field in self.model_fields_set - {"expected_revision", "confidence"}:
-            if getattr(self, field) is None:
-                raise ValueError(f"Knowledge Relation field {field} cannot be null")
-        return self
-
-
-class KnowledgeRelationRecord(StrictModel):
-    knowledge_relation_id: str = Field(pattern=_KNOWLEDGE_RELATION_ID_PATTERN)
+class KnowledgeLinkRecord(StrictModel):
+    knowledge_link_id: str = Field(pattern=_KNOWLEDGE_LINK_ID_PATTERN)
     from_note_id: str = Field(pattern=_KNOWLEDGE_NOTE_ID_PATTERN)
     to_note_id: str = Field(pattern=_KNOWLEDGE_NOTE_ID_PATTERN)
-    relation_type: KnowledgeRelationType
-    rationale_markdown: str
-    status: KnowledgeRelationStatus
-    origin: KnowledgeOrigin
-    confidence: float | None
-    revision: int
+    kind: KnowledgeLinkKind
+    origin: KnowledgeLinkOrigin
+    created_at: datetime
+
+
+class KnowledgeAssessmentCreate(StrictModel):
+    from_note_id: str = Field(pattern=_KNOWLEDGE_NOTE_ID_PATTERN)
+    to_note_id: str = Field(pattern=_KNOWLEDGE_NOTE_ID_PATTERN)
+    assessment_type: KnowledgeAssessmentType
+    explanation_markdown: str = Field(min_length=1, max_length=64 * 1024)
+    confidence: float = Field(ge=0, le=1)
+    model_id: str = Field(min_length=1, max_length=200)
+
+    @model_validator(mode="after")
+    def prevent_self_assessment(self) -> KnowledgeAssessmentCreate:
+        if self.from_note_id == self.to_note_id:
+            raise ValueError("Knowledge Assessment cannot compare a note with itself")
+        return self
+
+
+class KnowledgeAssessmentRecord(KnowledgeAssessmentCreate):
+    knowledge_assessment_id: str = Field(pattern=_KNOWLEDGE_ASSESSMENT_ID_PATTERN)
     created_at: datetime
     updated_at: datetime
 
@@ -252,7 +213,8 @@ class KnowledgeRelationRecord(StrictModel):
 class KnowledgeNeighborhood(StrictModel):
     center: KnowledgeNoteRecord
     notes: list[KnowledgeNoteRecord]
-    relations: list[KnowledgeRelationRecord]
+    links: list[KnowledgeLinkRecord]
+    assessments: list[KnowledgeAssessmentRecord]
 
 
 def _validate_ids(value: list[str], pattern: str, label: str) -> list[str]:

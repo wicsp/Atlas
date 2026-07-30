@@ -999,7 +999,7 @@ def test_knowledge_note_updates_use_revision_conflicts_and_validate_evidence(
     assert ai_published.status_code == 422
 
 
-def test_typed_knowledge_relations_keep_ai_suggestions_out_of_default_graph(
+def test_markdown_links_and_ai_assessments_have_separate_lifecycles(
     control_client: TestClient,
     dashboard_client: TestClient,
 ) -> None:
@@ -1020,64 +1020,66 @@ def test_typed_knowledge_relations_keep_ai_suggestions_out_of_default_graph(
 
     first = create_note("中心化状态", "中心化状态可以降低跨设备不一致。")
     second = create_note("本地优先", "关键状态应该优先保存在产生数据的设备上。")
-    relation_response = dashboard_client.post(
-        "/api/knowledge-relations",
+    linked = dashboard_client.patch(
+        f"/api/knowledge-notes/{first['knowledge_note_id']}",
+        json={
+            "expected_revision": 1,
+            "body_markdown": (
+                "可与"
+                f"[[{second['knowledge_note_id']}|本地优先]]"
+                "一起考虑。"
+            ),
+        },
+    )
+    assessment_response = dashboard_client.post(
+        "/api/knowledge-assessments",
         json={
             "from_note_id": first["knowledge_note_id"],
             "to_note_id": second["knowledge_note_id"],
-            "relation_type": "contradicts",
-            "rationale_markdown": "两者对权威状态应该位于中心还是本地持不同观点。",
-            "status": "suggested",
-            "origin": "ai",
+            "assessment_type": "tension",
+            "explanation_markdown": "两者对权威状态应该位于中心还是本地持不同观点。",
             "confidence": 0.87,
+            "model_id": "test-model",
         },
     )
-    assert relation_response.status_code == 200, relation_response.text
-    relation = relation_response.json()
-
-    default_graph = dashboard_client.get(
+    graph = dashboard_client.get(
         f"/api/knowledge-notes/{first['knowledge_note_id']}/neighborhood"
     )
-    suggested_graph = dashboard_client.get(
-        f"/api/knowledge-notes/{first['knowledge_note_id']}/neighborhood"
-        "?include_suggested=true"
+    links = dashboard_client.get(
+        f"/api/knowledge-links?note_id={first['knowledge_note_id']}"
     )
-    confirmed = dashboard_client.patch(
-        f"/api/knowledge-relations/{relation['knowledge_relation_id']}",
-        json={"expected_revision": 1, "status": "confirmed"},
+    assessments = dashboard_client.get(
+        "/api/knowledge-assessments"
+        f"?note_id={first['knowledge_note_id']}&assessment_type=tension"
     )
-    confirmed_graph = dashboard_client.get(
-        f"/api/knowledge-notes/{first['knowledge_note_id']}/neighborhood"
-    )
-    fetched = dashboard_client.get(
-        f"/api/knowledge-relations/{relation['knowledge_relation_id']}"
-    )
-    filtered = dashboard_client.get(
-        "/api/knowledge-relations"
-        f"?note_id={first['knowledge_note_id']}&relation_type=contradicts"
+    superseded = dashboard_client.post(
+        "/api/knowledge-links",
+        json={
+            "from_note_id": first["knowledge_note_id"],
+            "to_note_id": second["knowledge_note_id"],
+            "kind": "supersedes",
+        },
     )
 
-    assert default_graph.status_code == 200
-    assert default_graph.json()["relations"] == []
-    assert suggested_graph.status_code == 200
-    assert suggested_graph.json()["notes"][0]["knowledge_note_id"] == second[
+    assert linked.status_code == 200, linked.text
+    assert assessment_response.status_code == 200, assessment_response.text
+    assert graph.status_code == 200
+    assert graph.json()["notes"][0]["knowledge_note_id"] == second[
         "knowledge_note_id"
     ]
-    assert suggested_graph.json()["relations"][0]["status"] == "suggested"
-    assert confirmed.status_code == 200, confirmed.text
-    assert confirmed.json()["revision"] == 2
-    assert confirmed.json()["status"] == "confirmed"
-    assert len(confirmed_graph.json()["relations"]) == 1
-    assert fetched.status_code == 200
-    assert fetched.json()["knowledge_relation_id"] == relation[
-        "knowledge_relation_id"
-    ]
-    assert [item["knowledge_relation_id"] for item in filtered.json()] == [
-        relation["knowledge_relation_id"]
-    ]
+    assert graph.json()["links"][0]["origin"] == "markdown"
+    assert graph.json()["assessments"][0]["assessment_type"] == "tension"
+    assert links.json()[0]["kind"] == "related"
+    assert assessments.json()[0]["confidence"] == 0.87
+    assert superseded.status_code == 200, superseded.text
+    old = dashboard_client.get(
+        f"/api/knowledge-notes/{second['knowledge_note_id']}"
+    )
+    assert old.json()["status"] == "superseded"
 
 
 def test_knowledge_endpoints_require_control_auth(atlas_app: FastAPI) -> None:
     client = TestClient(atlas_app)
     assert client.get("/api/knowledge-notes").status_code == 401
-    assert client.get("/api/knowledge-relations").status_code == 401
+    assert client.get("/api/knowledge-links").status_code == 401
+    assert client.get("/api/knowledge-assessments").status_code == 401

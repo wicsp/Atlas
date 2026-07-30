@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import uuid
 from datetime import datetime
 
@@ -12,16 +13,17 @@ from atlas.content.repository import CommentRow, KnowledgeRefRow, ResourceRow, S
 from atlas.db.base import Base
 
 from .models import (
+    KnowledgeAssessmentCreate,
+    KnowledgeAssessmentRecord,
+    KnowledgeAssessmentType,
+    KnowledgeLinkCreate,
+    KnowledgeLinkKind,
+    KnowledgeLinkRecord,
     KnowledgeNeighborhood,
     KnowledgeNoteCreate,
     KnowledgeNoteRecord,
     KnowledgeNoteStatus,
     KnowledgeNoteUpdate,
-    KnowledgeRelationCreate,
-    KnowledgeRelationRecord,
-    KnowledgeRelationStatus,
-    KnowledgeRelationType,
-    KnowledgeRelationUpdate,
 )
 
 
@@ -58,26 +60,44 @@ class KnowledgeNoteEvidenceRow(Base):
     target_id: Mapped[str] = mapped_column(String(128), index=True)
 
 
-class KnowledgeRelationRow(Base):
-    __tablename__ = "knowledge_relations"
+class KnowledgeLinkRow(Base):
+    __tablename__ = "knowledge_links"
     __table_args__ = (
         UniqueConstraint(
             "from_note_id",
             "to_note_id",
-            "relation_type",
-            name="uq_knowledge_relation",
+            "kind",
+            name="uq_knowledge_link",
         ),
     )
 
-    knowledge_relation_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    knowledge_link_id: Mapped[str] = mapped_column(String(128), primary_key=True)
     from_note_id: Mapped[str] = mapped_column(String(128), index=True)
     to_note_id: Mapped[str] = mapped_column(String(128), index=True)
-    relation_type: Mapped[str] = mapped_column(String(32), index=True)
-    rationale_markdown: Mapped[str] = mapped_column(Text)
-    status: Mapped[str] = mapped_column(String(32), index=True)
+    kind: Mapped[str] = mapped_column(String(32), index=True)
     origin: Mapped[str] = mapped_column(String(16), index=True)
-    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
-    revision: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[str] = mapped_column(String(64), index=True)
+
+
+class KnowledgeAssessmentRow(Base):
+    __tablename__ = "knowledge_assessments"
+    __table_args__ = (
+        UniqueConstraint(
+            "from_note_id",
+            "to_note_id",
+            "assessment_type",
+            "model_id",
+            name="uq_knowledge_assessment",
+        ),
+    )
+
+    knowledge_assessment_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    from_note_id: Mapped[str] = mapped_column(String(128), index=True)
+    to_note_id: Mapped[str] = mapped_column(String(128), index=True)
+    assessment_type: Mapped[str] = mapped_column(String(32), index=True)
+    explanation_markdown: Mapped[str] = mapped_column(Text)
+    confidence: Mapped[float] = mapped_column(Float)
+    model_id: Mapped[str] = mapped_column(String(200), index=True)
     created_at: Mapped[str] = mapped_column(String(64), index=True)
     updated_at: Mapped[str] = mapped_column(String(64), index=True)
 
@@ -86,9 +106,7 @@ class KnowledgeRepository:
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
         self._session_factory = session_factory
 
-    def create_note(
-        self, payload: KnowledgeNoteCreate, now: datetime
-    ) -> KnowledgeNoteRecord:
+    def create_note(self, payload: KnowledgeNoteCreate, now: datetime) -> KnowledgeNoteRecord:
         with self._session_factory() as session, session.begin():
             _validate_evidence(
                 session,
@@ -119,6 +137,7 @@ class KnowledgeRepository:
             )
             session.add(row)
             session.flush()
+            _sync_markdown_links(session, row.knowledge_note_id, row.body_markdown, now)
             _replace_evidence(
                 session,
                 row.knowledge_note_id,
@@ -156,9 +175,7 @@ class KnowledgeRepository:
             ):
                 if target_id is None:
                     continue
-                matching_note_ids = select(
-                    KnowledgeNoteEvidenceRow.knowledge_note_id
-                ).where(
+                matching_note_ids = select(KnowledgeNoteEvidenceRow.knowledge_note_id).where(
                     KnowledgeNoteEvidenceRow.evidence_type == evidence_type,
                     KnowledgeNoteEvidenceRow.target_id == target_id,
                 )
@@ -224,134 +241,150 @@ class KnowledgeRepository:
                 session, source_ids, resource_ids, comment_ids
             )
             if fields.intersection({"source_ids", "resource_ids", "comment_ids"}):
-                _replace_evidence(
-                    session, note_id, source_ids, resource_ids, comment_ids
-                )
+                _replace_evidence(session, note_id, source_ids, resource_ids, comment_ids)
 
             tags = json.loads(row.tags_json)
             row.content_hash = _note_hash(row.title, row.claim, row.body_markdown, tags)
             row.revision += 1
             row.updated_at = now.isoformat()
             session.flush()
+            if "body_markdown" in fields:
+                _sync_markdown_links(session, row.knowledge_note_id, row.body_markdown, now)
             return _to_note(session, row)
 
-    def create_relation(
-        self, payload: KnowledgeRelationCreate, now: datetime
-    ) -> KnowledgeRelationRecord:
+    def create_link(self, payload: KnowledgeLinkCreate, now: datetime) -> KnowledgeLinkRecord:
         with self._session_factory() as session, session.begin():
             _require_note(session, payload.from_note_id)
-            _require_note(session, payload.to_note_id)
+            target = _require_note(session, payload.to_note_id)
             existing = session.scalars(
-                select(KnowledgeRelationRow).where(
-                    KnowledgeRelationRow.from_note_id == payload.from_note_id,
-                    KnowledgeRelationRow.to_note_id == payload.to_note_id,
-                    KnowledgeRelationRow.relation_type == payload.relation_type,
+                select(KnowledgeLinkRow).where(
+                    KnowledgeLinkRow.from_note_id == payload.from_note_id,
+                    KnowledgeLinkRow.to_note_id == payload.to_note_id,
+                    KnowledgeLinkRow.kind == payload.kind,
                 )
             ).first()
             if existing is not None:
-                raise ValueError(
-                    "Knowledge Relation already exists for these notes and type"
-                )
-            row = KnowledgeRelationRow(
-                knowledge_relation_id=f"krel_{uuid.uuid4().hex}",
+                return _to_link(existing)
+            row = KnowledgeLinkRow(
+                knowledge_link_id=f"kln_{uuid.uuid4().hex}",
                 from_note_id=payload.from_note_id,
                 to_note_id=payload.to_note_id,
-                relation_type=payload.relation_type,
-                rationale_markdown=payload.rationale_markdown,
-                status=payload.status,
+                kind=payload.kind,
                 origin=payload.origin,
-                confidence=payload.confidence,
-                revision=1,
                 created_at=now.isoformat(),
-                updated_at=now.isoformat(),
             )
             session.add(row)
+            if payload.kind == "supersedes":
+                target.status = "superseded"
+                target.revision += 1
+                target.updated_at = now.isoformat()
             session.flush()
-            return _to_relation(row)
+            return _to_link(row)
 
-    def get_relation(self, relation_id: str) -> KnowledgeRelationRecord:
-        with self._session_factory() as session:
-            row = session.get(KnowledgeRelationRow, relation_id)
-            if row is None:
-                raise KeyError(relation_id)
-            return _to_relation(row)
-
-    def list_relations(
+    def list_links(
         self,
         *,
         note_id: str | None = None,
-        status: KnowledgeRelationStatus | None = None,
-        relation_type: KnowledgeRelationType | None = None,
+        kind: KnowledgeLinkKind | None = None,
         limit: int = 100,
-    ) -> list[KnowledgeRelationRecord]:
+    ) -> list[KnowledgeLinkRecord]:
         with self._session_factory() as session:
-            statement = select(KnowledgeRelationRow)
+            statement = select(KnowledgeLinkRow)
             if note_id is not None:
                 statement = statement.where(
                     or_(
-                        KnowledgeRelationRow.from_note_id == note_id,
-                        KnowledgeRelationRow.to_note_id == note_id,
+                        KnowledgeLinkRow.from_note_id == note_id,
+                        KnowledgeLinkRow.to_note_id == note_id,
                     )
                 )
-            if status is not None:
-                statement = statement.where(KnowledgeRelationRow.status == status)
-            if relation_type is not None:
-                statement = statement.where(
-                    KnowledgeRelationRow.relation_type == relation_type
-                )
+            if kind is not None:
+                statement = statement.where(KnowledgeLinkRow.kind == kind)
             rows = session.scalars(
-                statement.order_by(KnowledgeRelationRow.updated_at.desc()).limit(limit)
+                statement.order_by(KnowledgeLinkRow.created_at.desc()).limit(limit)
             ).all()
-            return [_to_relation(row) for row in rows]
+            return [_to_link(row) for row in rows]
 
-    def update_relation(
-        self, relation_id: str, payload: KnowledgeRelationUpdate, now: datetime
-    ) -> KnowledgeRelationRecord:
+    def upsert_assessment(
+        self, payload: KnowledgeAssessmentCreate, now: datetime
+    ) -> KnowledgeAssessmentRecord:
         with self._session_factory() as session, session.begin():
-            row = session.get(KnowledgeRelationRow, relation_id)
-            if row is None:
-                raise KeyError(relation_id)
-            if row.revision != payload.expected_revision:
-                raise ValueError(
-                    "Knowledge Relation revision conflict: "
-                    f"expected {payload.expected_revision}, current {row.revision}"
+            _require_note(session, payload.from_note_id)
+            _require_note(session, payload.to_note_id)
+            row = session.scalars(
+                select(KnowledgeAssessmentRow).where(
+                    KnowledgeAssessmentRow.from_note_id == payload.from_note_id,
+                    KnowledgeAssessmentRow.to_note_id == payload.to_note_id,
+                    KnowledgeAssessmentRow.assessment_type == payload.assessment_type,
+                    KnowledgeAssessmentRow.model_id == payload.model_id,
                 )
-            fields = payload.model_fields_set
-            if "rationale_markdown" in fields and payload.rationale_markdown is not None:
-                row.rationale_markdown = payload.rationale_markdown
-            if "status" in fields and payload.status is not None:
-                row.status = payload.status
-            if "confidence" in fields:
-                if row.origin == "human" and payload.confidence is not None:
-                    raise ValueError(
-                        "human Knowledge Relations do not use model confidence"
-                    )
+            ).first()
+            if row is None:
+                row = KnowledgeAssessmentRow(
+                    knowledge_assessment_id=f"kas_{uuid.uuid4().hex}",
+                    from_note_id=payload.from_note_id,
+                    to_note_id=payload.to_note_id,
+                    assessment_type=payload.assessment_type,
+                    explanation_markdown=payload.explanation_markdown,
+                    confidence=payload.confidence,
+                    model_id=payload.model_id,
+                    created_at=now.isoformat(),
+                    updated_at=now.isoformat(),
+                )
+                session.add(row)
+            else:
+                row.explanation_markdown = payload.explanation_markdown
                 row.confidence = payload.confidence
-            row.revision += 1
             row.updated_at = now.isoformat()
             session.flush()
-            return _to_relation(row)
+            return _to_assessment(row)
 
-    def neighborhood(
-        self, note_id: str, include_suggested: bool
-    ) -> KnowledgeNeighborhood:
+    def list_assessments(
+        self,
+        *,
+        note_id: str | None = None,
+        assessment_type: KnowledgeAssessmentType | None = None,
+        limit: int = 100,
+    ) -> list[KnowledgeAssessmentRecord]:
+        with self._session_factory() as session:
+            statement = select(KnowledgeAssessmentRow)
+            if note_id is not None:
+                statement = statement.where(
+                    or_(
+                        KnowledgeAssessmentRow.from_note_id == note_id,
+                        KnowledgeAssessmentRow.to_note_id == note_id,
+                    )
+                )
+            if assessment_type is not None:
+                statement = statement.where(
+                    KnowledgeAssessmentRow.assessment_type == assessment_type
+                )
+            rows = session.scalars(
+                statement.order_by(KnowledgeAssessmentRow.updated_at.desc()).limit(limit)
+            ).all()
+            return [_to_assessment(row) for row in rows]
+
+    def neighborhood(self, note_id: str) -> KnowledgeNeighborhood:
         with self._session_factory() as session:
             center_row = _require_note(session, note_id)
-            relation_statement = select(KnowledgeRelationRow).where(
-                or_(
-                    KnowledgeRelationRow.from_note_id == note_id,
-                    KnowledgeRelationRow.to_note_id == note_id,
-                ),
-                KnowledgeRelationRow.status.in_(
-                    ["confirmed", "suggested"]
-                    if include_suggested
-                    else ["confirmed"]
-                ),
-            )
-            relation_rows = session.scalars(relation_statement).all()
+            link_rows = session.scalars(
+                select(KnowledgeLinkRow).where(
+                    or_(
+                        KnowledgeLinkRow.from_note_id == note_id,
+                        KnowledgeLinkRow.to_note_id == note_id,
+                    )
+                )
+            ).all()
+            assessment_rows = session.scalars(
+                select(KnowledgeAssessmentRow).where(
+                    or_(
+                        KnowledgeAssessmentRow.from_note_id == note_id,
+                        KnowledgeAssessmentRow.to_note_id == note_id,
+                    )
+                )
+            ).all()
             neighbor_ids = {
                 row.to_note_id if row.from_note_id == note_id else row.from_note_id
-                for row in relation_rows
+                for row in [*link_rows, *assessment_rows]
             }
             note_rows = (
                 session.scalars(
@@ -365,7 +398,8 @@ class KnowledgeRepository:
             return KnowledgeNeighborhood(
                 center=_to_note(session, center_row),
                 notes=[_to_note(session, row) for row in note_rows],
-                relations=[_to_relation(row) for row in relation_rows],
+                links=[_to_link(row) for row in link_rows],
+                assessments=[_to_assessment(row) for row in assessment_rows],
             )
 
 
@@ -502,20 +536,68 @@ def _to_note(session: Session, row: KnowledgeNoteRow) -> KnowledgeNoteRecord:
     )
 
 
-def _to_relation(row: KnowledgeRelationRow) -> KnowledgeRelationRecord:
-    return KnowledgeRelationRecord(
-        knowledge_relation_id=row.knowledge_relation_id,
+def _to_link(row: KnowledgeLinkRow) -> KnowledgeLinkRecord:
+    return KnowledgeLinkRecord(
+        knowledge_link_id=row.knowledge_link_id,
         from_note_id=row.from_note_id,
         to_note_id=row.to_note_id,
-        relation_type=row.relation_type,  # type: ignore[arg-type]
-        rationale_markdown=row.rationale_markdown,
-        status=row.status,  # type: ignore[arg-type]
+        kind=row.kind,  # type: ignore[arg-type]
         origin=row.origin,  # type: ignore[arg-type]
+        created_at=datetime.fromisoformat(row.created_at),
+    )
+
+
+def _to_assessment(row: KnowledgeAssessmentRow) -> KnowledgeAssessmentRecord:
+    return KnowledgeAssessmentRecord(
+        knowledge_assessment_id=row.knowledge_assessment_id,
+        from_note_id=row.from_note_id,
+        to_note_id=row.to_note_id,
+        assessment_type=row.assessment_type,  # type: ignore[arg-type]
+        explanation_markdown=row.explanation_markdown,
         confidence=row.confidence,
-        revision=row.revision,
+        model_id=row.model_id,
         created_at=datetime.fromisoformat(row.created_at),
         updated_at=datetime.fromisoformat(row.updated_at),
     )
+
+
+_WIKILINK_PATTERN = re.compile(r"\[\[(kn_[0-9a-f]{32})(?:\|[^\]]+)?\]\]")
+
+
+def extract_knowledge_note_ids(markdown: str) -> list[str]:
+    """Extract stable Atlas wikilinks without depending on a desktop vault."""
+    return list(dict.fromkeys(_WIKILINK_PATTERN.findall(markdown)))
+
+
+def _sync_markdown_links(session: Session, from_note_id: str, markdown: str, now: datetime) -> None:
+    target_ids = {
+        note_id
+        for note_id in extract_knowledge_note_ids(markdown)
+        if note_id != from_note_id and session.get(KnowledgeNoteRow, note_id) is not None
+    }
+    existing = session.scalars(
+        select(KnowledgeLinkRow).where(
+            KnowledgeLinkRow.from_note_id == from_note_id,
+            KnowledgeLinkRow.kind == "related",
+            KnowledgeLinkRow.origin == "markdown",
+        )
+    ).all()
+    existing_by_target = {row.to_note_id: row for row in existing}
+    for target_id, row in existing_by_target.items():
+        if target_id not in target_ids:
+            session.delete(row)
+    for target_id in target_ids - existing_by_target.keys():
+        session.add(
+            KnowledgeLinkRow(
+                knowledge_link_id=f"kln_{uuid.uuid4().hex}",
+                from_note_id=from_note_id,
+                to_note_id=target_id,
+                kind="related",
+                origin="markdown",
+                created_at=now.isoformat(),
+            )
+        )
+    session.flush()
 
 
 def _dump_json(value: object) -> str:

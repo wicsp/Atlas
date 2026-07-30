@@ -78,7 +78,8 @@ See [RFC 0001](rfcs/0001-connected-lumio-agent.md) for the accepted contract and
 
 Introduce only the domain behavior required by the first real pipeline:
 
-- Project (durable WorkItem remains deferred until a real actionable-work UI needs it);
+- execution Project (the later writing workspace is the real actionable UI that adds durable
+  WorkItems);
 - Job and Run separation;
 - append-only Events;
 - ArtifactRef instead of large message bodies;
@@ -87,6 +88,24 @@ Introduce only the domain behavior required by the first real pipeline:
 
 Do not build a generic distributed platform. SQLite and polling are sufficient until measured
 requirements prove otherwise.
+
+## Milestone 7: Knowledge and project writing
+
+**Status:** Implemented on 2026-07-30.
+
+**Outcome:** Materials can become reusable Knowledge Notes, and a human Project can organize
+WorkItems and one or more centrally stored Markdown Documents.
+
+- Console exposes distinct Materials and Project Writing pages.
+- Markdown `[[kn_id|title]]` references create a rebuildable Link/Backlink index.
+- AI support, tension, and duplication are refreshable Assessments rather than user-maintained
+  graph types.
+- Documents use optimistic revisions and explicit immutable snapshots.
+- Markdown remains the sole editable source; PDF, DOCX, LaTeX, and Typst are deferred export
+  adapters.
+
+See [RFC 0019](rfcs/0019-permanent-knowledge-notes.md) and
+[RFC 0020](rfcs/0020-project-writing-workspace.md).
 
 ## Milestone 2.5: Execution Hardening
 

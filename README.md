@@ -52,11 +52,12 @@ an explicit command and is never part of CI.
 ## System boundary
 
 Atlas coordinates and persists server-owned state, generated Resource bytes, human Comments,
-permanent Knowledge Notes, and their confirmed typed Relations. AtlasRunner executes node-local
-work; Lumio provides interactive commands and optional Obsidian projections. Runner-local artifact
-files are caches, while uploaded `atlas://` Artifacts are authoritative. AI may propose draft Notes
-and suggested Relations, but only explicit operator actions can make them authoritative. See
-[RFC 0019](docs/rfcs/0019-permanent-knowledge-notes.md).
+permanent Knowledge Notes, lightweight Links, user Projects, WorkItems, and canonical Markdown
+Documents. AtlasRunner executes node-local work; Lumio provides interactive commands and optional
+Obsidian projections. Runner-local artifact files are caches, while uploaded `atlas://` Artifacts
+are authoritative. AI may propose draft Notes and refreshable Assessments, but does not create
+human-owned graph semantics. See [RFC 0019](docs/rfcs/0019-permanent-knowledge-notes.md) and
+[RFC 0020](docs/rfcs/0020-project-writing-workspace.md).
 
 Runtime configuration, databases, logs, artifacts, credentials, and Obsidian content must never be
 committed.

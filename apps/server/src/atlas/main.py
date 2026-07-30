@@ -20,6 +20,32 @@ from .agents.models import (
     RunnerRegistrationResponse,
 )
 from .agents.service import AgentService, create_agent_service
+from .authoring.models import (
+    DocumentCreate,
+    DocumentRecord,
+    DocumentUpdate,
+    DocumentVersionCreate,
+    DocumentVersionRecord,
+    WorkItemCreate,
+    WorkItemRecord,
+    WorkItemUpdate,
+)
+from .authoring.models import (
+    ProjectCreate as AuthoringProjectCreate,
+)
+from .authoring.models import (
+    ProjectDetail as AuthoringProjectDetail,
+)
+from .authoring.models import (
+    ProjectRecord as AuthoringProjectRecord,
+)
+from .authoring.models import (
+    ProjectStatus as AuthoringProjectStatus,
+)
+from .authoring.models import (
+    ProjectUpdate as AuthoringProjectUpdate,
+)
+from .authoring.service import AuthoringService, create_authoring_service
 from .config import Settings, get_settings
 from .content.models import (
     CommentRecord,
@@ -36,16 +62,17 @@ from .content.models import (
 from .content.service import ContentService, create_content_service
 from .dashboard import DashboardSnapshot, DashboardSnapshotCollector
 from .knowledge.models import (
+    KnowledgeAssessmentCreate,
+    KnowledgeAssessmentRecord,
+    KnowledgeAssessmentType,
+    KnowledgeLinkCreate,
+    KnowledgeLinkKind,
+    KnowledgeLinkRecord,
     KnowledgeNeighborhood,
     KnowledgeNoteCreate,
     KnowledgeNoteRecord,
     KnowledgeNoteStatus,
     KnowledgeNoteUpdate,
-    KnowledgeRelationCreate,
-    KnowledgeRelationRecord,
-    KnowledgeRelationStatus,
-    KnowledgeRelationType,
-    KnowledgeRelationUpdate,
 )
 from .knowledge.service import KnowledgeService, create_knowledge_service
 from .messages.models import MessageAck, MessageClaim, MessageCreate, MessageRecord
@@ -193,6 +220,7 @@ def _message_service(request: Request) -> MessageService:
         request.app.state.message_service = service
     return service
 
+
 def _work_service(request: Request) -> WorkService:
     service = getattr(request.app.state, "work_service", None)
     if service is None:
@@ -232,6 +260,15 @@ def _knowledge_service(request: Request) -> KnowledgeService:
         settings: Settings = request.app.state.settings
         service = create_knowledge_service(settings.work.database_path)
         request.app.state.knowledge_service = service
+    return service
+
+
+def _authoring_service(request: Request) -> AuthoringService:
+    service = getattr(request.app.state, "authoring_service", None)
+    if service is None:
+        settings: Settings = request.app.state.settings
+        service = create_authoring_service(settings.work.database_path)
+        request.app.state.authoring_service = service
     return service
 
 
@@ -653,9 +690,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         artifact = next(
             (
                 candidate
-                for candidate in _work_service(request).list_artifacts(
-                    resource.produced_by_run_id
-                )
+                for candidate in _work_service(request).list_artifacts(resource.produced_by_run_id)
                 if candidate.artifact_id == resource.artifact_id
             ),
             None,
@@ -694,9 +729,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         payload: ArtifactContentUpsert,
     ) -> ArtifactContentRecord:
         try:
-            return _work_service(request).upsert_artifact_content(
-                artifact_id, payload.content
-            )
+            return _work_service(request).upsert_artifact_content(artifact_id, payload.content)
         except KeyError as exc:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -805,9 +838,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     async def list_knowledge_notes(
         request: Request,
-        note_status: Annotated[
-            KnowledgeNoteStatus | None, Query(alias="status")
-        ] = None,
+        note_status: Annotated[KnowledgeNoteStatus | None, Query(alias="status")] = None,
         source_id: str | None = None,
         resource_id: str | None = None,
         comment_id: str | None = None,
@@ -871,12 +902,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def get_knowledge_neighborhood(
         request: Request,
         note_id: str,
-        include_suggested: bool = False,
     ) -> KnowledgeNeighborhood:
         try:
-            return _knowledge_service(request).neighborhood(
-                note_id, include_suggested
-            )
+            return _knowledge_service(request).neighborhood(note_id)
         except KeyError as exc:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -884,16 +912,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ) from exc
 
     @app.post(
-        "/api/knowledge-relations",
-        response_model=KnowledgeRelationRecord,
+        "/api/knowledge-links",
+        response_model=KnowledgeLinkRecord,
         dependencies=[Depends(require_control_auth)],
     )
-    async def create_knowledge_relation(
+    async def create_knowledge_link(
         request: Request,
-        payload: KnowledgeRelationCreate,
-    ) -> KnowledgeRelationRecord:
+        payload: KnowledgeLinkCreate,
+    ) -> KnowledgeLinkRecord:
         try:
-            return _knowledge_service(request).create_relation(payload)
+            return _knowledge_service(request).create_link(payload)
         except KeyError as exc:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -906,65 +934,55 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ) from exc
 
     @app.get(
-        "/api/knowledge-relations",
-        response_model=list[KnowledgeRelationRecord],
+        "/api/knowledge-links",
+        response_model=list[KnowledgeLinkRecord],
         dependencies=[Depends(require_control_auth)],
     )
-    async def list_knowledge_relations(
+    async def list_knowledge_links(
         request: Request,
         note_id: str | None = None,
-        relation_status: Annotated[
-            KnowledgeRelationStatus | None, Query(alias="status")
-        ] = None,
-        relation_type: KnowledgeRelationType | None = None,
+        kind: KnowledgeLinkKind | None = None,
         limit: int = Query(default=100, ge=1, le=500),
-    ) -> list[KnowledgeRelationRecord]:
-        return _knowledge_service(request).list_relations(
+    ) -> list[KnowledgeLinkRecord]:
+        return _knowledge_service(request).list_links(
             note_id=note_id,
-            status=relation_status,
-            relation_type=relation_type,
+            kind=kind,
             limit=limit,
         )
 
-    @app.get(
-        "/api/knowledge-relations/{relation_id}",
-        response_model=KnowledgeRelationRecord,
+    @app.post(
+        "/api/knowledge-assessments",
+        response_model=KnowledgeAssessmentRecord,
         dependencies=[Depends(require_control_auth)],
     )
-    async def get_knowledge_relation(
+    async def upsert_knowledge_assessment(
         request: Request,
-        relation_id: str,
-    ) -> KnowledgeRelationRecord:
+        payload: KnowledgeAssessmentCreate,
+    ) -> KnowledgeAssessmentRecord:
         try:
-            return _knowledge_service(request).get_relation(relation_id)
+            return _knowledge_service(request).upsert_assessment(payload)
         except KeyError as exc:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Knowledge Relation not found",
+                detail="Knowledge Note not found",
             ) from exc
 
-    @app.patch(
-        "/api/knowledge-relations/{relation_id}",
-        response_model=KnowledgeRelationRecord,
+    @app.get(
+        "/api/knowledge-assessments",
+        response_model=list[KnowledgeAssessmentRecord],
         dependencies=[Depends(require_control_auth)],
     )
-    async def update_knowledge_relation(
+    async def list_knowledge_assessments(
         request: Request,
-        relation_id: str,
-        payload: KnowledgeRelationUpdate,
-    ) -> KnowledgeRelationRecord:
-        try:
-            return _knowledge_service(request).update_relation(relation_id, payload)
-        except KeyError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Knowledge Relation not found",
-            ) from exc
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=str(exc),
-            ) from exc
+        note_id: str | None = None,
+        assessment_type: KnowledgeAssessmentType | None = None,
+        limit: int = Query(default=100, ge=1, le=500),
+    ) -> list[KnowledgeAssessmentRecord]:
+        return _knowledge_service(request).list_assessments(
+            note_id=note_id,
+            assessment_type=assessment_type,
+            limit=limit,
+        )
 
     @app.post(
         "/api/review-actions/complete-comment",
@@ -1148,7 +1166,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 detail="Message not found",
             ) from exc
 
-
     # ── Work API (Milestone 2) ──────────────────────────────────
 
     @app.post(
@@ -1200,9 +1217,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         payload: PaperFulltextRequest,
     ) -> PaperFulltextResponse:
         try:
-            return _paper_service(request).fulltext(
-                payload.source_id, payload.preview_resource_id
-            )
+            return _paper_service(request).fulltext(payload.source_id, payload.preview_resource_id)
         except KeyError as exc:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -1334,6 +1349,143 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ) from exc
 
     @app.post(
+        "/api/writing-projects",
+        response_model=AuthoringProjectRecord,
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def create_writing_project(
+        request: Request, payload: AuthoringProjectCreate
+    ) -> AuthoringProjectRecord:
+        return _authoring_service(request).create_project(payload)
+
+    @app.get(
+        "/api/writing-projects",
+        response_model=list[AuthoringProjectRecord],
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def list_writing_projects(
+        request: Request,
+        project_status: Annotated[AuthoringProjectStatus | None, Query(alias="status")] = None,
+        limit: int = Query(default=100, ge=1, le=500),
+    ) -> list[AuthoringProjectRecord]:
+        return _authoring_service(request).list_projects(project_status, limit)
+
+    @app.get(
+        "/api/writing-projects/{project_id}",
+        response_model=AuthoringProjectDetail,
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def get_writing_project(request: Request, project_id: str) -> AuthoringProjectDetail:
+        try:
+            return _authoring_service(request).get_project(project_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Project not found") from exc
+
+    @app.patch(
+        "/api/writing-projects/{project_id}",
+        response_model=AuthoringProjectRecord,
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def update_writing_project(
+        request: Request, project_id: str, payload: AuthoringProjectUpdate
+    ) -> AuthoringProjectRecord:
+        try:
+            return _authoring_service(request).update_project(project_id, payload)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Project not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.post(
+        "/api/work-items",
+        response_model=WorkItemRecord,
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def create_work_item(request: Request, payload: WorkItemCreate) -> WorkItemRecord:
+        try:
+            return _authoring_service(request).create_work_item(payload)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Project or Document not found") from exc
+
+    @app.patch(
+        "/api/work-items/{work_item_id}",
+        response_model=WorkItemRecord,
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def update_work_item(
+        request: Request, work_item_id: str, payload: WorkItemUpdate
+    ) -> WorkItemRecord:
+        try:
+            return _authoring_service(request).update_work_item(work_item_id, payload)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="WorkItem not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.post(
+        "/api/documents",
+        response_model=DocumentRecord,
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def create_document(request: Request, payload: DocumentCreate) -> DocumentRecord:
+        try:
+            return _authoring_service(request).create_document(payload)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Project not found") from exc
+
+    @app.get(
+        "/api/documents/{document_id}",
+        response_model=DocumentRecord,
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def get_document(request: Request, document_id: str) -> DocumentRecord:
+        try:
+            return _authoring_service(request).get_document(document_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Document not found") from exc
+
+    @app.patch(
+        "/api/documents/{document_id}",
+        response_model=DocumentRecord,
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def update_document(
+        request: Request, document_id: str, payload: DocumentUpdate
+    ) -> DocumentRecord:
+        try:
+            return _authoring_service(request).update_document(document_id, payload)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Document not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.post(
+        "/api/documents/{document_id}/versions",
+        response_model=DocumentVersionRecord,
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def create_document_version(
+        request: Request, document_id: str, payload: DocumentVersionCreate
+    ) -> DocumentVersionRecord:
+        try:
+            return _authoring_service(request).create_version(document_id, payload)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Document not found") from exc
+
+    @app.get(
+        "/api/documents/{document_id}/versions",
+        response_model=list[DocumentVersionRecord],
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def list_document_versions(
+        request: Request, document_id: str
+    ) -> list[DocumentVersionRecord]:
+        try:
+            return _authoring_service(request).list_versions(document_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Document not found") from exc
+
+    @app.post(
         "/api/projects",
         response_model=ProjectRecord,
         dependencies=[Depends(require_agent_auth)],
@@ -1445,9 +1597,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 run_id, payload, idempotency_key=idempotency_key
             )
             if completed.workflow_invocation_id:
-                _workflow_service(request).get_invocation(
-                    completed.workflow_invocation_id
-                )
+                _workflow_service(request).get_invocation(completed.workflow_invocation_id)
             return completed
         except KeyError as exc:
             raise HTTPException(
@@ -1473,9 +1623,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         payload.agent_id = agent.agent_id
         idempotency_key = request.headers.get("Idempotency-Key")
         try:
-            failed = _work_service(request).fail(
-                run_id, payload, idempotency_key=idempotency_key
-            )
+            failed = _work_service(request).fail(run_id, payload, idempotency_key=idempotency_key)
             if failed.workflow_invocation_id:
                 _workflow_service(request).get_invocation(failed.workflow_invocation_id)
             return failed
@@ -1568,6 +1716,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     async def list_run_artifacts(request: Request, run_id: str) -> list[ArtifactRef]:
         return _work_service(request).list_artifacts(run_id)
+
     @app.get(
         "/api/system/summary",
         response_model=SystemSummary,

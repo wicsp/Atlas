@@ -6,16 +6,17 @@ from pathlib import Path
 from atlas.db.session import create_sqlite_session_factory
 
 from .models import (
+    KnowledgeAssessmentCreate,
+    KnowledgeAssessmentRecord,
+    KnowledgeAssessmentType,
+    KnowledgeLinkCreate,
+    KnowledgeLinkKind,
+    KnowledgeLinkRecord,
     KnowledgeNeighborhood,
     KnowledgeNoteCreate,
     KnowledgeNoteRecord,
     KnowledgeNoteStatus,
     KnowledgeNoteUpdate,
-    KnowledgeRelationCreate,
-    KnowledgeRelationRecord,
-    KnowledgeRelationStatus,
-    KnowledgeRelationType,
-    KnowledgeRelationUpdate,
 )
 from .repository import KnowledgeRepository
 
@@ -49,49 +50,47 @@ class KnowledgeService:
             limit=limit,
         )
 
-    def update_note(
-        self, note_id: str, payload: KnowledgeNoteUpdate
-    ) -> KnowledgeNoteRecord:
+    def update_note(self, note_id: str, payload: KnowledgeNoteUpdate) -> KnowledgeNoteRecord:
         return self._repository.update_note(note_id, payload, _now())
 
-    def create_relation(
-        self, payload: KnowledgeRelationCreate
-    ) -> KnowledgeRelationRecord:
-        return self._repository.create_relation(payload, _now())
+    def create_link(self, payload: KnowledgeLinkCreate) -> KnowledgeLinkRecord:
+        return self._repository.create_link(payload, _now())
 
-    def get_relation(self, relation_id: str) -> KnowledgeRelationRecord:
-        return self._repository.get_relation(relation_id)
-
-    def list_relations(
+    def list_links(
         self,
         *,
         note_id: str | None = None,
-        status: KnowledgeRelationStatus | None = None,
-        relation_type: KnowledgeRelationType | None = None,
+        kind: KnowledgeLinkKind | None = None,
         limit: int = 100,
-    ) -> list[KnowledgeRelationRecord]:
-        return self._repository.list_relations(
+    ) -> list[KnowledgeLinkRecord]:
+        return self._repository.list_links(
             note_id=note_id,
-            status=status,
-            relation_type=relation_type,
+            kind=kind,
             limit=limit,
         )
 
-    def update_relation(
-        self, relation_id: str, payload: KnowledgeRelationUpdate
-    ) -> KnowledgeRelationRecord:
-        return self._repository.update_relation(relation_id, payload, _now())
+    def upsert_assessment(self, payload: KnowledgeAssessmentCreate) -> KnowledgeAssessmentRecord:
+        return self._repository.upsert_assessment(payload, _now())
 
-    def neighborhood(
-        self, note_id: str, include_suggested: bool = False
-    ) -> KnowledgeNeighborhood:
-        return self._repository.neighborhood(note_id, include_suggested)
+    def list_assessments(
+        self,
+        *,
+        note_id: str | None = None,
+        assessment_type: KnowledgeAssessmentType | None = None,
+        limit: int = 100,
+    ) -> list[KnowledgeAssessmentRecord]:
+        return self._repository.list_assessments(
+            note_id=note_id,
+            assessment_type=assessment_type,
+            limit=limit,
+        )
+
+    def neighborhood(self, note_id: str) -> KnowledgeNeighborhood:
+        return self._repository.neighborhood(note_id)
 
 
 def create_knowledge_service(database_path: Path) -> KnowledgeService:
-    return KnowledgeService(
-        KnowledgeRepository(create_sqlite_session_factory(database_path))
-    )
+    return KnowledgeService(KnowledgeRepository(create_sqlite_session_factory(database_path)))
 
 
 def _now() -> datetime:

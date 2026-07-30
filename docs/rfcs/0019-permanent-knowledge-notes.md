@@ -1,4 +1,4 @@
-# RFC 0019: Permanent Knowledge Notes and typed relations
+# RFC 0019: Permanent Knowledge Notes, links, and assessments
 
 - **Status:** Accepted
 - **Owner:** Atlas
@@ -12,7 +12,10 @@ Atlas distinguishes contextual review from permanent personal knowledge:
   attached to the reviewed material.
 - A `KnowledgeNote` is an independently readable, atomic unit of personal knowledge. It can cite
   any number of Sources, Resources, and Comments as evidence.
-- A `KnowledgeRelation` is a directed, typed, explainable edge between two Knowledge Notes.
+- A `KnowledgeLink` is a durable connection between two Knowledge Notes. Ordinary links are
+  inferred from stable Markdown wikilinks.
+- A `KnowledgeAssessment` is a refreshable AI interpretation such as support, tension, or likely
+  duplication. It is advisory rather than part of the authoritative graph.
 - The existing `KnowledgeRef` remains a compatibility record for Comment provenance and external
   note locations. It is not the permanent knowledge unit.
 
@@ -30,31 +33,15 @@ Knowledge Note status is one of:
 - `superseded`: retained for history but replaced by a newer note;
 - `archived`: no longer part of the active knowledge system.
 
-Relations use:
+AI-origin Notes must start as `draft`. The user does not classify every connection while writing.
+Durable links therefore have only two kinds:
 
-- `suggested`: a candidate edge awaiting human judgment;
-- `confirmed`: part of the authoritative knowledge graph;
-- `rejected`: retained so the same weak suggestion need not be rediscovered.
+- `related`: inferred from `[[kn_<id>|label]]` or explicitly added by a human;
+- `supersedes`: an explicit human lifecycle decision that marks the older Note superseded.
 
-AI-origin Notes must start as `draft`. AI-origin Relations must start as `suggested`. AI therefore
-may discover and explain candidate structure, but it cannot publish permanent knowledge or graph
-edges without an operator action.
-
-## Relation vocabulary
-
-The first version supports directed relations:
-
-- `supports`
-- `contradicts`
-- `extends`
-- `refines`
-- `example_of`
-- `applies_to`
-- `supersedes`
-- `related_to`
-
-Every relation requires a Markdown rationale. A graph edge is therefore inspectable evidence, not
-only a similarity score.
+AI may refresh `supports`, `tension`, and `duplicate` assessments with a model ID, explanation, and
+confidence. Re-running a model replaces its assessment for the same pair and type; it does not
+change the durable graph.
 
 ## Evidence integrity
 
@@ -72,16 +59,17 @@ Atlas exposes control-authenticated endpoints:
 - `GET /api/knowledge-notes/{note_id}`
 - `PATCH /api/knowledge-notes/{note_id}`
 - `GET /api/knowledge-notes/{note_id}/neighborhood`
-- `POST /api/knowledge-relations`
-- `GET /api/knowledge-relations`
-- `GET /api/knowledge-relations/{relation_id}`
-- `PATCH /api/knowledge-relations/{relation_id}`
+- `POST /api/knowledge-links`
+- `GET /api/knowledge-links`
+- `POST /api/knowledge-assessments`
+- `GET /api/knowledge-assessments`
 
-The neighborhood endpoint returns one-hop confirmed relations by default. Clients may explicitly
-include suggested relations for review.
+The neighborhood endpoint returns one-hop durable links and advisory assessments in separate
+collections so a client cannot accidentally present model interpretation as human-owned structure.
 
 ## Deferred work
 
 This RFC does not select an embedding model, vector index, reranker, automatic Claim extractor, or
 global graph visualization. Retrieval will be a discovery layer over this authoritative model:
-semantic similarity proposes candidates, while confirmed typed Relations remain the durable graph.
+semantic similarity proposes Notes and refreshes Assessments, while Markdown links remain the
+durable graph.

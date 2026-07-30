@@ -34,7 +34,7 @@ The Console is an optional client: Atlas and Lumio continue to operate when it i
 | launchd/systemd units | Describe runtime requirements | Run as provisioned | No | Own |
 | Secret values | No | No | No | Reference secret store only |
 | Large files | Artifact references only | Produce/consume | Capture/project | Provision storage paths |
-| Human-authored comments | Own explicit completed copies | Create/read granted local drafts | Own direct editing interaction | Provision applications/paths |
+| Human comments and knowledge | Own authoritative copies | Read granted inputs | Optional interaction/projection | Provision applications/paths |
 | Source/Resource provenance | Own metadata and lifecycle | Acquire/derive | Project/read | Provision paths only |
 | Resource review Console | Expose narrow APIs | Execute granted Mac-local mutations | Direct user interaction | Provision private service |
 
@@ -52,7 +52,7 @@ Atlas is the control plane. The data plane remains distributed:
 | --- | --- |
 | Source code and Markdown history | Git repositories |
 | Bibliography, PDFs, PDF annotations | Zotero and its configured sync |
-| Human knowledge comments | Obsidian-compatible Markdown vault |
+| Human comments, Knowledge Notes, and project Markdown | Atlas |
 | Video, transcript, and generated resource files | File or object storage |
 | Checkpoints and large experiment outputs | AMAX or object storage |
 | Embedding and search indexes | Rebuildable AMAX-local storage |
@@ -84,8 +84,9 @@ and needs measured evidence plus a separate RFC.
 
 These objects are deliberately distinct:
 
-- **Project**: a bounded context for ongoing work.
+- **Project**: a human goal-oriented context for producing an outcome.
 - **WorkItem**: something actionable that needs progress, review, or a decision.
+- **Document**: the canonical Markdown output of a Project.
 - **Job**: a schedulable request to perform work.
 - **Run**: one concrete execution attempt for a job.
 - **Event**: an append-only fact that already happened.
@@ -97,6 +98,9 @@ These objects are deliberately distinct:
   no prose field.
 - **Comment**: an explicitly completed human-authored Markdown snapshot synchronized to Atlas and
   linked through a KnowledgeRef.
+- **KnowledgeNote**: an atomic, reusable unit of personal knowledge.
+- **KnowledgeLink**: a durable Markdown-derived connection, or explicit supersession.
+- **KnowledgeAssessment**: a refreshable AI interpretation of support, tension, or duplication.
 - **Node**: a device or host.
 - **Agent**: a process capable of interacting with Atlas.
 
@@ -138,8 +142,9 @@ human-owned. Lumio may create an empty KnowledgeComment template only after `/at
 same path is then protected from overwrite. Atlas accepts only `note_id`, URI, evidence IDs, and an
 optional revision reference in KnowledgeRef requests, and rejects unknown prose fields.
 
-Confirmed knowledge relations use explicit types such as `supports`, `contradicts`, `revises`,
-`extends`, `questions`, and `inspired_by`. AI can propose; a human confirms.
+People link Notes while writing without classifying every edge. Ordinary Markdown links and
+explicit supersession are durable. AI support, tension, and duplication results are advisory
+Assessments and never become graph authority merely because similarity is high.
 
 ## Configuration boundary
 
