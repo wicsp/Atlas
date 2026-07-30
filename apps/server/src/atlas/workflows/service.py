@@ -18,17 +18,29 @@ from .models import (
 )
 from .repository import WorkflowRepository
 
+RETIRED_WORKFLOWS = (
+    ("vortex.comment", "1"),
+    ("vortex.comment-sync", "1"),
+    ("vortex.resource-purge", "1"),
+)
+
 
 class WorkflowService:
     def __init__(self, repository: WorkflowRepository, work: WorkService) -> None:
         self._repository = repository
         self._work = work
+        for name, version in RETIRED_WORKFLOWS:
+            self._repository.delete_definition(name, version)
         for definition in BUILTIN_WORKFLOWS:
             self.register_definition(definition)
 
     def register_definition(
         self, definition: WorkflowDefinitionCreate
     ) -> WorkflowDefinitionRecord:
+        if (definition.name, definition.version) in RETIRED_WORKFLOWS:
+            raise ValueError(
+                f"workflow {definition.name}@{definition.version} has been retired"
+            )
         digest = hashlib.sha256(
             definition.model_dump_json().encode()
         ).hexdigest()

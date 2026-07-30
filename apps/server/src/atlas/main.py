@@ -58,15 +58,12 @@ from .review.ignore import (
 from .review.models import (
     CommentCompleteRequest,
     CommentCompleteResponse,
-    CommentRequest,
-    CommentRequestResponse,
-    CommentSyncRequestResponse,
     ComparisonRequestResponse,
+    ResourceActionRequest,
     ResourceIgnoreRequest,
     ResourceIgnoreResponse,
 )
 from .review.service import (
-    ResourceAlreadyCommentedError,
     ReviewService,
     UnsupportedReviewResourceError,
 )
@@ -252,7 +249,6 @@ def _resource_ignore_service(request: Request) -> ResourceIgnoreService:
         settings: Settings = request.app.state.settings
         service = create_resource_ignore_service(
             settings.work.database_path,
-            _work_service(request),
         )
         request.app.state.resource_ignore_service = service
     return service
@@ -759,50 +755,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     @app.post(
-        "/api/review-actions/comment",
-        response_model=CommentRequestResponse,
-        dependencies=[Depends(require_control_auth)],
-    )
-    async def request_resource_comment(
-        request: Request,
-        payload: CommentRequest,
-    ) -> CommentRequestResponse:
-        try:
-            return _review_service(request).request_comment(payload.resource_id)
-        except KeyError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Resource not found",
-            ) from exc
-        except (ResourceAlreadyCommentedError, UnsupportedReviewResourceError) as exc:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=str(exc),
-            ) from exc
-
-    @app.post(
-        "/api/review-actions/sync-comment",
-        response_model=CommentSyncRequestResponse,
-        dependencies=[Depends(require_control_auth)],
-    )
-    async def request_comment_sync(
-        request: Request,
-        payload: CommentRequest,
-    ) -> CommentSyncRequestResponse:
-        try:
-            return _review_service(request).request_comment_sync(payload.resource_id)
-        except KeyError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Resource not found",
-            ) from exc
-        except UnsupportedReviewResourceError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=str(exc),
-            ) from exc
-
-    @app.post(
         "/api/review-actions/complete-comment",
         response_model=CommentCompleteResponse,
         dependencies=[Depends(require_control_auth)],
@@ -840,7 +792,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     async def request_resource_comparison(
         request: Request,
-        payload: CommentRequest,
+        payload: ResourceActionRequest,
     ) -> ComparisonRequestResponse:
         try:
             return _review_service(request).request_comparison(payload.resource_id)

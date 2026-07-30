@@ -199,24 +199,6 @@ export function groupResourcesBySource(
     );
 }
 
-export function latestCommentRunsByResource(
-  runs: RunRecord[],
-): Record<string, RunRecord> {
-  const latest: Record<string, RunRecord> = {};
-  const ordered = [...runs].sort((left, right) =>
-    newestFirst(left, right, left.run_id, right.run_id),
-  );
-
-  for (const run of ordered) {
-    if (!["vortex-comment-v1", "vortex-comment-sync-v1"].includes(run.job_name)) continue;
-    const resourceId = run.input.resource_id;
-    if (typeof resourceId === "string" && !latest[resourceId]) {
-      latest[resourceId] = run;
-    }
-  }
-  return latest;
-}
-
 export function isActiveRun(run: RunRecord | undefined): boolean {
   return (
     run?.status === "blocked"

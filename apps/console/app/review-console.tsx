@@ -5,7 +5,6 @@ import {
   groupResourcesBySource,
   isActiveRun,
   isPaperPreview,
-  latestCommentRunsByResource,
   paperFulltextRunForPreview,
   paperFulltextForPreview,
   type CommentRecord,
@@ -37,7 +36,6 @@ interface WorkRequestResponse {
 interface ResourceIgnoreResponse {
   resource: ResourceRecord;
   evicted_resource_ids: string[];
-  cleanup_runs: RunRecord[];
 }
 
 interface WorkflowInvocation {
@@ -144,27 +142,6 @@ function sourceKindLabel(kind: SourceRecord["kind"] | undefined): string {
 
 function statusLabel(status: ReviewStatus): string {
   return { pending: "待判断", reviewed: "已评论", dismissed: "已忽略" }[status];
-}
-
-function runLabel(run: RunRecord): string {
-  if (run.job_name === "vortex-comment-sync-v1") {
-    return {
-      pending: "等待同步评论",
-      claimed: "正在同步评论",
-      blocked: "等待前置步骤",
-      completed: "评论已同步",
-      failed: "评论同步失败",
-      cancelled: "同步已取消",
-    }[run.status];
-  }
-  return {
-    blocked: "等待前置步骤",
-    pending: "等待 Mac Lumio",
-    claimed: "正在创建评论",
-    completed: "评论已创建",
-    failed: "评论创建失败",
-    cancelled: "请求已取消",
-  }[run.status];
 }
 
 function paperRunMessage(run: RunRecord): string {
@@ -304,14 +281,12 @@ export function ReviewConsole() {
       });
       setLastUpdated(new Date());
 
-      const latest = latestCommentRunsByResource(nextRuns);
       setFeedback((current) => {
         const updated = { ...current };
         for (const [resourceId, entry] of Object.entries(current)) {
           if (!entry.runId) continue;
-          const run = nextRuns.find((candidate) => candidate.run_id === entry.runId)
-            ?? latest[resourceId];
-          if (!run || run.run_id !== entry.runId) continue;
+          const run = nextRuns.find((candidate) => candidate.run_id === entry.runId);
+          if (!run) continue;
           if (run.workflow?.name === "paper.fulltext" || run.workflow?.name === "paper.ingest") {
             updated[resourceId] = {
               tone:
@@ -326,25 +301,17 @@ export function ReviewConsole() {
             continue;
           }
           const comparison = run.job_name === "vortex-comparison-v1";
-          const commentSync = run.job_name === "vortex-comment-sync-v1";
+          if (!comparison) continue;
           if (run.status === "pending") {
             updated[resourceId] = {
               tone: "progress",
-              message: comparison
-                ? "正在等待在线的 Mac Lumio 领取候选关系检查…"
-                : commentSync
-                  ? "正在等待在线的 Mac Lumio 读取并同步本地评论…"
-                : "正在等待在线的 Mac Lumio 领取评论任务…",
+              message: "正在等待在线的 Mac Runner 领取候选关系检查…",
               runId: run.run_id,
             };
           } else if (run.status === "claimed") {
             updated[resourceId] = {
               tone: "progress",
-              message: comparison
-                ? "Lumio 已领取；正在比较 Resource 与已写评论…"
-                : commentSync
-                  ? "Lumio 已领取；正在校验并上传本地 Markdown…"
-                : "Lumio 已领取；正在创建空白评论并登记引用…",
+              message: "Runner 已领取；正在比较 Resource 与已写评论…",
               runId: run.run_id,
             };
           } else {
@@ -352,12 +319,8 @@ export function ReviewConsole() {
               tone: run.status === "completed" ? "success" : "error",
               message:
                 run.status === "completed"
-                  ? comparison
-                    ? "观点对比已生成；可直接点击“查看对比”。"
-                    : commentSync
-                      ? "评论正文已同步到 Atlas，Resource 已标记为已评论。"
-                    : "空白评论已创建；可通过“已有你的评论”重新打开。"
-                  : run.error_message || runLabel(run),
+                  ? "观点对比已生成；可直接点击“查看对比”。"
+                  : run.error_message || "观点对比失败。",
               runId: run.run_id,
             };
           }
@@ -404,7 +367,6 @@ export function ReviewConsole() {
     };
   }, [loadReviewData]);
 
-  const latestRuns = useMemo(() => latestCommentRunsByResource(runs), [runs]);
   const hasActiveRuns = runs.some(isActiveRun);
   const onlineRunnerCount = runners.filter((runner) => runner.online).length;
   const executingRunCount = recentRuns.filter((run) => run.status === "claimed").length;
@@ -552,13 +514,6 @@ export function ReviewConsole() {
             resource.resource_id === resourceId ? result.resource : resource,
           ),
       );
-      if (result.cleanup_runs.length > 0) {
-        const cleanupIds = new Set(result.cleanup_runs.map((run) => run.run_id));
-        setRuns((current) => [
-          ...result.cleanup_runs,
-          ...current.filter((run) => !cleanupIds.has(run.run_id)),
-        ]);
-      }
       setFeedback((current) => ({
         ...current,
         [resourceId]: {
@@ -1186,7 +1141,6 @@ export function ReviewConsole() {
                   const knowledge = knowledgeByResource.get(resource.resource_id);
                   const comment = commentByResource.get(resource.resource_id);
                   const comparison = comparisonByResource.get(resource.resource_id);
-                  const run = latestRuns[resource.resource_id];
                   const activeComparison = runs.find((candidate) =>
                     candidate.job_name === "vortex-comparison-v1"
                     && candidate.input.resource_id === resource.resource_id
@@ -1295,21 +1249,6 @@ export function ReviewConsole() {
                             </div>
                             {knowledge.uri.startsWith("obsidian:") ? (
                               <a href={knowledge.uri}>在 Obsidian 打开</a>
-                            ) : null}
-                          </div>
-                        ) : null}
-
-                        {run ? (
-                          <div className={`run-strip run-${run.status}`}>
-                            <span className="run-indicator" aria-hidden="true" />
-                            <div>
-                              <strong>{runLabel(run)}</strong>
-                              <small>
-                                {shortId(run.run_id)} · attempt {run.attempt_number}/{run.max_attempts}
-                              </small>
-                            </div>
-                            {run.status === "failed" && run.error_message ? (
-                              <span>{run.error_message}</span>
                             ) : null}
                           </div>
                         ) : null}

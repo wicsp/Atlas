@@ -12,18 +12,13 @@ class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class CommentRequest(StrictModel):
+class ResourceActionRequest(StrictModel):
     resource_id: str = Field(pattern=_RESOURCE_ID_PATTERN)
 
     @field_validator("resource_id")
     @classmethod
     def strip_resource_id(cls, value: str) -> str:
         return value.strip()
-
-
-class CommentRequestResponse(StrictModel):
-    run: RunRecord
-    reused: bool
 
 
 class ComparisonRequestResponse(StrictModel):
@@ -51,15 +46,9 @@ class CommentCompleteResponse(StrictModel):
     comment: CommentRecord
 
 
-class CommentSyncRequestResponse(StrictModel):
-    run: RunRecord
-    reused: bool
-
-
 class ResourceIgnoreResponse(StrictModel):
     resource: ResourceRecord
     evicted_resource_ids: list[str]
-    cleanup_runs: list[RunRecord]
 
 
 class ResourceIgnoreRequest(StrictModel):

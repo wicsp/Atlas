@@ -5,7 +5,6 @@ import {
   commentNoteUri,
   groupResourcesBySource,
   isActiveRun,
-  latestCommentRunsByResource,
   paperFulltextRunForPreview,
   paperFulltextForPreview,
 } from "../app/review-model.ts";
@@ -103,22 +102,6 @@ test("keeps referenced history and parallel declared analysis profiles", () => {
     groups[0].resources.map((item) => item.resource_id),
     ["res_analysis0", "res_newer000", "res_older000"],
   );
-});
-
-test("tracks only the newest comment run for each Resource", () => {
-  const pending = run("run_old", "res_one000", "2026-07-15T11:00:00Z", "pending");
-  const claimed = {
-    ...run("run_new", "res_one000", "2026-07-16T11:00:00Z", "claimed"),
-    job_name: "vortex-comment-sync-v1",
-    capabilities_required: ["vortex-comment-sync-v1"],
-  };
-  const unrelated = { ...pending, run_id: "run_other", job_name: "other-job" };
-
-  const latest = latestCommentRunsByResource([pending, unrelated, claimed]);
-
-  assert.equal(latest.res_one000.run_id, "run_new");
-  assert.equal(isActiveRun(latest.res_one000), true);
-  assert.equal(isActiveRun({ ...claimed, status: "completed" }), false);
 });
 
 test("links a paper preview to its full-text Resource and workflow", () => {

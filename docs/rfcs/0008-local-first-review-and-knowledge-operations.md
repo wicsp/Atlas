@@ -1,6 +1,6 @@
 # RFC 0008: Local-first review and knowledge operations
 
-- **Status:** Implemented
+- **Status:** Superseded by RFC 0018
 - **Decision date:** 2026-07-20
 - **Owners:** Atlas, Atlas Console, and Lumio
 - **Protocol:** `atlas-agent-v3` (unchanged)

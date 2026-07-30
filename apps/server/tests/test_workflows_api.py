@@ -151,18 +151,37 @@ def test_local_review_and_web_workflows_are_builtin(tmp_path: Path) -> None:
         "zotero-library:read"
     ]
     assert accepted["steps"][2]["depends_on"] == ["extract"]
-    assert workflows[("vortex.comment", "1")]["steps"][0]["requirements"][
-        "grants"
-    ] == ["obsidian-vault:write"]
-    assert workflows[("vortex.comment-sync", "1")]["steps"][0]["requirements"][
-        "grants"
-    ] == ["obsidian-vault:read", "atlas-control:write"]
+    assert ("vortex.comment", "1") not in workflows
+    assert ("vortex.comment-sync", "1") not in workflows
     assert workflows[("vortex.comparison", "1")]["steps"][0]["requirements"][
         "executors"
     ] == ["pi"]
-    assert workflows[("vortex.resource-purge", "1")]["steps"][0]["requirements"][
-        "grants"
-    ] == ["artifact-store:delete", "obsidian-vault:write"]
+    assert ("vortex.resource-purge", "1") not in workflows
+
+
+def test_retired_comment_workflows_cannot_be_registered_or_invoked(
+    tmp_path: Path,
+) -> None:
+    control = make_client(tmp_path)
+    retired = {
+        "name": "vortex.comment",
+        "version": "1",
+        "project_id": "resource-review",
+        "steps": [{"name": "setup"}],
+    }
+    registration = control.post("/api/workflows", json=retired)
+    invocation = control.post(
+        "/api/workflow-invocations",
+        json={
+            "workflow_name": "vortex.comment",
+            "workflow_version": "1",
+            "input": {"resource_id": "res_12345678"},
+        },
+    )
+
+    assert registration.status_code == 409
+    assert "retired" in registration.json()["detail"]
+    assert invocation.status_code == 404
 
 
 def test_invocation_expands_steps_and_unblocks_dependency_with_context(tmp_path: Path) -> None:

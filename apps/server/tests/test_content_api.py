@@ -420,9 +420,21 @@ def test_content_endpoints_require_control_auth(atlas_app: FastAPI) -> None:
     assert client.get("/api/resources").status_code == 401
     assert client.get("/api/knowledge-refs").status_code == 401
     assert client.post(
-        "/api/review-actions/comment",
-        json={"resource_id": "res_12345678"},
+        "/api/review-actions/complete-comment",
+        json={"resource_id": "res_12345678", "body_markdown": "comment"},
     ).status_code == 401
+
+
+def test_retired_comment_request_endpoints_are_absent(
+    dashboard_client: TestClient,
+) -> None:
+    payload = {"resource_id": "res_12345678"}
+    assert dashboard_client.post(
+        "/api/review-actions/comment", json=payload
+    ).status_code == 404
+    assert dashboard_client.post(
+        "/api/review-actions/sync-comment", json=payload
+    ).status_code == 404
 
 
 def test_completion_atomically_publishes_resources_and_is_idempotent(
@@ -685,13 +697,7 @@ def test_ignore_list_keeps_ten_and_permanently_cleans_oldest(
     assert last_ignore is not None
     result = last_ignore.json()
     assert result["evicted_resource_ids"] == [resource_ids[0]]
-    assert len(result["cleanup_runs"]) == 1
-    cleanup = result["cleanup_runs"][0]
-    assert cleanup["job_name"] == "vortex-resource-purge-v1"
-    assert cleanup["metadata"]["requested_via"] == "ignored-resource-retention"
-    expired = cleanup["input"]["resources"][0]
-    assert expired["resource_id"] == resource_ids[0]
-    assert expired["remove_comment"] is True
+    assert "cleanup_runs" not in result
 
     assert dashboard_client.get(f"/api/resources/{resource_ids[0]}").status_code == 404
     ignored = dashboard_client.get(
@@ -765,101 +771,6 @@ def test_knowledge_ref_upsert_preserves_identity(
     assert second.status_code == 200, second.text
     assert first.json()["knowledge_ref_id"] == second.json()["knowledge_ref_id"]
     assert len(control_client.get("/api/knowledge-refs").json()) == 1
-
-
-def test_comment_request_enqueues_only_fixed_capability_and_reuses_active_run(
-    control_client: TestClient,
-    scoped_client: TestClient,
-    dashboard_client: TestClient,
-) -> None:
-    _, publication = _publish_content(control_client, scoped_client)
-    resource_id = publication["resources"][1]["resource_id"]
-
-    first = dashboard_client.post(
-        "/api/review-actions/comment",
-        json={"resource_id": resource_id},
-    )
-    second = dashboard_client.post(
-        "/api/review-actions/comment",
-        json={"resource_id": resource_id},
-    )
-
-    assert first.status_code == 200, first.text
-    assert second.status_code == 200, second.text
-    assert first.json()["reused"] is False
-    assert second.json()["reused"] is True
-    assert second.json()["run"]["run_id"] == first.json()["run"]["run_id"]
-
-    run = first.json()["run"]
-    assert run["project_id"] == "resource-review"
-    assert run["job_name"] == "vortex-comment-v1"
-    assert run["capabilities_required"] == []
-    assert run["input"]["resource_id"] == resource_id
-    assert run["input"]["bundle"]["resource"]["resource_id"] == resource_id
-    assert run["workflow"]["name"] == "vortex.comment"
-    assert run["step_name"] == "setup"
-    assert run["requirements"]["grants"] == ["obsidian-vault:write"]
-    assert run["priority"] == 100
-    assert run["metadata"] == {"requested_via": "atlas-console"}
-    assert run["output"] is None
-
-    visible = dashboard_client.get(f"/api/runs/{run['run_id']}")
-    assert visible.status_code == 200, visible.text
-    assert visible.json() == run
-
-
-def test_comment_request_rejects_prose_and_non_summary_resources(
-    control_client: TestClient,
-    scoped_client: TestClient,
-    dashboard_client: TestClient,
-) -> None:
-    _, publication = _publish_content(control_client, scoped_client)
-    transcript_id = publication["resources"][0]["resource_id"]
-    summary_id = publication["resources"][1]["resource_id"]
-
-    prose = dashboard_client.post(
-        "/api/review-actions/comment",
-        json={"resource_id": summary_id, "body": "machine-authored prose"},
-    )
-    transcript = dashboard_client.post(
-        "/api/review-actions/comment",
-        json={"resource_id": transcript_id},
-    )
-
-    assert prose.status_code == 422
-    assert transcript.status_code == 409, transcript.text
-    assert "summary Resource" in transcript.json()["detail"]
-    assert dashboard_client.get("/api/runs?project_id=resource-review").json() == []
-
-
-def test_comment_request_conflicts_when_human_comment_already_exists(
-    control_client: TestClient,
-    scoped_client: TestClient,
-    dashboard_client: TestClient,
-) -> None:
-    _, publication = _publish_content(control_client, scoped_client)
-    resource_id = publication["resources"][1]["resource_id"]
-    knowledge_ref = control_client.post(
-        "/api/knowledge-refs",
-        json={
-            "note_id": "Knowledge/Comments/already-commented",
-            "uri": (
-                "obsidian://open?vault=Vortex&file="
-                "Knowledge%2FComments%2Falready-commented"
-            ),
-            "resource_ids": [resource_id],
-        },
-    )
-    assert knowledge_ref.status_code == 200, knowledge_ref.text
-
-    response = dashboard_client.post(
-        "/api/review-actions/comment",
-        json={"resource_id": resource_id},
-    )
-
-    assert response.status_code == 409, response.text
-    assert "already has KnowledgeRef" in response.json()["detail"]
-    assert dashboard_client.get("/api/runs?project_id=resource-review").json() == []
 
 
 def test_complete_comment_stores_markdown_and_marks_reviewed(
@@ -937,35 +848,6 @@ def test_complete_comment_requires_valid_content_and_summary_resource(
     assert missing_body.status_code == 422
     assert hash_mismatch.status_code == 422
     assert transcript.status_code == 409
-
-
-def test_comment_sync_request_enqueues_fixed_capability_and_reuses_active_run(
-    control_client: TestClient,
-    scoped_client: TestClient,
-    dashboard_client: TestClient,
-) -> None:
-    _, publication = _publish_content(control_client, scoped_client)
-    resource_id = publication["resources"][1]["resource_id"]
-
-    first = dashboard_client.post(
-        "/api/review-actions/sync-comment", json={"resource_id": resource_id}
-    )
-    replay = dashboard_client.post(
-        "/api/review-actions/sync-comment", json={"resource_id": resource_id}
-    )
-
-    assert first.status_code == 200, first.text
-    assert replay.status_code == 200, replay.text
-    assert replay.json()["reused"] is True
-    assert replay.json()["run"]["run_id"] == first.json()["run"]["run_id"]
-    assert first.json()["run"]["job_name"] == "vortex-comment-sync-v1"
-    run = first.json()["run"]
-    assert run["capabilities_required"] == []
-    assert run["workflow"]["name"] == "vortex.comment-sync"
-    assert run["requirements"]["grants"] == [
-        "obsidian-vault:read",
-        "atlas-control:write",
-    ]
 
 
 def test_comparison_request_enqueues_fixed_capability_and_reuses_active_run(

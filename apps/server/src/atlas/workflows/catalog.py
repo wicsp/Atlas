@@ -149,48 +149,6 @@ BUILTIN_WORKFLOWS = [
     ),
     WorkflowDefinitionCreate.model_validate(
         {
-            "name": "vortex.comment",
-            "version": "1",
-            "project_id": "resource-review",
-            "description": "Create or synchronize a human-owned Vortex comment on the local Mac.",
-            "steps": [
-                {
-                    "name": "setup",
-                    "requirements": {
-                        "node_ids": ["macsp"],
-                        "executors": ["script"],
-                        "grants": ["obsidian-vault:write"],
-                    },
-                    "max_attempts": 3,
-                    "priority": 100,
-                }
-            ],
-        }
-    ),
-    WorkflowDefinitionCreate.model_validate(
-        {
-            "name": "vortex.comment-sync",
-            "version": "1",
-            "project_id": "resource-review",
-            "description": (
-                "Read a completed local Vortex comment and atomically publish it to Atlas."
-            ),
-            "steps": [
-                {
-                    "name": "sync",
-                    "requirements": {
-                        "node_ids": ["macsp"],
-                        "executors": ["script"],
-                        "grants": ["obsidian-vault:read", "atlas-control:write"],
-                    },
-                    "max_attempts": 3,
-                    "priority": 100,
-                }
-            ],
-        }
-    ),
-    WorkflowDefinitionCreate.model_validate(
-        {
             "name": "vortex.comparison",
             "version": "1",
             "project_id": "resource-review",
@@ -201,26 +159,6 @@ BUILTIN_WORKFLOWS = [
                     "requirements": {"node_ids": ["macsp"], "executors": ["pi"]},
                     "max_attempts": 2,
                     "priority": 20,
-                }
-            ],
-        }
-    ),
-    WorkflowDefinitionCreate.model_validate(
-        {
-            "name": "vortex.resource-purge",
-            "version": "1",
-            "project_id": "resource-review",
-            "description": "Delete verified local Artifact bytes and rebuildable Vortex cards.",
-            "steps": [
-                {
-                    "name": "purge",
-                    "requirements": {
-                        "node_ids": ["macsp"],
-                        "executors": ["script"],
-                        "grants": ["artifact-store:delete", "obsidian-vault:write"],
-                    },
-                    "max_attempts": 3,
-                    "priority": 10,
                 }
             ],
         }

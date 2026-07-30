@@ -1041,8 +1041,7 @@ button:disabled {
   color: var(--muted);
 }
 
-.knowledge-strip,
-.run-strip {
+.knowledge-strip {
   display: grid;
   grid-template-columns: auto 1fr auto;
   gap: 0.7rem;
@@ -1059,20 +1058,17 @@ button:disabled {
   font-size: 1.25rem;
 }
 
-.knowledge-strip > div,
-.run-strip > div {
+.knowledge-strip > div {
   min-width: 0;
   display: flex;
   flex-direction: column;
 }
 
-.knowledge-strip strong,
-.run-strip strong {
+.knowledge-strip strong {
   font-size: 0.74rem;
 }
 
-.knowledge-strip small,
-.run-strip small {
+.knowledge-strip small {
   overflow: hidden;
   margin-top: 0.15rem;
   color: rgba(23, 77, 58, 0.68);
@@ -1086,38 +1082,6 @@ button:disabled {
   font-size: 0.7rem;
   font-weight: 650;
   text-underline-offset: 3px;
-}
-
-.run-strip {
-  grid-template-columns: auto 1fr auto;
-  border-color: #a7bdc4;
-  background: var(--blue-soft);
-  color: var(--blue);
-}
-
-.run-strip.run-failed,
-.run-strip.run-cancelled {
-  border-color: #d8aaa0;
-  background: var(--coral-soft);
-  color: #762e22;
-}
-
-.run-indicator {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: currentColor;
-}
-
-.run-pending .run-indicator,
-.run-claimed .run-indicator {
-  animation: breathe 1.8s ease-in-out infinite;
-}
-
-.run-strip > span:last-child:not(.run-indicator) {
-  max-width: 420px;
-  font-size: 0.68rem;
-  text-align: right;
 }
 
 .resource-actions {
@@ -1398,13 +1362,11 @@ button:disabled {
     gap: 0.55rem;
   }
 
-  .knowledge-strip,
-  .run-strip {
+  .knowledge-strip {
     grid-template-columns: auto 1fr;
   }
 
-  .knowledge-strip > a,
-  .run-strip > span:last-child:not(.run-indicator) {
+  .knowledge-strip > a {
     grid-column: 2;
     justify-self: start;
     text-align: left;

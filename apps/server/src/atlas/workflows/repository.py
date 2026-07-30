@@ -89,6 +89,15 @@ class WorkflowRepository:
             ).all()
             return [_definition_record(row) for row in rows]
 
+    def delete_definition(self, name: str, version: str) -> bool:
+        with self._session_factory() as session:
+            row = session.get(WorkflowDefinitionRow, _workflow_key(name, version))
+            if row is None:
+                return False
+            session.delete(row)
+            session.commit()
+            return True
+
     def create_invocation_with_id(
         self,
         invocation_id: str,

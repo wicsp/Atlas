@@ -10,22 +10,11 @@ from atlas.workflows.catalog import builtin_step_contract
 
 from .models import (
     CommentCompleteResponse,
-    CommentRequestResponse,
-    CommentSyncRequestResponse,
     ComparisonRequestResponse,
 )
 
 REVIEW_PROJECT_ID = "resource-review"
-COMMENT_JOB_NAME = "vortex-comment-v1"
-COMMENT_RUN_PRIORITY = 100
 COMPARISON_JOB_NAME = "vortex-comparison-v1"
-COMPARISON_RUN_PRIORITY = 20
-COMMENT_SYNC_JOB_NAME = "vortex-comment-sync-v1"
-COMMENT_SYNC_RUN_PRIORITY = 100
-
-
-class ResourceAlreadyCommentedError(ValueError):
-    """Raised when a Resource already has a human KnowledgeRef."""
 
 
 class UnsupportedReviewResourceError(ValueError):
@@ -36,90 +25,6 @@ class ReviewService:
     def __init__(self, content: ContentService, work: WorkService) -> None:
         self._content = content
         self._work = work
-
-    def request_comment(self, resource_id: str) -> CommentRequestResponse:
-        resource = self._content.get_resource(resource_id)
-        if resource.kind != "summary":
-            raise UnsupportedReviewResourceError(
-                "Human comment requests currently require a summary Resource"
-            )
-
-        knowledge_ref = self._content.find_knowledge_ref_for_resource(resource_id)
-        if knowledge_ref is not None:
-            raise ResourceAlreadyCommentedError(
-                f"Resource {resource_id} already has KnowledgeRef "
-                f"{knowledge_ref.knowledge_ref_id}"
-            )
-
-        for run in self._work.list_runs(project_id=REVIEW_PROJECT_ID, limit=500):
-            if (
-                run.job_name == COMMENT_JOB_NAME
-                and run.status in {"pending", "claimed"}
-                and run.input.get("resource_id") == resource_id
-            ):
-                return CommentRequestResponse(run=run, reused=True)
-
-        self._work.create_project(
-            ProjectCreate(
-                project_id=REVIEW_PROJECT_ID,
-                name="Resource Review",
-                description="Operator-requested, Mac-local Resource review actions.",
-            )
-        )
-        workflow, step, requirements = builtin_step_contract("vortex.comment", "1", "setup")
-        bundle = self._resource_bundle(resource_id)
-        run = self._work.enqueue_run(
-            RunCreate(
-                project_id=REVIEW_PROJECT_ID,
-                job_name=COMMENT_JOB_NAME,
-                input={"resource_id": resource_id, "bundle": bundle},
-                priority=step.priority,
-                max_attempts=step.max_attempts,
-                metadata={"requested_via": "atlas-console"},
-                workflow=workflow,
-                step_name=step.name,
-                requirements=requirements,
-            )
-        )
-        return CommentRequestResponse(run=run, reused=False)
-
-    def request_comment_sync(self, resource_id: str) -> CommentSyncRequestResponse:
-        resource = self._content.get_resource(resource_id)
-        if resource.kind != "summary":
-            raise UnsupportedReviewResourceError(
-                "Human comment sync currently requires a summary Resource"
-            )
-        for run in self._work.list_runs(project_id=REVIEW_PROJECT_ID, limit=500):
-            if (
-                run.job_name == COMMENT_SYNC_JOB_NAME
-                and run.status in {"pending", "claimed"}
-                and run.input.get("resource_id") == resource_id
-            ):
-                return CommentSyncRequestResponse(run=run, reused=True)
-        self._work.create_project(
-            ProjectCreate(
-                project_id=REVIEW_PROJECT_ID,
-                name="Resource Review",
-                description="Operator-requested, Mac-local Resource review actions.",
-            )
-        )
-        workflow, step, requirements = builtin_step_contract(
-            "vortex.comment-sync", "1", "sync"
-        )
-        run = self._work.enqueue_run(
-            RunCreate(
-                project_id=REVIEW_PROJECT_ID,
-                job_name=COMMENT_SYNC_JOB_NAME,
-                input={"resource_id": resource_id},
-                priority=step.priority,
-                max_attempts=step.max_attempts,
-                metadata={"requested_via": "atlas-console"},
-                workflow=workflow,
-                step_name=step.name,
-                requirements=requirements,
-            )
-        )
-        return CommentSyncRequestResponse(run=run, reused=False)
 
     def complete_comment(
         self,
