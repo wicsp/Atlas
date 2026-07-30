@@ -17,6 +17,7 @@ from atlas.content.repository import (
     _to_resource,
 )
 from atlas.db.session import create_sqlite_session_factory
+from atlas.knowledge.repository import KnowledgeNoteEvidenceRow, KnowledgeNoteRow
 from atlas.work.repository import ArtifactContentRow, ArtifactRow
 
 from .models import ResourceIgnoreResponse
@@ -40,6 +41,12 @@ class ResourceIgnoreRepository:
             resource = session.get(ResourceRow, resource_id)
             if resource is None:
                 raise KeyError(resource_id)
+            protected_note = _protecting_note(session, resource_id)
+            if protected_note is not None:
+                raise ValueError(
+                    "Resource is evidence for Knowledge Note "
+                    f"{protected_note.knowledge_note_id}; archive or relink the note first"
+                )
             if resource.review_status != "dismissed":
                 metadata = _load_json(resource.metadata_json, {})
                 metadata[_PREVIOUS_STATUS_KEY] = resource.review_status
@@ -53,7 +60,12 @@ class ResourceIgnoreRepository:
                 .where(ResourceRow.review_status == "dismissed")
                 .order_by(ResourceRow.updated_at.desc(), ResourceRow.resource_id.desc())
             ).all()
-            overflow = ignored[IGNORED_RESOURCE_LIMIT:]
+            evictable = [
+                item
+                for item in ignored
+                if _protecting_note(session, item.resource_id) is None
+            ]
+            overflow = evictable[IGNORED_RESOURCE_LIMIT:]
             for expired in overflow:
                 _evict_resource(session, expired)
             session.flush()
@@ -134,6 +146,24 @@ def _evict_resource(session: Session, resource: ResourceRow) -> None:
             session.delete(artifact)
 
     session.delete(resource)
+
+
+def _protecting_note(
+    session: Session, resource_id: str
+) -> KnowledgeNoteRow | None:
+    return session.scalars(
+        select(KnowledgeNoteRow)
+        .join(
+            KnowledgeNoteEvidenceRow,
+            KnowledgeNoteEvidenceRow.knowledge_note_id
+            == KnowledgeNoteRow.knowledge_note_id,
+        )
+        .where(
+            KnowledgeNoteEvidenceRow.evidence_type == "resource",
+            KnowledgeNoteEvidenceRow.target_id == resource_id,
+            KnowledgeNoteRow.status != "archived",
+        )
+    ).first()
 
 
 def _dump_json(value: Any) -> str:

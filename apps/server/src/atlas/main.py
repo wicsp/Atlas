@@ -35,6 +35,19 @@ from .content.models import (
 )
 from .content.service import ContentService, create_content_service
 from .dashboard import DashboardSnapshot, DashboardSnapshotCollector
+from .knowledge.models import (
+    KnowledgeNeighborhood,
+    KnowledgeNoteCreate,
+    KnowledgeNoteRecord,
+    KnowledgeNoteStatus,
+    KnowledgeNoteUpdate,
+    KnowledgeRelationCreate,
+    KnowledgeRelationRecord,
+    KnowledgeRelationStatus,
+    KnowledgeRelationType,
+    KnowledgeRelationUpdate,
+)
+from .knowledge.service import KnowledgeService, create_knowledge_service
 from .messages.models import MessageAck, MessageClaim, MessageCreate, MessageRecord
 from .messages.service import MessageService, MessageStateError, create_message_service
 from .network import NetworkConnectivity
@@ -210,6 +223,15 @@ def _content_service(request: Request) -> ContentService:
         settings: Settings = request.app.state.settings
         service = create_content_service(settings.work.database_path)
         request.app.state.content_service = service
+    return service
+
+
+def _knowledge_service(request: Request) -> KnowledgeService:
+    service = getattr(request.app.state, "knowledge_service", None)
+    if service is None:
+        settings: Settings = request.app.state.settings
+        service = create_knowledge_service(settings.work.database_path)
+        request.app.state.knowledge_service = service
     return service
 
 
@@ -708,6 +730,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Resource not found",
             ) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
+            ) from exc
 
     @app.post(
         "/api/knowledge-refs",
@@ -753,6 +780,191 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             source_id=source_id,
             limit=limit,
         )
+
+    @app.post(
+        "/api/knowledge-notes",
+        response_model=KnowledgeNoteRecord,
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def create_knowledge_note(
+        request: Request,
+        payload: KnowledgeNoteCreate,
+    ) -> KnowledgeNoteRecord:
+        try:
+            return _knowledge_service(request).create_note(payload)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
+            ) from exc
+
+    @app.get(
+        "/api/knowledge-notes",
+        response_model=list[KnowledgeNoteRecord],
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def list_knowledge_notes(
+        request: Request,
+        note_status: Annotated[
+            KnowledgeNoteStatus | None, Query(alias="status")
+        ] = None,
+        source_id: str | None = None,
+        resource_id: str | None = None,
+        comment_id: str | None = None,
+        q: str | None = Query(default=None, min_length=1, max_length=500),
+        limit: int = Query(default=100, ge=1, le=500),
+    ) -> list[KnowledgeNoteRecord]:
+        return _knowledge_service(request).list_notes(
+            status=note_status,
+            source_id=source_id,
+            resource_id=resource_id,
+            comment_id=comment_id,
+            query=q,
+            limit=limit,
+        )
+
+    @app.get(
+        "/api/knowledge-notes/{note_id}",
+        response_model=KnowledgeNoteRecord,
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def get_knowledge_note(
+        request: Request,
+        note_id: str,
+    ) -> KnowledgeNoteRecord:
+        try:
+            return _knowledge_service(request).get_note(note_id)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Knowledge Note not found",
+            ) from exc
+
+    @app.patch(
+        "/api/knowledge-notes/{note_id}",
+        response_model=KnowledgeNoteRecord,
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def update_knowledge_note(
+        request: Request,
+        note_id: str,
+        payload: KnowledgeNoteUpdate,
+    ) -> KnowledgeNoteRecord:
+        try:
+            return _knowledge_service(request).update_note(note_id, payload)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Knowledge Note not found",
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
+            ) from exc
+
+    @app.get(
+        "/api/knowledge-notes/{note_id}/neighborhood",
+        response_model=KnowledgeNeighborhood,
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def get_knowledge_neighborhood(
+        request: Request,
+        note_id: str,
+        include_suggested: bool = False,
+    ) -> KnowledgeNeighborhood:
+        try:
+            return _knowledge_service(request).neighborhood(
+                note_id, include_suggested
+            )
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Knowledge Note not found",
+            ) from exc
+
+    @app.post(
+        "/api/knowledge-relations",
+        response_model=KnowledgeRelationRecord,
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def create_knowledge_relation(
+        request: Request,
+        payload: KnowledgeRelationCreate,
+    ) -> KnowledgeRelationRecord:
+        try:
+            return _knowledge_service(request).create_relation(payload)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Knowledge Note not found",
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
+            ) from exc
+
+    @app.get(
+        "/api/knowledge-relations",
+        response_model=list[KnowledgeRelationRecord],
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def list_knowledge_relations(
+        request: Request,
+        note_id: str | None = None,
+        relation_status: Annotated[
+            KnowledgeRelationStatus | None, Query(alias="status")
+        ] = None,
+        relation_type: KnowledgeRelationType | None = None,
+        limit: int = Query(default=100, ge=1, le=500),
+    ) -> list[KnowledgeRelationRecord]:
+        return _knowledge_service(request).list_relations(
+            note_id=note_id,
+            status=relation_status,
+            relation_type=relation_type,
+            limit=limit,
+        )
+
+    @app.get(
+        "/api/knowledge-relations/{relation_id}",
+        response_model=KnowledgeRelationRecord,
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def get_knowledge_relation(
+        request: Request,
+        relation_id: str,
+    ) -> KnowledgeRelationRecord:
+        try:
+            return _knowledge_service(request).get_relation(relation_id)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Knowledge Relation not found",
+            ) from exc
+
+    @app.patch(
+        "/api/knowledge-relations/{relation_id}",
+        response_model=KnowledgeRelationRecord,
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def update_knowledge_relation(
+        request: Request,
+        relation_id: str,
+        payload: KnowledgeRelationUpdate,
+    ) -> KnowledgeRelationRecord:
+        try:
+            return _knowledge_service(request).update_relation(relation_id, payload)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Knowledge Relation not found",
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
+            ) from exc
 
     @app.post(
         "/api/review-actions/complete-comment",
@@ -822,6 +1034,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Resource not found",
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
             ) from exc
 
     @app.post(

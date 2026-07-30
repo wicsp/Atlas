@@ -872,3 +872,212 @@ def test_comparison_request_enqueues_fixed_capability_and_reuses_active_run(
     assert run["capabilities_required"] == []
     assert run["workflow"]["name"] == "vortex.comparison"
     assert run["input"]["bundle"]["resource"]["resource_id"] == resource_id
+
+
+def test_knowledge_note_promotes_comment_into_independent_unit(
+    control_client: TestClient,
+    scoped_client: TestClient,
+    dashboard_client: TestClient,
+) -> None:
+    source, publication = _publish_content(control_client, scoped_client)
+    resource_id = publication["resources"][1]["resource_id"]
+    comment_response = dashboard_client.post(
+        "/api/review-actions/complete-comment",
+        json={
+            "resource_id": resource_id,
+            "body_markdown": "中心化状态比会话历史更适合作为长期任务的恢复点。",
+        },
+    )
+    assert comment_response.status_code == 200, comment_response.text
+    comment_id = comment_response.json()["comment"]["comment_id"]
+
+    created = dashboard_client.post(
+        "/api/knowledge-notes",
+        json={
+            "title": "长期任务需要稳定状态",
+            "claim": "长期任务的恢复应以中心化状态为准，而不是依赖完整会话历史。",
+            "body_markdown": "会话可以压缩或中断，稳定状态必须独立保存。",
+            "tags": ["任务状态", "Atlas", "任务状态"],
+            "comment_ids": [comment_id],
+        },
+    )
+
+    assert created.status_code == 200, created.text
+    note = created.json()
+    assert note["knowledge_note_id"].startswith("kn_")
+    assert note["status"] == "draft"
+    assert note["origin"] == "human"
+    assert note["tags"] == ["任务状态", "Atlas"]
+    assert note["source_ids"] == [source["source_id"]]
+    assert note["resource_ids"] == [resource_id]
+    assert note["comment_ids"] == [comment_id]
+    assert note["revision"] == 1
+    assert note["content_hash"].startswith("sha256:")
+
+    by_comment = dashboard_client.get(
+        f"/api/knowledge-notes?comment_id={comment_id}"
+    )
+    searched = dashboard_client.get("/api/knowledge-notes?q=中心化状态")
+    assert by_comment.status_code == 200
+    assert [item["knowledge_note_id"] for item in by_comment.json()] == [
+        note["knowledge_note_id"]
+    ]
+    assert [item["knowledge_note_id"] for item in searched.json()] == [
+        note["knowledge_note_id"]
+    ]
+
+    protected = dashboard_client.post(
+        "/api/review-actions/ignore-resource",
+        json={"resource_id": resource_id},
+    )
+    assert protected.status_code == 409
+    assert "evidence for Knowledge Note" in protected.json()["detail"]
+
+    archived = dashboard_client.patch(
+        f"/api/knowledge-notes/{note['knowledge_note_id']}",
+        json={"expected_revision": 1, "status": "archived"},
+    )
+    ignored = dashboard_client.post(
+        "/api/review-actions/ignore-resource",
+        json={"resource_id": resource_id},
+    )
+    assert archived.status_code == 200, archived.text
+    assert ignored.status_code == 200, ignored.text
+
+
+def test_knowledge_note_updates_use_revision_conflicts_and_validate_evidence(
+    control_client: TestClient,
+    dashboard_client: TestClient,
+) -> None:
+    source = _source(control_client)
+    created = dashboard_client.post(
+        "/api/knowledge-notes",
+        json={
+            "title": "原始标题",
+            "claim": "一个可以独立引用的观点。",
+            "source_ids": [source["source_id"]],
+        },
+    ).json()
+
+    updated = dashboard_client.patch(
+        f"/api/knowledge-notes/{created['knowledge_note_id']}",
+        json={
+            "expected_revision": 1,
+            "title": "更新后的标题",
+            "status": "active",
+        },
+    )
+    stale = dashboard_client.patch(
+        f"/api/knowledge-notes/{created['knowledge_note_id']}",
+        json={"expected_revision": 1, "claim": "覆盖更新"},
+    )
+    missing_evidence = dashboard_client.post(
+        "/api/knowledge-notes",
+        json={
+            "title": "错误证据",
+            "claim": "引用不存在的 Source。",
+            "source_ids": ["src_12345678"],
+        },
+    )
+    ai_published = dashboard_client.post(
+        "/api/knowledge-notes",
+        json={
+            "title": "AI 草稿",
+            "claim": "未经人工确认。",
+            "origin": "ai",
+            "status": "active",
+        },
+    )
+
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["revision"] == 2
+    assert updated.json()["status"] == "active"
+    assert stale.status_code == 409
+    assert "revision conflict" in stale.json()["detail"]
+    assert missing_evidence.status_code == 409
+    assert "does not exist" in missing_evidence.json()["detail"]
+    assert ai_published.status_code == 422
+
+
+def test_typed_knowledge_relations_keep_ai_suggestions_out_of_default_graph(
+    control_client: TestClient,
+    dashboard_client: TestClient,
+) -> None:
+    source = _source(control_client)
+
+    def create_note(title: str, claim: str) -> dict:
+        response = dashboard_client.post(
+            "/api/knowledge-notes",
+            json={
+                "title": title,
+                "claim": claim,
+                "status": "active",
+                "source_ids": [source["source_id"]],
+            },
+        )
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    first = create_note("中心化状态", "中心化状态可以降低跨设备不一致。")
+    second = create_note("本地优先", "关键状态应该优先保存在产生数据的设备上。")
+    relation_response = dashboard_client.post(
+        "/api/knowledge-relations",
+        json={
+            "from_note_id": first["knowledge_note_id"],
+            "to_note_id": second["knowledge_note_id"],
+            "relation_type": "contradicts",
+            "rationale_markdown": "两者对权威状态应该位于中心还是本地持不同观点。",
+            "status": "suggested",
+            "origin": "ai",
+            "confidence": 0.87,
+        },
+    )
+    assert relation_response.status_code == 200, relation_response.text
+    relation = relation_response.json()
+
+    default_graph = dashboard_client.get(
+        f"/api/knowledge-notes/{first['knowledge_note_id']}/neighborhood"
+    )
+    suggested_graph = dashboard_client.get(
+        f"/api/knowledge-notes/{first['knowledge_note_id']}/neighborhood"
+        "?include_suggested=true"
+    )
+    confirmed = dashboard_client.patch(
+        f"/api/knowledge-relations/{relation['knowledge_relation_id']}",
+        json={"expected_revision": 1, "status": "confirmed"},
+    )
+    confirmed_graph = dashboard_client.get(
+        f"/api/knowledge-notes/{first['knowledge_note_id']}/neighborhood"
+    )
+    fetched = dashboard_client.get(
+        f"/api/knowledge-relations/{relation['knowledge_relation_id']}"
+    )
+    filtered = dashboard_client.get(
+        "/api/knowledge-relations"
+        f"?note_id={first['knowledge_note_id']}&relation_type=contradicts"
+    )
+
+    assert default_graph.status_code == 200
+    assert default_graph.json()["relations"] == []
+    assert suggested_graph.status_code == 200
+    assert suggested_graph.json()["notes"][0]["knowledge_note_id"] == second[
+        "knowledge_note_id"
+    ]
+    assert suggested_graph.json()["relations"][0]["status"] == "suggested"
+    assert confirmed.status_code == 200, confirmed.text
+    assert confirmed.json()["revision"] == 2
+    assert confirmed.json()["status"] == "confirmed"
+    assert len(confirmed_graph.json()["relations"]) == 1
+    assert fetched.status_code == 200
+    assert fetched.json()["knowledge_relation_id"] == relation[
+        "knowledge_relation_id"
+    ]
+    assert [item["knowledge_relation_id"] for item in filtered.json()] == [
+        relation["knowledge_relation_id"]
+    ]
+
+
+def test_knowledge_endpoints_require_control_auth(atlas_app: FastAPI) -> None:
+    client = TestClient(atlas_app)
+    assert client.get("/api/knowledge-notes").status_code == 401
+    assert client.get("/api/knowledge-relations").status_code == 401
