@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Atlas Review — Resource Inbox",
-  description: "A private Source and Resource review workbench for Atlas.",
+  title: "Atlas — 材料与项目写作",
+  description: "Atlas 的私人材料处理、知识引用与 Markdown 项目写作空间。",
   icons: {
     icon: "/favicon.svg",
     shortcut: "/favicon.svg",

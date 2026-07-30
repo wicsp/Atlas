@@ -172,6 +172,445 @@ a {
   color: inherit;
 }
 
+.workspace-nav {
+  display: flex;
+  gap: 0.35rem;
+  padding: 0.5rem clamp(1rem, 4vw, 4rem);
+  border-bottom: 1px solid var(--line);
+  background: rgba(251, 250, 246, 0.88);
+}
+
+.workspace-nav a {
+  display: flex;
+  gap: 0.55rem;
+  align-items: center;
+  padding: 0.7rem 1rem;
+  border: 1px solid transparent;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.workspace-nav a span {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.7rem;
+}
+
+.workspace-nav a.active {
+  border-color: var(--forest);
+  background: var(--forest);
+  color: white;
+}
+
+.project-shell {
+  min-height: 100vh;
+}
+
+.project-topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-height: 76px;
+  padding: 1rem clamp(1rem, 4vw, 4rem);
+  background: var(--ink);
+  color: white;
+}
+
+.project-topbar strong {
+  display: block;
+  margin-top: 0.25rem;
+  font-family: Iowan Old Style, Baskerville, Georgia, serif;
+  font-size: 1.45rem;
+  font-weight: 500;
+}
+
+.project-topbar .eyebrow {
+  color: #9ec0ae;
+}
+
+.project-topbar > span {
+  color: #b9c3bd;
+  font-size: 0.8rem;
+}
+
+.project-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.75fr) minmax(480px, 2.2fr) minmax(250px, 0.9fr);
+  min-height: calc(100vh - 132px);
+}
+
+.project-sidebar,
+.knowledge-sidebar {
+  min-width: 0;
+  padding: 1.4rem;
+  background: var(--card);
+}
+
+.project-sidebar {
+  border-right: 1px solid var(--line);
+}
+
+.knowledge-sidebar {
+  border-left: 1px solid var(--line);
+}
+
+.project-sidebar > header,
+.work-items > header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.project-sidebar h1,
+.project-sidebar h2,
+.knowledge-sidebar h2,
+.work-items h2 {
+  margin: 0;
+  font-family: Iowan Old Style, Baskerville, Georgia, serif;
+  font-weight: 500;
+}
+
+.project-list {
+  display: grid;
+  gap: 0.45rem;
+  margin: 1rem 0 1.8rem;
+}
+
+.project-list button {
+  display: grid;
+  gap: 0.35rem;
+  width: 100%;
+  padding: 0.9rem;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.project-list button.active {
+  border-color: var(--forest);
+  background: var(--forest-soft);
+}
+
+.project-list small {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--muted);
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.new-project {
+  display: grid;
+  gap: 0.65rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--line);
+}
+
+.new-project input,
+.new-project textarea,
+.work-items input,
+.knowledge-sidebar > input,
+.markdown-workbench header input,
+.project-login input {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid var(--line-strong);
+  background: white;
+  color: var(--ink);
+}
+
+.new-project textarea {
+  min-height: 90px;
+  resize: vertical;
+}
+
+.writing-stage {
+  min-width: 0;
+  padding: 2rem;
+  background: var(--paper);
+}
+
+.project-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 2rem;
+}
+
+.project-heading h1 {
+  margin: 0.35rem 0;
+  font-family: Iowan Old Style, Baskerville, Georgia, serif;
+  font-size: clamp(2rem, 4vw, 3.4rem);
+  font-weight: 500;
+}
+
+.project-heading p:last-child {
+  max-width: 720px;
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.project-status {
+  align-self: flex-start;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid var(--line-strong);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.7rem;
+}
+
+.work-items {
+  margin: 1.8rem 0;
+  padding: 1.1rem;
+  border: 1px solid var(--line);
+  background: var(--card);
+}
+
+.work-items > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.8rem 0;
+}
+
+.work-items > div button {
+  display: flex;
+  gap: 0.55rem;
+  align-items: center;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--line);
+  background: white;
+  cursor: pointer;
+}
+
+.work-status {
+  padding: 0.2rem 0.35rem;
+  background: var(--amber-soft);
+  color: var(--amber);
+  font-size: 0.67rem;
+}
+
+.work-status.done {
+  background: var(--forest-soft);
+  color: var(--forest);
+}
+
+.work-items form {
+  display: flex;
+}
+
+.work-items form button {
+  border: 1px solid var(--forest);
+  background: var(--forest);
+  color: white;
+  cursor: pointer;
+}
+
+.document-tabs {
+  display: flex;
+  gap: 0.35rem;
+  overflow-x: auto;
+}
+
+.document-tabs button {
+  flex: 0 0 auto;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid var(--line);
+  background: var(--card);
+  cursor: pointer;
+}
+
+.document-tabs button.active {
+  border-bottom-color: white;
+  background: white;
+}
+
+.document-tabs small {
+  margin-left: 0.5rem;
+  color: var(--muted);
+}
+
+.document-tabs .new-document {
+  border-style: dashed;
+  color: var(--forest);
+}
+
+.markdown-workbench {
+  border: 1px solid var(--line);
+  background: white;
+  box-shadow: var(--shadow);
+}
+
+.markdown-workbench > header {
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  padding: 0.8rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.markdown-workbench > header input {
+  border: 0;
+  font-family: Iowan Old Style, Baskerville, Georgia, serif;
+  font-size: 1.2rem;
+}
+
+.markdown-workbench > header > div {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.4rem;
+}
+
+.markdown-workbench button,
+.create-first-document,
+.knowledge-note-list button {
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--line-strong);
+  background: var(--card);
+  cursor: pointer;
+}
+
+.markdown-workbench .finalize {
+  border-color: var(--forest);
+  background: var(--forest);
+  color: white;
+}
+
+.markdown-workbench > textarea {
+  width: 100%;
+  min-height: 54vh;
+  padding: clamp(1.2rem, 4vw, 3rem);
+  border: 0;
+  resize: vertical;
+  background: #fffefb;
+  color: #1d2823;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.92rem;
+  line-height: 1.75;
+}
+
+.markdown-workbench > footer {
+  display: flex;
+  gap: 1rem;
+  padding: 0.65rem 0.9rem;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.knowledge-sidebar header p:last-child {
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.knowledge-note-list {
+  display: grid;
+  gap: 0.7rem;
+  max-height: calc(100vh - 290px);
+  margin-top: 1rem;
+  overflow: auto;
+}
+
+.knowledge-note-list article {
+  padding: 0.9rem;
+  border: 1px solid var(--line);
+  background: white;
+}
+
+.knowledge-note-list h3 {
+  margin: 0;
+  font-family: Iowan Old Style, Baskerville, Georgia, serif;
+}
+
+.knowledge-note-list p {
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+
+.knowledge-note-list small {
+  display: block;
+  margin-bottom: 0.7rem;
+  color: var(--blue);
+}
+
+.project-message {
+  position: sticky;
+  bottom: 1rem;
+  padding: 0.8rem 1rem;
+  border: 1px solid var(--forest);
+  background: var(--forest);
+  color: white;
+}
+
+.project-empty {
+  max-width: 600px;
+  margin: 18vh auto;
+  text-align: center;
+}
+
+.project-login {
+  display: grid;
+  place-content: center;
+  min-height: 100vh;
+  padding: 2rem;
+}
+
+.project-login h1 {
+  font-family: Iowan Old Style, Baskerville, Georgia, serif;
+  font-size: clamp(2.4rem, 6vw, 4.6rem);
+  font-weight: 500;
+}
+
+.project-login form {
+  display: grid;
+  gap: 0.7rem;
+}
+
+@media (max-width: 1100px) {
+  .project-layout {
+    grid-template-columns: 220px minmax(460px, 1fr);
+  }
+
+  .knowledge-sidebar {
+    grid-column: 1 / -1;
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+
+  .knowledge-note-list {
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    max-height: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .project-layout {
+    display: block;
+  }
+
+  .project-sidebar,
+  .knowledge-sidebar {
+    border: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .writing-stage {
+    padding: 1rem;
+  }
+
+  .markdown-workbench > header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .project-topbar > span {
+    display: none;
+  }
+}
+
 .eyebrow {
   margin: 0;
   color: var(--forest);

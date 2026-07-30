@@ -30,18 +30,21 @@ test("server-renders the Atlas Review shell", async () => {
 
   const html = await response.text();
   assert.match(html, /<html[^>]*lang="zh-CN"/i);
-  assert.match(html, /<title>Atlas Review — Resource Inbox<\/title>/i);
+  assert.match(html, /<title>Atlas — 材料与项目写作<\/title>/i);
   assert.match(html, /ATLAS · RESOURCE REVIEW/);
   assert.match(html, /正在连接 Atlas/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton|Your site is taking shape/i);
 });
 
 test("removes starter surfaces and keeps credentials out of client source", async () => {
-  const [page, client, packageJson] = await Promise.all([
+  const [page, reviewClient, apiClient, projectClient, packageJson] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/review-console.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/console-api.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/projects/projects-console.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
   ]);
+  const client = `${reviewClient}\n${apiClient}`;
 
   assert.match(page, /<ReviewConsole \/>/);
   assert.match(client, /credentials:\s*"include"/);
@@ -79,6 +82,10 @@ test("removes starter surfaces and keeps credentials out of client source", asyn
   assert.match(client, /保存组织信息/);
   assert.doesNotMatch(client, /openObsidianPair|obsidianCommentCreateUri/);
   assert.doesNotMatch(client, /shared[_-]?token|control[_-]?token|localStorage/i);
+  assert.match(projectClient, /\/api\/writing-projects/);
+  assert.match(projectClient, /\/api\/work-items/);
+  assert.match(projectClient, /\/api\/documents/);
+  assert.match(projectClient, /Markdown 是唯一正文/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton|drizzle/);
 
   await assert.rejects(access(new URL("../app/_sites-preview", import.meta.url)));
