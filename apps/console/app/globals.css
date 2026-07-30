@@ -168,6 +168,52 @@ textarea:focus-visible {
   background: #0f3e2d;
 }
 
+.knowledge-promotion {
+  display: grid;
+  gap: 0.7rem;
+  padding: 1.2rem;
+  border-top: 1px solid var(--line);
+  background: var(--blue-soft);
+}
+
+.knowledge-promotion > div {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.knowledge-promotion strong {
+  font-family: Iowan Old Style, Baskerville, Georgia, serif;
+  font-size: 1.15rem;
+}
+
+.knowledge-promotion small,
+.knowledge-promotion p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.knowledge-promotion input,
+.knowledge-promotion textarea {
+  width: 100%;
+  padding: 0.8rem;
+  border: 1px solid var(--line-strong);
+  background: var(--card);
+  color: var(--ink);
+}
+
+.knowledge-promotion textarea {
+  min-height: 105px;
+  resize: vertical;
+}
+
+.knowledge-promotion .comment-button {
+  justify-self: end;
+}
+
+.knowledge-promotion.complete {
+  background: var(--forest-soft);
+}
+
 a {
   color: inherit;
 }

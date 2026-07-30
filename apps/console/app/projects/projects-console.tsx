@@ -71,6 +71,35 @@ function statusLabel(status: WorkItemStatus): string {
   }[status];
 }
 
+function searchTokens(value: string): Set<string> {
+  const normalized = value.toLowerCase();
+  const tokens = normalized.match(/[a-z0-9_-]{2,}|[\u3400-\u9fff]{2,}/g) ?? [];
+  const expanded = new Set<string>();
+  for (const token of tokens) {
+    expanded.add(token);
+    if (/^[\u3400-\u9fff]+$/.test(token)) {
+      for (let index = 0; index < token.length - 1; index += 1) {
+        expanded.add(token.slice(index, index + 2));
+      }
+    }
+  }
+  return expanded;
+}
+
+function knowledgeRelevance(note: KnowledgeNote, context: Set<string>): number {
+  if (context.size === 0) return 0;
+  const title = searchTokens(note.title);
+  const claim = searchTokens(note.claim);
+  const tags = searchTokens(note.tags.join(" "));
+  let score = 0;
+  for (const token of context) {
+    if (title.has(token)) score += 5;
+    if (tags.has(token)) score += 3;
+    if (claim.has(token)) score += 1;
+  }
+  return score;
+}
+
 export function ProjectsConsole() {
   const [auth, setAuth] = useState<AuthState>("checking");
   const [password, setPassword] = useState("");
@@ -94,6 +123,7 @@ export function ProjectsConsole() {
   );
   const filteredNotes = useMemo(() => {
     const query = noteQuery.trim().toLowerCase();
+    const context = searchTokens(query || `${detail?.project.goal ?? ""}\n${markdown}`);
     return notes
       .filter((note) => note.status !== "archived")
       .filter((note) =>
@@ -102,8 +132,13 @@ export function ProjectsConsole() {
         || note.claim.toLowerCase().includes(query)
         || note.tags.some((tag) => tag.toLowerCase().includes(query))
       )
+      .map((note) => ({ note, score: knowledgeRelevance(note, context) }))
+      .sort((left, right) =>
+        right.score - left.score || left.note.title.localeCompare(right.note.title, "zh-CN")
+      )
+      .map(({ note }) => note)
       .slice(0, 30);
-  }, [noteQuery, notes]);
+  }, [detail?.project.goal, markdown, noteQuery, notes]);
 
   const loadProject = useCallback(async (nextProjectId: string) => {
     const next = await api<ProjectDetail>(`/api/writing-projects/${nextProjectId}`);
@@ -470,7 +505,7 @@ export function ProjectsConsole() {
           <header>
             <p className="eyebrow">KNOWLEDGE</p>
             <h2>写作参考</h2>
-            <p>插入后保存，Atlas 自动生成 Link 与 Backlink。</p>
+            <p>根据项目目标和当前正文动态排序；插入后保存即生成 Link 与 Backlink。</p>
           </header>
           <input
             aria-label="搜索知识笔记"

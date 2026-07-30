@@ -83,6 +83,23 @@ interface CommentCompleteResponse {
   comment: CommentRecord;
 }
 
+interface KnowledgeNoteRecord {
+  knowledge_note_id: string;
+  title: string;
+  claim: string;
+  body_markdown: string;
+  tags: string[];
+  comment_ids: string[];
+  status: "draft" | "active" | "superseded" | "archived";
+}
+
+interface KnowledgeNoteDraft {
+  title: string;
+  claim: string;
+  body_markdown: string;
+  tags: string;
+}
+
 function formatTime(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
@@ -200,6 +217,10 @@ export function ReviewConsole() {
   const [documentErrors, setDocumentErrors] = useState<Record<string, string>>({});
   const [loadingDocuments, setLoadingDocuments] = useState<Set<string>>(new Set());
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
+  const [knowledgeNotes, setKnowledgeNotes] = useState<KnowledgeNoteRecord[]>([]);
+  const [knowledgeNoteDrafts, setKnowledgeNoteDrafts] = useState<
+    Record<string, KnowledgeNoteDraft>
+  >({});
 
   const loadReviewData = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
@@ -216,6 +237,7 @@ export function ReviewConsole() {
         nextRunners,
         nextRecentRuns,
         nextPaperLibrary,
+        nextKnowledgeNotes,
       ] =
         await Promise.all([
           api<SourceRecord[]>("/api/sources?limit=500"),
@@ -228,6 +250,7 @@ export function ReviewConsole() {
           api<RunnerRecord[]>("/api/runners"),
           api<RunRecord[]>("/api/runs?limit=100"),
           api<PaperLibraryRecord[]>("/api/papers?limit=20"),
+          api<KnowledgeNoteRecord[]>("/api/knowledge-notes?limit=500"),
         ]);
       const nextRuns = [...reviewRuns, ...paperRuns];
       setSources(nextSources);
@@ -239,6 +262,7 @@ export function ReviewConsole() {
       setRunners(nextRunners);
       setRecentRuns(nextRecentRuns);
       setPaperLibrary(nextPaperLibrary);
+      setKnowledgeNotes(nextKnowledgeNotes);
       setPaperDrafts((current) => {
         const updated = { ...current };
         for (const paper of nextPaperLibrary) {
@@ -373,6 +397,17 @@ export function ReviewConsole() {
     return index;
   }, [comments]);
 
+  const knowledgeNoteByComment = useMemo(() => {
+    const index = new Map<string, KnowledgeNoteRecord>();
+    for (const note of knowledgeNotes) {
+      if (note.status === "archived") continue;
+      for (const commentId of note.comment_ids) {
+        if (!index.has(commentId)) index.set(commentId, note);
+      }
+    }
+    return index;
+  }, [knowledgeNotes]);
+
   const comparisonByResource = useMemo(() => {
     const index = new Map<string, ResourceRecord>();
     for (const comparison of [...comparisons].sort((left, right) =>
@@ -444,6 +479,8 @@ export function ReviewConsole() {
     setPaperDrafts({});
     setSelectedPaperIds(new Set());
     setPaperComparison(null);
+    setKnowledgeNotes([]);
+    setKnowledgeNoteDrafts({});
   }
 
   function setResourceBusy(resourceId: string, value: boolean) {
@@ -504,6 +541,43 @@ export function ReviewConsole() {
       }));
     } finally {
       setResourceBusy(resourceId, false);
+    }
+  }
+
+  async function createKnowledgeNote(
+    resource: ResourceRecord,
+    comment: CommentRecord,
+  ) {
+    const draft = knowledgeNoteDrafts[comment.comment_id];
+    if (!draft) return;
+    setResourceBusy(resource.resource_id, true);
+    try {
+      const created = await api<KnowledgeNoteRecord>("/api/knowledge-notes", {
+        method: "POST",
+        body: JSON.stringify({
+          title: draft.title,
+          claim: draft.claim,
+          body_markdown: draft.body_markdown,
+          tags: commaSeparated(draft.tags),
+          comment_ids: [comment.comment_id],
+          status: "active",
+        }),
+      });
+      setKnowledgeNotes((current) => [created, ...current]);
+      setFeedback((current) => ({
+        ...current,
+        [resource.resource_id]: {
+          tone: "success",
+          message: `知识笔记「${created.title}」已创建，可在项目写作中引用。`,
+        },
+      }));
+    } catch (error) {
+      setFeedback((current) => ({
+        ...current,
+        [resource.resource_id]: { tone: "error", message: errorMessage(error) },
+      }));
+    } finally {
+      setResourceBusy(resource.resource_id, false);
     }
   }
 
@@ -1112,6 +1186,9 @@ export function ReviewConsole() {
                 {group.resources.map((resource, versionIndex) => {
                   const knowledge = knowledgeByResource.get(resource.resource_id);
                   const comment = commentByResource.get(resource.resource_id);
+                  const permanentNote = comment
+                    ? knowledgeNoteByComment.get(comment.comment_id)
+                    : undefined;
                   const comparison = comparisonByResource.get(resource.resource_id);
                   const activeComparison = runs.find((candidate) =>
                     candidate.job_name === "vortex-comparison-v1"
@@ -1185,29 +1262,108 @@ export function ReviewConsole() {
                               <pre className="resource-content">{document.content}</pre>
                             ) : null}
                             {readerResource.kind === "summary" ? (
-                              <div className="comment-editor" id="comment">
-                                <label htmlFor={`comment-${resource.resource_id}`}>我的评论</label>
-                                <textarea
-                                  id={`comment-${resource.resource_id}`}
-                                  value={commentDrafts[resource.resource_id] ?? ""}
-                                  placeholder="在这里记录你的判断、质疑和证据定位。支持 Markdown。"
-                                  onChange={(event) => setCommentDrafts((current) => ({
-                                    ...current,
-                                    [resource.resource_id]: event.target.value,
-                                  }))}
-                                />
-                                <div>
-                                  <small>评论直接保存在 Atlas；同步到 Obsidian 是可选操作。</small>
-                                  <button
-                                    className="comment-button"
-                                    type="button"
-                                    disabled={isBusy}
-                                    onClick={() => void saveComment(resource.resource_id)}
-                                  >
-                                    {isBusy ? "保存中…" : comment ? "更新评论" : "保存评论"}
-                                  </button>
+                              <>
+                                <div className="comment-editor" id="comment">
+                                  <label htmlFor={`comment-${resource.resource_id}`}>我的评论</label>
+                                  <textarea
+                                    id={`comment-${resource.resource_id}`}
+                                    value={commentDrafts[resource.resource_id] ?? ""}
+                                    placeholder="在这里记录你的判断、质疑和证据定位。支持 Markdown。"
+                                    onChange={(event) => setCommentDrafts((current) => ({
+                                      ...current,
+                                      [resource.resource_id]: event.target.value,
+                                    }))}
+                                  />
+                                  <div>
+                                    <small>评论直接保存在 Atlas；同步到 Obsidian 是可选操作。</small>
+                                    <button
+                                      className="comment-button"
+                                      type="button"
+                                      disabled={isBusy}
+                                      onClick={() => void saveComment(resource.resource_id)}
+                                    >
+                                      {isBusy ? "保存中…" : comment ? "更新评论" : "保存评论"}
+                                    </button>
+                                  </div>
                                 </div>
-                              </div>
+                                {comment ? (
+                                  permanentNote ? (
+                                    <div className="knowledge-promotion complete">
+                                      <span className="eyebrow">KNOWLEDGE NOTE</span>
+                                      <strong>{permanentNote.title}</strong>
+                                      <p>{permanentNote.claim}</p>
+                                      <small>这条评论已经提炼为可复用知识。</small>
+                                    </div>
+                                  ) : (
+                                    <form
+                                      className="knowledge-promotion"
+                                      onSubmit={(event) => {
+                                        event.preventDefault();
+                                        void createKnowledgeNote(resource, comment);
+                                      }}
+                                    >
+                                      <div>
+                                        <span className="eyebrow">PROMOTE TO KNOWLEDGE</span>
+                                        <strong>把评论提炼成可复用知识</strong>
+                                        <small>标题和核心观点由你确认；Atlas 自动保留材料证据。</small>
+                                      </div>
+                                      <input
+                                        aria-label="知识笔记标题"
+                                        placeholder="简短、可复用的知识标题"
+                                        value={knowledgeNoteDrafts[comment.comment_id]?.title ?? ""}
+                                        onChange={(event) => setKnowledgeNoteDrafts((current) => ({
+                                          ...current,
+                                          [comment.comment_id]: {
+                                            title: event.target.value,
+                                            claim: current[comment.comment_id]?.claim ?? "",
+                                            body_markdown:
+                                              current[comment.comment_id]?.body_markdown
+                                              ?? comment.body_markdown,
+                                            tags: current[comment.comment_id]?.tags ?? "",
+                                          },
+                                        }))}
+                                        required
+                                      />
+                                      <textarea
+                                        aria-label="知识笔记核心观点"
+                                        placeholder="用一句完整的话写出可以独立引用的核心观点"
+                                        value={knowledgeNoteDrafts[comment.comment_id]?.claim ?? ""}
+                                        onChange={(event) => setKnowledgeNoteDrafts((current) => ({
+                                          ...current,
+                                          [comment.comment_id]: {
+                                            title: current[comment.comment_id]?.title ?? "",
+                                            claim: event.target.value,
+                                            body_markdown:
+                                              current[comment.comment_id]?.body_markdown
+                                              ?? comment.body_markdown,
+                                            tags: current[comment.comment_id]?.tags ?? "",
+                                          },
+                                        }))}
+                                        required
+                                      />
+                                      <input
+                                        aria-label="知识笔记标签"
+                                        placeholder="标签，用逗号分隔（可选）"
+                                        value={knowledgeNoteDrafts[comment.comment_id]?.tags ?? ""}
+                                        onChange={(event) => setKnowledgeNoteDrafts((current) => ({
+                                          ...current,
+                                          [comment.comment_id]: {
+                                            title: current[comment.comment_id]?.title ?? "",
+                                            claim: current[comment.comment_id]?.claim ?? "",
+                                            body_markdown:
+                                              current[comment.comment_id]?.body_markdown
+                                              ?? comment.body_markdown,
+                                            tags: event.target.value,
+                                          },
+                                        }))}
+                                      />
+                                      <button className="comment-button" disabled={isBusy}>
+                                        创建知识笔记
+                                      </button>
+                                    </form>
+                                  )
+                                ) : null}
+                              </>
                             ) : null}
                           </section>
                         ) : null}

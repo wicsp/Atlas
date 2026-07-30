@@ -64,6 +64,8 @@ test("removes starter surfaces and keeps credentials out of client source", asyn
   assert.match(client, /阅读与评论/);
   assert.match(client, /保存评论/);
   assert.match(client, /评论直接保存在 Atlas/);
+  assert.match(client, /把评论提炼成可复用知识/);
+  assert.match(client, /\/api\/knowledge-notes/);
   assert.doesNotMatch(client, /crypto\.subtle|content_hash:\s*await/);
   assert.match(client, /生成观点对比/);
   assert.match(client, /\/api\/paper\/fulltext/);
@@ -86,6 +88,8 @@ test("removes starter surfaces and keeps credentials out of client source", asyn
   assert.match(projectClient, /\/api\/work-items/);
   assert.match(projectClient, /\/api\/documents/);
   assert.match(projectClient, /Markdown 是唯一正文/);
+  assert.match(projectClient, /knowledgeRelevance/);
+  assert.match(projectClient, /动态排序/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton|drizzle/);
 
   await assert.rejects(access(new URL("../app/_sites-preview", import.meta.url)));
