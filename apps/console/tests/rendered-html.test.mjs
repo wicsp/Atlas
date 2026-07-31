@@ -90,6 +90,9 @@ test("removes starter surfaces and keeps credentials out of client source", asyn
   assert.match(projectClient, /Markdown 是唯一正文/);
   assert.match(projectClient, /knowledgeRelevance/);
   assert.match(projectClient, /动态排序/);
+  assert.match(projectClient, /\/api\/comments\?limit=200/);
+  assert.match(projectClient, /插入评论摘录/);
+  assert.match(projectClient, /atlas:comment:/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton|drizzle/);
 
   await assert.rejects(access(new URL("../app/_sites-preview", import.meta.url)));

@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
 import { api } from "../console-api";
 import { ConsoleNav } from "../console-nav";
+import type { CommentRecord } from "../review-model";
 
 type AuthState = "checking" | "anonymous" | "authenticated";
 type ProjectStatus = "active" | "on_hold" | "completed" | "archived";
@@ -57,6 +58,10 @@ interface KnowledgeNote {
   status: string;
 }
 
+type WritingReference =
+  | { kind: "knowledge"; note: KnowledgeNote; score: number }
+  | { kind: "comment"; comment: CommentRecord; score: number };
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "发生了未知错误";
 }
@@ -100,6 +105,16 @@ function knowledgeRelevance(note: KnowledgeNote, context: Set<string>): number {
   return score;
 }
 
+function commentRelevance(comment: CommentRecord, context: Set<string>): number {
+  if (context.size === 0) return 0;
+  const body = searchTokens(comment.body_markdown);
+  let score = 0;
+  for (const token of context) {
+    if (body.has(token)) score += 1;
+  }
+  return score;
+}
+
 export function ProjectsConsole() {
   const [auth, setAuth] = useState<AuthState>("checking");
   const [password, setPassword] = useState("");
@@ -110,6 +125,7 @@ export function ProjectsConsole() {
   const [documentTitle, setDocumentTitle] = useState("");
   const [markdown, setMarkdown] = useState("");
   const [notes, setNotes] = useState<KnowledgeNote[]>([]);
+  const [comments, setComments] = useState<CommentRecord[]>([]);
   const [noteQuery, setNoteQuery] = useState("");
   const [newProjectTitle, setNewProjectTitle] = useState("");
   const [newProjectGoal, setNewProjectGoal] = useState("");
@@ -121,10 +137,10 @@ export function ProjectsConsole() {
     () => detail?.documents.find((item) => item.document_id === documentId) ?? null,
     [detail, documentId],
   );
-  const filteredNotes = useMemo(() => {
+  const writingReferences = useMemo(() => {
     const query = noteQuery.trim().toLowerCase();
     const context = searchTokens(query || `${detail?.project.goal ?? ""}\n${markdown}`);
-    return notes
+    const noteReferences: WritingReference[] = notes
       .filter((note) => note.status !== "archived")
       .filter((note) =>
         !query
@@ -132,13 +148,23 @@ export function ProjectsConsole() {
         || note.claim.toLowerCase().includes(query)
         || note.tags.some((tag) => tag.toLowerCase().includes(query))
       )
-      .map((note) => ({ note, score: knowledgeRelevance(note, context) }))
-      .sort((left, right) =>
-        right.score - left.score || left.note.title.localeCompare(right.note.title, "zh-CN")
+      .map((note) => ({ kind: "knowledge", note, score: knowledgeRelevance(note, context) }));
+    const commentReferences: WritingReference[] = comments
+      .filter((comment) =>
+        !query || comment.body_markdown.toLowerCase().includes(query)
       )
-      .map(({ note }) => note)
+      .map((comment) => ({
+        kind: "comment",
+        comment,
+        score: commentRelevance(comment, context),
+      }));
+    return [...noteReferences, ...commentReferences]
+      .sort((left, right) =>
+        right.score - left.score
+        || (left.kind === "knowledge" ? 0 : 1) - (right.kind === "knowledge" ? 0 : 1)
+      )
       .slice(0, 30);
-  }, [detail?.project.goal, markdown, noteQuery, notes]);
+  }, [comments, detail?.project.goal, markdown, noteQuery, notes]);
 
   const loadProject = useCallback(async (nextProjectId: string) => {
     const next = await api<ProjectDetail>(`/api/writing-projects/${nextProjectId}`);
@@ -154,12 +180,14 @@ export function ProjectsConsole() {
   }, []);
 
   const load = useCallback(async () => {
-    const [nextProjects, nextNotes] = await Promise.all([
+    const [nextProjects, nextNotes, nextComments] = await Promise.all([
       api<ProjectRecord[]>("/api/writing-projects?limit=100"),
       api<KnowledgeNote[]>("/api/knowledge-notes?limit=200"),
+      api<CommentRecord[]>("/api/comments?limit=200"),
     ]);
     setProjects(nextProjects);
     setNotes(nextNotes);
+    setComments(nextComments);
     const selected = projectId && nextProjects.some((item) => item.project_id === projectId)
       ? projectId
       : nextProjects[0]?.project_id;
@@ -329,6 +357,19 @@ export function ProjectsConsole() {
     const link = `[[${note.knowledge_note_id}|${note.title}]]`;
     setMarkdown((current) => `${current}${current.endsWith("\n") ? "" : "\n"}${link} `);
     setMessage(`已插入「${note.title}」；保存后 Atlas 会自动建立 Link 和 Backlink。`);
+  }
+
+  function insertComment(comment: CommentRecord) {
+    const excerpt = comment.body_markdown.trim();
+    const quoted = excerpt
+      .split("\n")
+      .map((line) => `> ${line}`)
+      .join("\n");
+    const marker = `<!-- atlas:comment:${comment.comment_id} -->`;
+    setMarkdown((current) =>
+      `${current}${current.endsWith("\n") ? "" : "\n"}\n${marker}\n${quoted}\n`
+    );
+    setMessage("已插入个人评论摘录并保留 Atlas Comment 来源标记。");
   }
 
   if (auth === "checking") {
@@ -505,28 +546,60 @@ export function ProjectsConsole() {
           <header>
             <p className="eyebrow">KNOWLEDGE</p>
             <h2>写作参考</h2>
-            <p>根据项目目标和当前正文动态排序；插入后保存即生成 Link 与 Backlink。</p>
+            <p>
+              根据项目目标和当前正文动态排序。知识笔记建立 Link；尚未提炼的评论也可作为参考摘录。
+            </p>
           </header>
           <input
-            aria-label="搜索知识笔记"
-            placeholder="搜索标题、观点或标签"
+            aria-label="搜索写作参考"
+            placeholder="搜索知识、评论或标签"
             value={noteQuery}
             onChange={(event) => setNoteQuery(event.target.value)}
           />
           <div className="knowledge-note-list">
-            {filteredNotes.map((note) => (
-              <article key={note.knowledge_note_id}>
-                <h3>{note.title}</h3>
-                <p>{note.claim}</p>
-                <small>{note.tags.join(" · ") || "未标记"}</small>
-                <button
-                  disabled={!activeDocument}
-                  onClick={() => insertKnowledge(note)}
-                >
-                  插入正文
-                </button>
-              </article>
-            ))}
+            {writingReferences.map((reference) =>
+              reference.kind === "knowledge" ? (
+                <article key={reference.note.knowledge_note_id}>
+                  <span className="reference-kind">知识笔记</span>
+                  <h3>{reference.note.title}</h3>
+                  <p>{reference.note.claim}</p>
+                  <small>{reference.note.tags.join(" · ") || "未标记"}</small>
+                  <button
+                    disabled={!activeDocument}
+                    onClick={() => insertKnowledge(reference.note)}
+                  >
+                    插入并建立 Link
+                  </button>
+                </article>
+              ) : (
+                <article key={reference.comment.comment_id}>
+                  <span className="reference-kind comment">个人评论</span>
+                  <h3>来自材料处理的判断</h3>
+                  <p>{reference.comment.body_markdown.slice(0, 320)}</p>
+                  <small>{reference.comment.comment_id}</small>
+                  <div className="reference-actions">
+                    <button
+                      disabled={!activeDocument}
+                      onClick={() => insertComment(reference.comment)}
+                    >
+                      插入评论摘录
+                    </button>
+                    {reference.comment.resource_ids[0] ? (
+                      <a href={`/materials#resource-${reference.comment.resource_ids[0]}`}>
+                        查看材料
+                      </a>
+                    ) : null}
+                  </div>
+                </article>
+              )
+            )}
+            {writingReferences.length === 0 ? (
+              <div className="reference-empty">
+                <strong>还没有可用参考</strong>
+                <p>先在材料页保存评论或提炼知识笔记。</p>
+                <a href="/materials">去处理材料</a>
+              </div>
+            ) : null}
           </div>
         </aside>
       </section>

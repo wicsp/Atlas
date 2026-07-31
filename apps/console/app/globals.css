@@ -565,6 +565,21 @@ a {
   background: white;
 }
 
+.reference-kind {
+  display: inline-block;
+  margin-bottom: 0.55rem;
+  padding: 0.2rem 0.35rem;
+  background: var(--forest-soft);
+  color: var(--forest);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.65rem;
+}
+
+.reference-kind.comment {
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
 .knowledge-note-list h3 {
   margin: 0;
   font-family: Iowan Old Style, Baskerville, Georgia, serif;
@@ -580,6 +595,29 @@ a {
   display: block;
   margin-bottom: 0.7rem;
   color: var(--blue);
+}
+
+.reference-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.reference-actions a,
+.reference-empty a {
+  color: var(--forest);
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+
+.reference-empty {
+  padding: 1rem;
+  border: 1px dashed var(--line-strong);
+  color: var(--muted);
+}
+
+.reference-empty p {
+  font-size: 0.82rem;
 }
 
 .project-message {
