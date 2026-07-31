@@ -562,11 +562,16 @@ def _to_assessment(row: KnowledgeAssessmentRow) -> KnowledgeAssessmentRecord:
 
 
 _WIKILINK_PATTERN = re.compile(r"\[\[(kn_[0-9a-f]{32})(?:\|[^\]]+)?\]\]")
+_PAGE_EMBED_PATTERN = re.compile(r"\{\{knowledge-page:(kn_[0-9a-f]{32})\}\}")
 
 
 def extract_knowledge_note_ids(markdown: str) -> list[str]:
-    """Extract stable Atlas wikilinks without depending on a desktop vault."""
-    return list(dict.fromkeys(_WIKILINK_PATTERN.findall(markdown)))
+    """Extract stable Atlas links and live embeds without a desktop-vault dependency."""
+    return list(
+        dict.fromkeys(
+            [*_WIKILINK_PATTERN.findall(markdown), *_PAGE_EMBED_PATTERN.findall(markdown)]
+        )
+    )
 
 
 def _sync_markdown_links(session: Session, from_note_id: str, markdown: str, now: datetime) -> None:

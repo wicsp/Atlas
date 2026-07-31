@@ -54,8 +54,10 @@ interface KnowledgeNote {
   knowledge_note_id: string;
   title: string;
   claim: string;
+  body_markdown: string;
   tags: string[];
   status: string;
+  revision: number;
 }
 
 type WritingReference =
@@ -356,7 +358,13 @@ export function ProjectsConsole() {
   function insertKnowledge(note: KnowledgeNote) {
     const link = `[[${note.knowledge_note_id}|${note.title}]]`;
     setMarkdown((current) => `${current}${current.endsWith("\n") ? "" : "\n"}${link} `);
-    setMessage(`已插入「${note.title}」；保存后 Atlas 会自动建立 Link 和 Backlink。`);
+    setMessage(`已插入「${note.title}」的引用；保存后 Atlas 会自动建立 Link 和 Backlink。`);
+  }
+
+  function embedKnowledge(note: KnowledgeNote) {
+    const embed = `{{knowledge-page:${note.knowledge_note_id}}}`;
+    setMarkdown((current) => `${current}${current.endsWith("\n") ? "" : "\n"}${embed}\n`);
+    setMessage(`已嵌入「${note.title}」；它会跟随知识页更新。`);
   }
 
   function insertComment(comment: CommentRecord) {
@@ -547,7 +555,7 @@ export function ProjectsConsole() {
             <p className="eyebrow">KNOWLEDGE</p>
             <h2>写作参考</h2>
             <p>
-              根据项目目标和当前正文动态排序。知识笔记建立 Link；尚未提炼的评论也可作为参考摘录。
+              根据项目目标和当前正文动态排序。知识页可以只建立引用，也可以嵌入正文；Comment 可直接作为材料摘录。
             </p>
           </header>
           <input
@@ -560,16 +568,19 @@ export function ProjectsConsole() {
             {writingReferences.map((reference) =>
               reference.kind === "knowledge" ? (
                 <article key={reference.note.knowledge_note_id}>
-                  <span className="reference-kind">知识笔记</span>
+                  <span className="reference-kind">知识页</span>
                   <h3>{reference.note.title}</h3>
                   <p>{reference.note.claim}</p>
                   <small>{reference.note.tags.join(" · ") || "未标记"}</small>
-                  <button
-                    disabled={!activeDocument}
-                    onClick={() => insertKnowledge(reference.note)}
-                  >
-                    插入并建立 Link
-                  </button>
+                  <div className="reference-actions">
+                    <button disabled={!activeDocument} onClick={() => insertKnowledge(reference.note)}>
+                      插入引用
+                    </button>
+                    <button disabled={!activeDocument} onClick={() => embedKnowledge(reference.note)}>
+                      嵌入正文
+                    </button>
+                    <a href={`/knowledge?note_id=${reference.note.knowledge_note_id}`}>打开知识页</a>
+                  </div>
                 </article>
               ) : (
                 <article key={reference.comment.comment_id}>
@@ -596,7 +607,7 @@ export function ProjectsConsole() {
             {writingReferences.length === 0 ? (
               <div className="reference-empty">
                 <strong>还没有可用参考</strong>
-                <p>先在材料页保存评论或提炼知识笔记。</p>
+                <p>先在材料页保存 Comment，或在知识库建立知识页。</p>
                 <a href="/materials">去处理材料</a>
               </div>
             ) : null}

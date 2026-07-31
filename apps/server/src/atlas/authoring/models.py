@@ -138,6 +138,13 @@ class DocumentRecord(StrictModel):
     updated_at: datetime
 
 
+class RenderedDocument(StrictModel):
+    document_id: str = Field(pattern=_DOCUMENT_ID)
+    source_revision: int
+    body_markdown: str
+    embedded_knowledge_note_ids: list[str]
+
+
 class DocumentVersionCreate(StrictModel):
     label: str = Field(default="", max_length=500)
 

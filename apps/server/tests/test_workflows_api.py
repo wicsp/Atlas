@@ -156,6 +156,10 @@ def test_local_review_and_web_workflows_are_builtin(tmp_path: Path) -> None:
     assert workflows[("vortex.comparison", "1")]["steps"][0]["requirements"][
         "executors"
     ] == ["pi"]
+    knowledge = workflows[("knowledge.suggest", "1")]
+    assert knowledge["project_id"] == "knowledge-base"
+    assert knowledge["steps"][0]["requirements"]["node_ids"] == ["macsp"]
+    assert knowledge["steps"][0]["requirements"]["executors"] == ["pi"]
     assert ("vortex.resource-purge", "1") not in workflows
 
 

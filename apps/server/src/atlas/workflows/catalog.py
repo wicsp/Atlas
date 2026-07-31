@@ -163,6 +163,25 @@ BUILTIN_WORKFLOWS = [
             ],
         }
     ),
+    WorkflowDefinitionCreate.model_validate(
+        {
+            "name": "knowledge.suggest",
+            "version": "1",
+            "project_id": "knowledge-base",
+            "description": (
+                "Propose new knowledge pages or improvements from explicit Atlas material. "
+                "The result remains a machine suggestion until a person applies it."
+            ),
+            "steps": [
+                {
+                    "name": "suggest",
+                    "requirements": {"node_ids": ["macsp"], "executors": ["pi"]},
+                    "max_attempts": 2,
+                    "priority": 15,
+                }
+            ],
+        }
+    ),
 ]
 
 

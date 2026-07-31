@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import uuid
 from datetime import datetime
 
@@ -21,6 +22,7 @@ from .models import (
     ProjectRecord,
     ProjectStatus,
     ProjectUpdate,
+    RenderedDocument,
     WorkItemCreate,
     WorkItemRecord,
     WorkItemUpdate,
@@ -232,6 +234,30 @@ class AuthoringRepository:
         with self._session_factory() as session:
             return _document(session, _require_document(session, document_id))
 
+    def render_document(self, document_id: str) -> RenderedDocument:
+        with self._session_factory() as session:
+            document = _require_document(session, document_id)
+            embedded: list[str] = []
+
+            def replace(match: re.Match[str]) -> str:
+                note_id = match.group(1)
+                note = session.get(KnowledgeNoteRow, note_id)
+                if note is None or note.status == "archived":
+                    return match.group(0)
+                embedded.append(note_id)
+                parts = [f"## {note.title}", f"> {note.claim}"]
+                if note.body_markdown.strip():
+                    parts.append(note.body_markdown.strip())
+                return "\n\n".join(parts)
+
+            body = _LIVE_EMBED_PATTERN.sub(replace, document.body_markdown)
+            return RenderedDocument(
+                document_id=document.document_id,
+                source_revision=document.revision,
+                body_markdown=body,
+                embedded_knowledge_note_ids=list(dict.fromkeys(embedded)),
+            )
+
     def update_document(
         self, document_id: str, payload: DocumentUpdate, now: datetime
     ) -> DocumentRecord:
@@ -300,6 +326,9 @@ def _require_document(
 def _check_revision(label: str, current: int, expected: int) -> None:
     if current != expected:
         raise ValueError(f"{label} revision conflict: expected {expected}, current {current}")
+
+
+_LIVE_EMBED_PATTERN = re.compile(r"\{\{knowledge-page:(kn_[0-9a-f]{32})\}\}")
 
 
 def _sync_document_links(session: Session, document: DocumentRow) -> None:

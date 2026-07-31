@@ -16,6 +16,7 @@ from .models import (
     ProjectRecord,
     ProjectStatus,
     ProjectUpdate,
+    RenderedDocument,
     WorkItemCreate,
     WorkItemRecord,
     WorkItemUpdate,
@@ -52,6 +53,9 @@ class AuthoringService:
 
     def get_document(self, document_id: str) -> DocumentRecord:
         return self._repository.get_document(document_id)
+
+    def render_document(self, document_id: str) -> RenderedDocument:
+        return self._repository.render_document(document_id)
 
     def update_document(self, document_id: str, payload: DocumentUpdate) -> DocumentRecord:
         return self._repository.update_document(document_id, payload, _now())

@@ -49,13 +49,20 @@ def test_project_work_item_document_and_snapshot_workflow(tmp_path) -> None:
             "title": "论文正文",
             "body_markdown": (
                 "# 论文正文\n\n"
-                f"使用 [[{note['knowledge_note_id']}|中心化状态]] 作为依据。"
+                f"使用 [[{note['knowledge_note_id']}|中心化状态]] 作为依据。\n\n"
+                f"{{{{knowledge-page:{note['knowledge_note_id']}}}}}"
             ),
         },
     )
     assert document_response.status_code == 200, document_response.text
     document = document_response.json()
     assert document["linked_knowledge_note_ids"] == [note["knowledge_note_id"]]
+    rendered = client.get(
+        f"/api/documents/{document['document_id']}/rendered-markdown"
+    )
+    assert rendered.status_code == 200
+    assert "## 中心化状态" in rendered.json()["body_markdown"]
+    assert rendered.json()["embedded_knowledge_note_ids"] == [note["knowledge_note_id"]]
 
     work_item = client.post(
         "/api/work-items",

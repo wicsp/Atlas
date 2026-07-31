@@ -93,13 +93,6 @@ interface KnowledgeNoteRecord {
   status: "draft" | "active" | "superseded" | "archived";
 }
 
-interface KnowledgeNoteDraft {
-  title: string;
-  claim: string;
-  body_markdown: string;
-  tags: string;
-}
-
 function formatTime(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
@@ -218,9 +211,6 @@ export function ReviewConsole() {
   const [loadingDocuments, setLoadingDocuments] = useState<Set<string>>(new Set());
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
   const [knowledgeNotes, setKnowledgeNotes] = useState<KnowledgeNoteRecord[]>([]);
-  const [knowledgeNoteDrafts, setKnowledgeNoteDrafts] = useState<
-    Record<string, KnowledgeNoteDraft>
-  >({});
 
   const loadReviewData = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
@@ -541,43 +531,6 @@ export function ReviewConsole() {
       }));
     } finally {
       setResourceBusy(resourceId, false);
-    }
-  }
-
-  async function createKnowledgeNote(
-    resource: ResourceRecord,
-    comment: CommentRecord,
-  ) {
-    const draft = knowledgeNoteDrafts[comment.comment_id];
-    if (!draft) return;
-    setResourceBusy(resource.resource_id, true);
-    try {
-      const created = await api<KnowledgeNoteRecord>("/api/knowledge-notes", {
-        method: "POST",
-        body: JSON.stringify({
-          title: draft.title,
-          claim: draft.claim,
-          body_markdown: draft.body_markdown,
-          tags: commaSeparated(draft.tags),
-          comment_ids: [comment.comment_id],
-          status: "active",
-        }),
-      });
-      setKnowledgeNotes((current) => [created, ...current]);
-      setFeedback((current) => ({
-        ...current,
-        [resource.resource_id]: {
-          tone: "success",
-          message: `知识笔记「${created.title}」已创建，可在项目写作中引用。`,
-        },
-      }));
-    } catch (error) {
-      setFeedback((current) => ({
-        ...current,
-        [resource.resource_id]: { tone: "error", message: errorMessage(error) },
-      }));
-    } finally {
-      setResourceBusy(resource.resource_id, false);
     }
   }
 
@@ -1287,81 +1240,16 @@ export function ReviewConsole() {
                                   </div>
                                 </div>
                                 {comment ? (
-                                  permanentNote ? (
-                                    <div className="knowledge-promotion complete">
-                                      <span className="eyebrow">KNOWLEDGE NOTE</span>
-                                      <strong>{permanentNote.title}</strong>
-                                      <p>{permanentNote.claim}</p>
-                                      <small>这条评论已经提炼为可复用知识。</small>
-                                    </div>
-                                  ) : (
-                                    <form
-                                      className="knowledge-promotion"
-                                      onSubmit={(event) => {
-                                        event.preventDefault();
-                                        void createKnowledgeNote(resource, comment);
-                                      }}
-                                    >
-                                      <div>
-                                        <span className="eyebrow">PROMOTE TO KNOWLEDGE</span>
-                                        <strong>把评论提炼成可复用知识</strong>
-                                        <small>标题和核心观点由你确认；Atlas 自动保留材料证据。</small>
-                                      </div>
-                                      <input
-                                        aria-label="知识笔记标题"
-                                        placeholder="简短、可复用的知识标题"
-                                        value={knowledgeNoteDrafts[comment.comment_id]?.title ?? ""}
-                                        onChange={(event) => setKnowledgeNoteDrafts((current) => ({
-                                          ...current,
-                                          [comment.comment_id]: {
-                                            title: event.target.value,
-                                            claim: current[comment.comment_id]?.claim ?? "",
-                                            body_markdown:
-                                              current[comment.comment_id]?.body_markdown
-                                              ?? comment.body_markdown,
-                                            tags: current[comment.comment_id]?.tags ?? "",
-                                          },
-                                        }))}
-                                        required
-                                      />
-                                      <textarea
-                                        aria-label="知识笔记核心观点"
-                                        placeholder="用一句完整的话写出可以独立引用的核心观点"
-                                        value={knowledgeNoteDrafts[comment.comment_id]?.claim ?? ""}
-                                        onChange={(event) => setKnowledgeNoteDrafts((current) => ({
-                                          ...current,
-                                          [comment.comment_id]: {
-                                            title: current[comment.comment_id]?.title ?? "",
-                                            claim: event.target.value,
-                                            body_markdown:
-                                              current[comment.comment_id]?.body_markdown
-                                              ?? comment.body_markdown,
-                                            tags: current[comment.comment_id]?.tags ?? "",
-                                          },
-                                        }))}
-                                        required
-                                      />
-                                      <input
-                                        aria-label="知识笔记标签"
-                                        placeholder="标签，用逗号分隔（可选）"
-                                        value={knowledgeNoteDrafts[comment.comment_id]?.tags ?? ""}
-                                        onChange={(event) => setKnowledgeNoteDrafts((current) => ({
-                                          ...current,
-                                          [comment.comment_id]: {
-                                            title: current[comment.comment_id]?.title ?? "",
-                                            claim: current[comment.comment_id]?.claim ?? "",
-                                            body_markdown:
-                                              current[comment.comment_id]?.body_markdown
-                                              ?? comment.body_markdown,
-                                            tags: event.target.value,
-                                          },
-                                        }))}
-                                      />
-                                      <button className="comment-button" disabled={isBusy}>
-                                        创建知识笔记
-                                      </button>
-                                    </form>
-                                  )
+                                  <div className="knowledge-promotion complete">
+                                    <span className="eyebrow">PERSONAL INSIGHT</span>
+                                    <strong>这条 Comment 是材料的一部分，不需要再重写一次。</strong>
+                                    <p>{permanentNote
+                                      ? `已被知识页「${permanentNote.title}」引用；同一条 Comment 也可以进入其他知识页。`
+                                      : "需要跨材料形成观点时，把它加入知识库中的某个知识页。"}</p>
+                                    <a className="comment-button" href={`/knowledge?comment_id=${comment.comment_id}`}>
+                                      {permanentNote ? "在知识库中继续整理" : "加入知识页"}
+                                    </a>
+                                  </div>
                                 ) : null}
                               </>
                             ) : null}

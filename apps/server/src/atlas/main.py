@@ -26,6 +26,7 @@ from .authoring.models import (
     DocumentUpdate,
     DocumentVersionCreate,
     DocumentVersionRecord,
+    RenderedDocument,
     WorkItemCreate,
     WorkItemRecord,
     WorkItemUpdate,
@@ -1458,6 +1459,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Document not found") from exc
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.get(
+        "/api/documents/{document_id}/rendered-markdown",
+        response_model=RenderedDocument,
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def render_document(request: Request, document_id: str) -> RenderedDocument:
+        try:
+            return _authoring_service(request).render_document(document_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Document not found") from exc
 
     @app.post(
         "/api/documents/{document_id}/versions",
