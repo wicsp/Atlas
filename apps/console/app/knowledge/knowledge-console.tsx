@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
 import { api } from "../console-api";
 import { ConsoleNav } from "../console-nav";
+import { MarkdownEditor } from "../markdown-editor";
 import type { CommentRecord } from "../review-model";
 
 type AuthState = "checking" | "anonymous" | "authenticated";
@@ -217,7 +218,7 @@ export function KnowledgeConsole() {
         <header><div><p className="eyebrow">{activePage ? `REVISION ${activePage.revision}` : "NEW PAGE"}</p><h1>{activePage ? "编辑知识页" : "建立知识页"}</h1></div><div><button disabled={busy || !title || !claim} onClick={() => void savePage()}>保存草稿</button><button className="primary-button" disabled={busy || !title || !claim} onClick={() => void savePage("active")}>确认发布</button></div></header>
         <label>标题<input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="这个知识页讨论什么问题？" /></label>
         <label>核心观点<textarea className="knowledge-claim" value={claim} onChange={(event) => setClaim(event.target.value)} placeholder="用完整的一两句话说明你目前的判断" /></label>
-        <label>正文（Markdown）<textarea className="knowledge-body" value={body} onChange={(event) => setBody(event.target.value)} spellCheck /></label>
+        <div className="knowledge-body-field"><span>正文（即时渲染 Markdown）</span><MarkdownEditor value={body} onChange={setBody} /></div>
         <label>标签<input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="用逗号分隔" /></label>
         {message ? <p className="project-message" role="status">{message}</p> : null}
       </section>
