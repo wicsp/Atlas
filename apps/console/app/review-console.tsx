@@ -18,6 +18,7 @@ import {
 } from "./review-model";
 import { api, ApiError } from "./console-api";
 import { ConsoleNav } from "./console-nav";
+import { MarkdownPreview } from "./markdown-preview";
 
 type AuthState = "checking" | "anonymous" | "authenticated";
 type Filter = ReviewStatus | "all";
@@ -1212,7 +1213,7 @@ export function ReviewConsole() {
                               <p className="reader-error">{documentErrors[readerResource.resource_id]}</p>
                             ) : null}
                             {document ? (
-                              <pre className="resource-content">{document.content}</pre>
+                              <MarkdownPreview markdown={document.content} />
                             ) : null}
                             {readerResource.kind === "summary" ? (
                               <>

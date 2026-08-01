@@ -37,12 +37,13 @@ test("server-renders the Atlas Review shell", async () => {
 });
 
 test("removes starter surfaces and keeps credentials out of client source", async () => {
-  const [page, reviewClient, apiClient, projectClient, knowledgeClient, packageJson] = await Promise.all([
+  const [page, reviewClient, apiClient, projectClient, knowledgeClient, markdownPreview, packageJson] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/review-console.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/console-api.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/projects/projects-console.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/knowledge/knowledge-console.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/markdown-preview.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
   ]);
   const client = `${reviewClient}\n${apiClient}`;
@@ -64,6 +65,12 @@ test("removes starter surfaces and keeps credentials out of client source", asyn
   assert.doesNotMatch(client, /purge-source|彻底删除机器材料|window\.confirm/);
   assert.match(client, /阅读与评论/);
   assert.match(client, /保存评论/);
+  assert.match(reviewClient, /<MarkdownPreview markdown=\{document\.content\} \/>/);
+  assert.doesNotMatch(reviewClient, /<pre className="resource-content"/);
+  assert.match(markdownPreview, /Vditor\.preview/);
+  assert.match(markdownPreview, /cdn: "\/vendor\/vditor"/);
+  assert.match(markdownPreview, /engine: "KaTeX"/);
+  assert.match(markdownPreview, /sanitize: true/);
   assert.match(client, /评论直接保存在 Atlas/);
   assert.doesNotMatch(client, /把评论提炼成可复用知识/);
   assert.match(client, /这条 Comment 是材料的一部分，不需要再重写一次/);
