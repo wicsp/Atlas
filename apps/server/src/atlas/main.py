@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -741,6 +743,64 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 status_code=status.HTTP_409_CONFLICT,
                 detail=str(exc),
             ) from exc
+
+    @app.get(
+        "/api/runs/{run_id}/artifacts/{artifact_name}/media",
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def get_run_artifact_media(
+        request: Request,
+        run_id: str,
+        artifact_name: str,
+    ) -> Response:
+        artifact = next(
+            (
+                candidate
+                for candidate in _work_service(request).list_artifacts(run_id)
+                if candidate.name == artifact_name
+            ),
+            None,
+        )
+        if artifact is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Artifact not found",
+            )
+        if artifact.content_type not in {
+            "image/png",
+            "image/jpeg",
+            "image/webp",
+            "image/gif",
+        }:
+            raise HTTPException(
+                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                detail="Artifact is not a supported image",
+            )
+        try:
+            record = _work_service(request).get_artifact_content(artifact.artifact_id)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Artifact content has not been uploaded to Atlas",
+            ) from exc
+        prefix = f"data:{artifact.content_type};base64,"
+        if not record.content.startswith(prefix):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Image artifact content is not a matching base64 data URL",
+            )
+        try:
+            body = base64.b64decode(record.content[len(prefix) :], validate=True)
+        except (ValueError, binascii.Error) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Image artifact content is invalid base64",
+            ) from exc
+        return Response(
+            content=body,
+            media_type=artifact.content_type,
+            headers={"Cache-Control": "private, max-age=31536000, immutable"},
+        )
 
     @app.patch(
         "/api/resources/{resource_id}/review",

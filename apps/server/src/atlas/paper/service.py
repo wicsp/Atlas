@@ -19,8 +19,8 @@ from .models import (
 
 PAPER_LIBRARY_PROJECT_ID = "paper-library"
 PREVIEW_PROFILE_ID = "paper-preview-v1"
-FULLTEXT_PROFILE_ID = "paper-reading-brief-v2"
-FULLTEXT_WORKFLOW_VERSION = "2"
+FULLTEXT_PROFILE_ID = "paper-reading-brief-v3"
+FULLTEXT_WORKFLOW_VERSION = "3"
 ACTIVE_RUN_STATUSES = {"blocked", "pending", "claimed"}
 
 

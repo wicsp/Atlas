@@ -131,7 +131,11 @@ export interface ReviewGroup {
 export function resourceProfileId(resource: ResourceRecord): string {
   const declared = resource.metadata.profile_id;
   if (typeof declared === "string" && declared.trim()) {
-    if (declared === "paper-fulltext-v1" || declared === "paper-reading-brief-v2") {
+    if (
+      declared === "paper-fulltext-v1"
+      || declared === "paper-reading-brief-v2"
+      || declared === "paper-reading-brief-v3"
+    ) {
       return "paper-fulltext";
     }
     return declared.trim();
@@ -168,7 +172,10 @@ export function groupResourcesBySource(
   const currentBySlot = new Map<string, ResourceRecord>();
   const sourcesWithReadingBrief = new Set(
     resources
-      .filter((resource) => resource.metadata.profile_id === "paper-reading-brief-v2")
+      .filter((resource) =>
+        resource.metadata.profile_id === "paper-reading-brief-v2"
+        || resource.metadata.profile_id === "paper-reading-brief-v3"
+      )
       .map((resource) => resource.source_id),
   );
 
@@ -241,20 +248,26 @@ export function paperFulltextForPreview(
       resource.source_id === preview.source_id
       && resource.kind === "summary"
       && (
-        resource.metadata.profile_id === "paper-reading-brief-v2"
+        resource.metadata.profile_id === "paper-reading-brief-v3"
+        || resource.metadata.profile_id === "paper-reading-brief-v2"
         || resource.metadata.profile_id === "paper-fulltext-v1"
       )
       && resource.metadata.source_preview_resource_id === preview.resource_id
     )
     .sort((left, right) => {
-      const leftV2 = left.metadata.profile_id === "paper-reading-brief-v2" ? 1 : 0;
-      const rightV2 = right.metadata.profile_id === "paper-reading-brief-v2" ? 1 : 0;
-      return rightV2 - leftV2 || right.created_at.localeCompare(left.created_at);
+      const rank = (resource: ResourceRecord) =>
+        resource.metadata.profile_id === "paper-reading-brief-v3"
+          ? 2
+          : resource.metadata.profile_id === "paper-reading-brief-v2"
+            ? 1
+            : 0;
+      return rank(right) - rank(left) || right.created_at.localeCompare(left.created_at);
     })[0];
 }
 
 export function isPaperReadingBrief(resource: ResourceRecord): boolean {
-  return resource.metadata.profile_id === "paper-reading-brief-v2";
+  return resource.metadata.profile_id === "paper-reading-brief-v2"
+    || resource.metadata.profile_id === "paper-reading-brief-v3";
 }
 
 export function paperFulltextRunForPreview(
@@ -265,7 +278,7 @@ export function paperFulltextRunForPreview(
     const workflowInput = run.input.workflow_input;
     return (
       run.workflow?.name === "paper.fulltext"
-      && run.workflow.version === "2"
+      && run.workflow.version === "3"
       && run.step_name === "summarize"
       && typeof workflowInput === "object"
       && workflowInput !== null

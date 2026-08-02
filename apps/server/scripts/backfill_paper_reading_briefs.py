@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Enqueue one paper.fulltext@2 reading brief per existing paper Source."""
+"""Enqueue one paper.fulltext@3 reading brief per existing paper Source."""
 
 from __future__ import annotations
 
@@ -28,10 +28,10 @@ def _request(base_url: str, path: str, token: str, payload: dict[str, str] | Non
 
 
 def _targets(resources: list[dict[str, Any]]) -> list[tuple[str, str]]:
-    sources_with_v2 = {
+    sources_with_v3 = {
         resource["source_id"]
         for resource in resources
-        if resource.get("metadata", {}).get("profile_id") == "paper-reading-brief-v2"
+        if resource.get("metadata", {}).get("profile_id") == "paper-reading-brief-v3"
     }
     previews: dict[str, dict[str, Any]] = {}
     for resource in resources:
@@ -44,7 +44,7 @@ def _targets(resources: list[dict[str, Any]]) -> list[tuple[str, str]]:
     return sorted(
         (source_id, resource["resource_id"])
         for source_id, resource in previews.items()
-        if source_id not in sources_with_v2
+        if source_id not in sources_with_v3
     )
 
 

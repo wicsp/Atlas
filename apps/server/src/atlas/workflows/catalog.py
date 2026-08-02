@@ -133,6 +133,47 @@ BUILTIN_WORKFLOWS = [
     ),
     WorkflowDefinitionCreate.model_validate(
         {
+            "name": "paper.fulltext",
+            "version": "3",
+            "project_id": "paper-library",
+            "description": (
+                "Read Zotero-indexed PDF text, cache bounded key figures in Atlas with an "
+                "arXiv source fallback, and publish paper-reading-brief-v3."
+            ),
+            "steps": [
+                {
+                    "name": "zotero_import",
+                    "requirements": {
+                        "node_ids": ["macsp"],
+                        "executors": ["script"],
+                        "grants": ["zotero-library:write"],
+                    },
+                    "max_attempts": 3,
+                    "priority": 25,
+                },
+                {
+                    "name": "extract",
+                    "depends_on": ["zotero_import"],
+                    "requirements": {
+                        "node_ids": ["macsp"],
+                        "executors": ["script"],
+                        "grants": ["zotero-library:read"],
+                    },
+                    "max_attempts": 3,
+                    "priority": 25,
+                },
+                {
+                    "name": "summarize",
+                    "depends_on": ["extract"],
+                    "requirements": {"executors": ["pi"]},
+                    "max_attempts": 2,
+                    "priority": 25,
+                },
+            ],
+        }
+    ),
+    WorkflowDefinitionCreate.model_validate(
+        {
             "name": "web.summary",
             "version": "1",
             "project_id": "web-capture",

@@ -123,7 +123,10 @@ function paperRunMessage(run: RunRecord): string {
 function paperProfileLabel(resource: ResourceRecord): string | null {
   if (resource.metadata.profile_id === "paper-preview-v1") return "摘要预览";
   if (resource.metadata.profile_id === "paper-fulltext-v1") return "PDF 全文";
-  if (resource.metadata.profile_id === "paper-reading-brief-v2") return "论文阅读简报";
+  if (
+    resource.metadata.profile_id === "paper-reading-brief-v2"
+    || resource.metadata.profile_id === "paper-reading-brief-v3"
+  ) return "论文阅读简报";
   return null;
 }
 

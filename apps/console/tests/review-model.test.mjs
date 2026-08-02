@@ -121,7 +121,7 @@ test("links a paper preview to its full-text Resource and workflow", () => {
   const brief = {
     ...resource("res_brief", source.source_id, "2026-07-22T11:00:00Z"),
     metadata: {
-      profile_id: "paper-reading-brief-v2",
+      profile_id: "paper-reading-brief-v3",
       basis: "pdf-text",
       source_preview_resource_id: preview.resource_id,
     },
@@ -130,7 +130,7 @@ test("links a paper preview to its full-text Resource and workflow", () => {
     ...run("run_summary", preview.resource_id, "2026-07-21T10:00:00Z", "blocked"),
     project_id: "paper-library",
     input: { workflow_input: { preview_resource_id: preview.resource_id } },
-    workflow: { name: "paper.fulltext", version: "2", digest: "sha256:test" },
+    workflow: { name: "paper.fulltext", version: "3", digest: "sha256:test" },
     step_name: "summarize",
   };
 

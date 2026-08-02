@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 
 import pytest
@@ -393,7 +394,7 @@ def test_paper_fulltext_validates_preview_source_and_profile(
     )
     assert accepted.status_code == 200, accepted.text
     assert accepted.json()["reused"] is False
-    assert accepted.json()["invocation"]["workflow_version"] == "2"
+    assert accepted.json()["invocation"]["workflow_version"] == "3"
 
     other = control_client.post(
         "/api/sources",
@@ -559,6 +560,57 @@ def test_existing_artifact_content_can_be_backfilled_once(
     document = control_client.get(f"/api/resources/{resource_id}/content")
     assert document.status_code == 200, document.text
     assert document.json()["content"] == markdown
+
+
+def test_inline_image_artifact_can_be_read_as_same_origin_media(
+    control_client: TestClient,
+    scoped_client: TestClient,
+) -> None:
+    source = _source(control_client)
+    claimed = _claimed_run(control_client, scoped_client, source["source_id"])
+    payload = _completion_payload(claimed, source["source_id"])
+    image_bytes = b"\x89PNG\r\n\x1a\nsmall-test-image"
+    data_url = "data:image/png;base64," + base64.b64encode(image_bytes).decode()
+    payload["artifacts"].append(
+        {
+            "name": "paper-figure-1.png",
+            "uri": "atlas://generated/paper-figure-1.png",
+            "content_type": "image/png",
+            "size_bytes": len(data_url.encode()),
+            "checksum": f"sha256:{hashlib.sha256(data_url.encode()).hexdigest()}",
+            "content": data_url,
+        }
+    )
+    completed = scoped_client.post(
+        f"/api/runs/{claimed['run_id']}/complete", json=payload
+    )
+    assert completed.status_code == 200, completed.text
+
+    response = control_client.get(
+        f"/api/runs/{claimed['run_id']}/artifacts/paper-figure-1.png/media"
+    )
+    assert response.status_code == 200, response.text
+    assert response.content == image_bytes
+    assert response.headers["content-type"] == "image/png"
+    assert response.headers["cache-control"] == "private, max-age=31536000, immutable"
+
+
+def test_media_endpoint_rejects_non_image_artifact(
+    control_client: TestClient,
+    scoped_client: TestClient,
+) -> None:
+    source = _source(control_client)
+    claimed = _claimed_run(control_client, scoped_client, source["source_id"])
+    payload = _completion_payload(claimed, source["source_id"])
+    completed = scoped_client.post(
+        f"/api/runs/{claimed['run_id']}/complete", json=payload
+    )
+    assert completed.status_code == 200, completed.text
+
+    response = control_client.get(
+        f"/api/runs/{claimed['run_id']}/artifacts/summary-BV1AB411C7mD/media"
+    )
+    assert response.status_code == 415
 
 
 def test_invalid_resource_rolls_back_entire_completion(
