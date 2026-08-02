@@ -393,6 +393,7 @@ def test_paper_fulltext_validates_preview_source_and_profile(
     )
     assert accepted.status_code == 200, accepted.text
     assert accepted.json()["reused"] is False
+    assert accepted.json()["invocation"]["workflow_version"] == "2"
 
     other = control_client.post(
         "/api/sources",

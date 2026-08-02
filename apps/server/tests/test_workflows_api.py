@@ -138,7 +138,7 @@ def test_local_review_and_web_workflows_are_builtin(tmp_path: Path) -> None:
         "grants": ["zotero-library:write", "zotero-library:read"],
     }
     assert paper["steps"][1]["depends_on"] == ["ingest"]
-    accepted = workflows[("paper.fulltext", "1")]
+    accepted = workflows[("paper.fulltext", "2")]
     assert [step["name"] for step in accepted["steps"]] == [
         "zotero_import",
         "extract",

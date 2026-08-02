@@ -130,7 +130,12 @@ export interface ReviewGroup {
 
 export function resourceProfileId(resource: ResourceRecord): string {
   const declared = resource.metadata.profile_id;
-  if (typeof declared === "string" && declared.trim()) return declared.trim();
+  if (typeof declared === "string" && declared.trim()) {
+    if (declared === "paper-fulltext-v1" || declared === "paper-reading-brief-v2") {
+      return "paper-fulltext";
+    }
+    return declared.trim();
+  }
   const generator = resource.generator;
   return [
     resource.kind,
@@ -161,8 +166,20 @@ export function groupResourcesBySource(
   const resourcesBySource = new Map<string, ResourceRecord[]>();
   const referenced = new Set(knowledgeRefs.flatMap((reference) => reference.resource_ids));
   const currentBySlot = new Map<string, ResourceRecord>();
+  const sourcesWithReadingBrief = new Set(
+    resources
+      .filter((resource) => resource.metadata.profile_id === "paper-reading-brief-v2")
+      .map((resource) => resource.source_id),
+  );
 
   for (const resource of resources) {
+    if (
+      resource.metadata.profile_id === "paper-preview-v1"
+      && sourcesWithReadingBrief.has(resource.source_id)
+      && !referenced.has(resource.resource_id)
+    ) {
+      continue;
+    }
     const slot = `${resource.source_id}\0${resourceProfileId(resource)}`;
     const current = currentBySlot.get(slot);
     if (!current || newestFirst(resource, current, resource.resource_id, current.resource_id) < 0) {
@@ -219,12 +236,25 @@ export function paperFulltextForPreview(
   resources: ResourceRecord[],
   preview: ResourceRecord,
 ): ResourceRecord | undefined {
-  return resources.find((resource) =>
-    resource.source_id === preview.source_id
-    && resource.kind === "summary"
-    && resource.metadata.profile_id === "paper-fulltext-v1"
-    && resource.metadata.source_preview_resource_id === preview.resource_id
-  );
+  return resources
+    .filter((resource) =>
+      resource.source_id === preview.source_id
+      && resource.kind === "summary"
+      && (
+        resource.metadata.profile_id === "paper-reading-brief-v2"
+        || resource.metadata.profile_id === "paper-fulltext-v1"
+      )
+      && resource.metadata.source_preview_resource_id === preview.resource_id
+    )
+    .sort((left, right) => {
+      const leftV2 = left.metadata.profile_id === "paper-reading-brief-v2" ? 1 : 0;
+      const rightV2 = right.metadata.profile_id === "paper-reading-brief-v2" ? 1 : 0;
+      return rightV2 - leftV2 || right.created_at.localeCompare(left.created_at);
+    })[0];
+}
+
+export function isPaperReadingBrief(resource: ResourceRecord): boolean {
+  return resource.metadata.profile_id === "paper-reading-brief-v2";
 }
 
 export function paperFulltextRunForPreview(
@@ -235,6 +265,7 @@ export function paperFulltextRunForPreview(
     const workflowInput = run.input.workflow_input;
     return (
       run.workflow?.name === "paper.fulltext"
+      && run.workflow.version === "2"
       && run.step_name === "summarize"
       && typeof workflowInput === "object"
       && workflowInput !== null

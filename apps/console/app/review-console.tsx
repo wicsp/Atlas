@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
   groupResourcesBySource,
   isActiveRun,
+  isPaperReadingBrief,
   isPaperPreview,
   paperFulltextRunForPreview,
   paperFulltextForPreview,
@@ -18,7 +19,7 @@ import {
 } from "./review-model";
 import { api, ApiError } from "./console-api";
 import { ConsoleNav } from "./console-nav";
-import { MarkdownPreview } from "./markdown-preview";
+import { MarkdownPreview, PaperReadingBrief } from "./markdown-preview";
 
 type AuthState = "checking" | "anonymous" | "authenticated";
 type Filter = ReviewStatus | "all";
@@ -140,6 +141,7 @@ function paperRunMessage(run: RunRecord): string {
 function paperProfileLabel(resource: ResourceRecord): string | null {
   if (resource.metadata.profile_id === "paper-preview-v1") return "摘要预览";
   if (resource.metadata.profile_id === "paper-fulltext-v1") return "PDF 全文";
+  if (resource.metadata.profile_id === "paper-reading-brief-v2") return "论文阅读简报";
   return null;
 }
 
@@ -1153,6 +1155,9 @@ export function ReviewConsole() {
                   const fulltextResource = paperPreview
                     ? paperFulltextForPreview(group.resources, resource)
                     : undefined;
+                  const currentReadingBrief = fulltextResource
+                    ? isPaperReadingBrief(fulltextResource)
+                    : false;
                   const paperRun = paperPreview
                     ? paperFulltextRunForPreview(runs, resource.resource_id)
                     : undefined;
@@ -1213,7 +1218,9 @@ export function ReviewConsole() {
                               <p className="reader-error">{documentErrors[readerResource.resource_id]}</p>
                             ) : null}
                             {document ? (
-                              <MarkdownPreview markdown={document.content} />
+                              isPaperReadingBrief(readerResource)
+                                ? <PaperReadingBrief markdown={document.content} />
+                                : <MarkdownPreview markdown={document.content} />
                             ) : null}
                             {readerResource.kind === "summary" ? (
                               <>
@@ -1288,15 +1295,17 @@ export function ReviewConsole() {
                             <button
                               type="button"
                               disabled={isBusy || activePaperRun}
-                              onClick={() => fulltextResource
+                              onClick={() => currentReadingBrief && fulltextResource
                                 ? void openResource(fulltextResource)
                                 : void acceptPaper(resource)}
                             >
-                              {fulltextResource
-                                ? "查看 PDF 全文总结"
+                              {currentReadingBrief
+                                ? "查看论文阅读简报"
                                 : activePaperRun
                                   ? "正在处理 PDF"
-                                  : "总结全文"}
+                                  : fulltextResource
+                                    ? "升级为阅读简报"
+                                    : "生成阅读简报"}
                             </button>
                           ) : null}
                           {resource.review_status !== "dismissed" && comment ? (

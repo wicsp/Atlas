@@ -19,7 +19,8 @@ from .models import (
 
 PAPER_LIBRARY_PROJECT_ID = "paper-library"
 PREVIEW_PROFILE_ID = "paper-preview-v1"
-FULLTEXT_PROFILE_ID = "paper-fulltext-v1"
+FULLTEXT_PROFILE_ID = "paper-reading-brief-v2"
+FULLTEXT_WORKFLOW_VERSION = "2"
 ACTIVE_RUN_STATUSES = {"blocked", "pending", "claimed"}
 
 
@@ -109,7 +110,7 @@ class PaperService:
         invocation = self._workflows.invoke(
             WorkflowInvocationCreate(
                 workflow_name="paper.fulltext",
-                workflow_version="1",
+                workflow_version=FULLTEXT_WORKFLOW_VERSION,
                 input={
                     "source_id": source_id,
                     "preview_resource_id": preview_resource_id,
@@ -350,6 +351,7 @@ class PaperService:
                     invocation is not None
                     and invocation.status == "running"
                     and invocation.workflow_name == "paper.fulltext"
+                    and invocation.workflow_version == FULLTEXT_WORKFLOW_VERSION
                 ):
                     return invocation
         return None

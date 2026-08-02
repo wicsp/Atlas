@@ -295,6 +295,48 @@ textarea:focus-visible {
 
 .resource-content.vditor-reset img {
   height: auto;
+  max-width: min(100%, 960px);
+  margin: 1rem auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: white;
+  box-shadow: 0 12px 30px rgb(22 35 27 / 8%);
+}
+
+.paper-reading-brief {
+  display: grid;
+  gap: 1rem;
+}
+
+.paper-brief-visible.resource-content {
+  max-height: none;
+}
+
+.paper-brief-visible.vditor-reset h2:first-of-type {
+  margin-top: 1.25rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--forest-soft);
+}
+
+.paper-brief-evidence {
+  margin: 0 1.4rem 1.4rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgb(255 255 255 / 55%);
+}
+
+.paper-brief-evidence > summary {
+  cursor: pointer;
+  padding: 1rem 1.1rem;
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.paper-brief-detail.resource-content {
+  max-height: none;
+  padding-top: 0;
 }
 
 .comment-editor {

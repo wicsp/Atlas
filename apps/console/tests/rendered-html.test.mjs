@@ -65,6 +65,7 @@ test("removes starter surfaces and keeps credentials out of client source", asyn
   assert.doesNotMatch(client, /purge-source|彻底删除机器材料|window\.confirm/);
   assert.match(client, /阅读与评论/);
   assert.match(client, /保存评论/);
+  assert.match(reviewClient, /<PaperReadingBrief markdown=\{document\.content\} \/>/);
   assert.match(reviewClient, /<MarkdownPreview markdown=\{document\.content\} \/>/);
   assert.doesNotMatch(reviewClient, /<pre className="resource-content"/);
   assert.match(markdownPreview, /Vditor\.preview/);
@@ -81,7 +82,7 @@ test("removes starter surfaces and keeps credentials out of client source", asyn
   assert.doesNotMatch(client, /crypto\.subtle|content_hash:\s*await/);
   assert.match(client, /生成观点对比/);
   assert.match(client, /\/api\/paper\/fulltext/);
-  assert.match(client, /总结全文/);
+  assert.match(client, /生成阅读简报/);
   assert.match(client, /project_id=paper-library/);
   assert.match(client, /kind=comparison/);
   assert.match(client, /查看对比/);

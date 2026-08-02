@@ -92,12 +92,12 @@ BUILTIN_WORKFLOWS = [
     WorkflowDefinitionCreate.model_validate(
         {
             "name": "paper.fulltext",
-            "version": "1",
+            "version": "2",
             "project_id": "paper-library",
             "description": (
                 "Read Zotero-indexed PDF text for an ingested paper (importing to "
                 "Zotero first when the paper arrived via a fallback path), and publish "
-                "a full-text summary resource."
+                "a layered paper-reading-brief-v2 Resource with bounded arXiv figure context."
             ),
             "steps": [
                 {

@@ -68,3 +68,23 @@ export function MarkdownPreview({ markdown, className = "" }: MarkdownPreviewPro
     </div>
   );
 }
+
+export function PaperReadingBrief({ markdown }: { markdown: string }) {
+  const evidenceHeading = "## 证据与细节";
+  const evidenceIndex = markdown.indexOf(evidenceHeading);
+  if (evidenceIndex < 0) {
+    return <MarkdownPreview markdown={markdown} className="paper-reading-brief" />;
+  }
+
+  const visible = markdown.slice(0, evidenceIndex).trim();
+  const evidence = markdown.slice(evidenceIndex).trim();
+  return (
+    <div className="paper-reading-brief">
+      <MarkdownPreview markdown={visible} className="paper-brief-visible" />
+      <details className="paper-brief-evidence">
+        <summary>查看完整证据、实验设置与核查位置</summary>
+        <MarkdownPreview markdown={evidence} className="paper-brief-detail" />
+      </details>
+    </div>
+  );
+}

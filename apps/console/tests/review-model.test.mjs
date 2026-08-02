@@ -5,6 +5,7 @@ import {
   commentNoteUri,
   groupResourcesBySource,
   isActiveRun,
+  isPaperReadingBrief,
   paperFulltextRunForPreview,
   paperFulltextForPreview,
 } from "../app/review-model.ts";
@@ -117,17 +118,32 @@ test("links a paper preview to its full-text Resource and workflow", () => {
       source_preview_resource_id: preview.resource_id,
     },
   };
+  const brief = {
+    ...resource("res_brief", source.source_id, "2026-07-22T11:00:00Z"),
+    metadata: {
+      profile_id: "paper-reading-brief-v2",
+      basis: "pdf-text",
+      source_preview_resource_id: preview.resource_id,
+    },
+  };
   const summaryRun = {
     ...run("run_summary", preview.resource_id, "2026-07-21T10:00:00Z", "blocked"),
     project_id: "paper-library",
     input: { workflow_input: { preview_resource_id: preview.resource_id } },
-    workflow: { name: "paper.fulltext", version: "1", digest: "sha256:test" },
+    workflow: { name: "paper.fulltext", version: "2", digest: "sha256:test" },
     step_name: "summarize",
   };
 
   assert.equal(
-    paperFulltextForPreview([preview, fulltext], preview)?.resource_id,
-    fulltext.resource_id,
+    paperFulltextForPreview([preview, fulltext, brief], preview)?.resource_id,
+    brief.resource_id,
+  );
+  assert.equal(isPaperReadingBrief(brief), true);
+  assert.deepEqual(
+    groupResourcesBySource([source], [preview, fulltext, brief])[0].resources.map(
+      (item) => item.resource_id,
+    ),
+    [brief.resource_id],
   );
   assert.equal(
     paperFulltextRunForPreview([summaryRun], preview.resource_id)?.run_id,
