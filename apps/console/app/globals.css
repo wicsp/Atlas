@@ -390,6 +390,239 @@ textarea:focus-visible {
   background: #0f3e2d;
 }
 
+.resource-workbench {
+  min-height: 100dvh;
+  background: var(--paper);
+}
+
+.workbench-header {
+  position: relative;
+  z-index: 5;
+  min-height: 74px;
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(0, 2fr) minmax(150px, 1fr);
+  gap: 1rem;
+  align-items: center;
+  padding: 0 clamp(1rem, 3vw, 3rem);
+  border-bottom: 1px solid var(--line);
+  background: rgb(248 246 239 / 94%);
+  backdrop-filter: blur(14px);
+}
+
+.workbench-header > div {
+  min-width: 0;
+  display: grid;
+  gap: 0.25rem;
+  text-align: center;
+}
+
+.workbench-header strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-header > a:last-of-type {
+  justify-self: end;
+}
+
+.workbench-back,
+.workbench-header a {
+  color: var(--forest);
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.workbench-grid {
+  height: calc(100dvh - 74px);
+  display: grid;
+  grid-template-columns: minmax(0, 1.9fr) minmax(340px, 1fr);
+  overflow: hidden;
+}
+
+.workbench-reader {
+  min-width: 0;
+  overflow: auto;
+  border-right: 1px solid var(--line-strong);
+  background: #fffef9;
+}
+
+.workbench-reader .resource-content {
+  width: min(100%, 920px);
+  max-height: none;
+  margin: 0 auto;
+  padding: clamp(1.5rem, 4vw, 4.5rem);
+  font-size: clamp(1rem, 1.25vw, 1.08rem);
+}
+
+.workbench-reader .paper-brief-evidence {
+  width: min(calc(100% - 3rem), 860px);
+  margin: 0 auto 3rem;
+}
+
+.workbench-resource-meta {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  gap: 0.65rem;
+  align-items: center;
+  padding: 0.65rem clamp(1.5rem, 4vw, 4.5rem);
+  border-bottom: 1px solid var(--line);
+  background: rgb(255 254 249 / 93%);
+  color: var(--muted);
+  font-size: 0.74rem;
+  backdrop-filter: blur(12px);
+}
+
+.workbench-resource-meta span {
+  padding: 0.2rem 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+
+.workbench-resource-meta time {
+  margin-left: auto;
+}
+
+.workbench-comment {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: auto auto minmax(260px, 1fr) auto;
+  gap: 1rem;
+  overflow: auto;
+  padding: clamp(1.4rem, 3vw, 2.6rem);
+  background: var(--forest-soft);
+}
+
+.workbench-comment-heading {
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  align-items: start;
+}
+
+.workbench-comment-heading h1 {
+  margin: 0.35rem 0 0;
+  font-family: Iowan Old Style, Baskerville, Georgia, serif;
+  font-size: clamp(1.7rem, 2.4vw, 2.4rem);
+  font-weight: 500;
+}
+
+.draft-state {
+  flex: none;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.comment-guidance {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+  line-height: 1.65;
+}
+
+.workbench-comment textarea {
+  width: 100%;
+  min-height: 0;
+  resize: none;
+  padding: 1.1rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: #fffef9;
+  color: var(--ink);
+  font-family: Iowan Old Style, Baskerville, Georgia, serif;
+  font-size: 1rem;
+  line-height: 1.75;
+}
+
+.workbench-comment-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.workbench-comment-actions span {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.workbench-comment-actions button {
+  min-height: 44px;
+  padding: 0 1.15rem;
+  border: 1px solid var(--forest);
+  border-radius: 4px;
+  background: var(--forest);
+  color: white;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.workbench-state {
+  min-height: calc(100dvh - 74px);
+  display: grid;
+  place-content: center;
+  gap: 1rem;
+  padding: 2rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+.workbench-state.error {
+  color: var(--coral);
+}
+
+@media (max-width: 850px) {
+  .workbench-header {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .workbench-header > div {
+    text-align: left;
+  }
+
+  .workbench-header > a:last-of-type {
+    display: none;
+  }
+
+  .workbench-grid {
+    height: auto;
+    display: block;
+    overflow: visible;
+  }
+
+  .workbench-reader {
+    max-height: none;
+    overflow: visible;
+    border-right: 0;
+    border-bottom: 1px solid var(--line-strong);
+  }
+
+  .workbench-comment {
+    min-height: 72dvh;
+    grid-template-rows: auto auto minmax(320px, 1fr) auto;
+    overflow: visible;
+    padding-bottom: 0;
+  }
+
+  .workbench-comment textarea {
+    min-height: 320px;
+    resize: vertical;
+  }
+
+  .workbench-comment-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 4;
+    margin: 0 calc(clamp(1.4rem, 3vw, 2.6rem) * -1);
+    padding: 0.85rem clamp(1.4rem, 3vw, 2.6rem);
+    border-top: 1px solid var(--line);
+    background: rgb(236 242 234 / 94%);
+    backdrop-filter: blur(12px);
+  }
+}
+
 .knowledge-promotion {
   display: grid;
   gap: 0.7rem;

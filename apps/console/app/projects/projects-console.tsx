@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 
 import { api } from "../console-api";
 import { ConsoleNav } from "../console-nav";
@@ -400,7 +401,7 @@ export function ProjectsConsole() {
           <button className="primary-button" disabled={busy}>进入项目空间</button>
         </form>
         {message ? <p className="form-error">{message}</p> : null}
-        <a href="/materials">返回材料空间</a>
+        <Link href="/materials">返回材料空间</Link>
       </main>
     );
   }
@@ -596,9 +597,9 @@ export function ProjectsConsole() {
                       插入评论摘录
                     </button>
                     {reference.comment.resource_ids[0] ? (
-                      <a href={`/materials#resource-${reference.comment.resource_ids[0]}`}>
+                      <Link href={`/materials#resource-${reference.comment.resource_ids[0]}`}>
                         查看材料
-                      </a>
+                      </Link>
                     ) : null}
                   </div>
                 </article>
@@ -608,7 +609,7 @@ export function ProjectsConsole() {
               <div className="reference-empty">
                 <strong>还没有可用参考</strong>
                 <p>先在材料页保存 Comment，或在知识库建立知识页。</p>
-                <a href="/materials">去处理材料</a>
+                <Link href="/materials">去处理材料</Link>
               </div>
             ) : null}
           </div>

@@ -10,7 +10,6 @@ import {
   paperFulltextForPreview,
   type CommentRecord,
   type KnowledgeRefRecord,
-  type ResourceDocument,
   type ResourceRecord,
   type ReviewStatus,
   type RunnerRecord,
@@ -19,7 +18,6 @@ import {
 } from "./review-model";
 import { api, ApiError } from "./console-api";
 import { ConsoleNav } from "./console-nav";
-import { MarkdownPreview, PaperReadingBrief } from "./markdown-preview";
 
 type AuthState = "checking" | "anonymous" | "authenticated";
 type Filter = ReviewStatus | "all";
@@ -77,22 +75,6 @@ interface PaperComparisonResponse {
     citing_source_id: string;
     cited_source_id: string;
   }>;
-}
-
-interface CommentCompleteResponse {
-  resource: ResourceRecord;
-  knowledge_ref: KnowledgeRefRecord;
-  comment: CommentRecord;
-}
-
-interface KnowledgeNoteRecord {
-  knowledge_note_id: string;
-  title: string;
-  claim: string;
-  body_markdown: string;
-  tags: string[];
-  comment_ids: string[];
-  status: "draft" | "active" | "superseded" | "archived";
 }
 
 function formatTime(value: string): string {
@@ -208,12 +190,6 @@ export function ReviewConsole() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [busyResources, setBusyResources] = useState<Set<string>>(new Set());
   const [feedback, setFeedback] = useState<Record<string, Feedback>>({});
-  const [openResourceId, setOpenResourceId] = useState<string | null>(null);
-  const [documents, setDocuments] = useState<Record<string, ResourceDocument>>({});
-  const [documentErrors, setDocumentErrors] = useState<Record<string, string>>({});
-  const [loadingDocuments, setLoadingDocuments] = useState<Set<string>>(new Set());
-  const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
-  const [knowledgeNotes, setKnowledgeNotes] = useState<KnowledgeNoteRecord[]>([]);
 
   const loadReviewData = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
@@ -230,7 +206,6 @@ export function ReviewConsole() {
         nextRunners,
         nextRecentRuns,
         nextPaperLibrary,
-        nextKnowledgeNotes,
       ] =
         await Promise.all([
           api<SourceRecord[]>("/api/sources?limit=500"),
@@ -243,7 +218,6 @@ export function ReviewConsole() {
           api<RunnerRecord[]>("/api/runners"),
           api<RunRecord[]>("/api/runs?limit=100"),
           api<PaperLibraryRecord[]>("/api/papers?limit=20"),
-          api<KnowledgeNoteRecord[]>("/api/knowledge-notes?limit=500"),
         ]);
       const nextRuns = [...reviewRuns, ...paperRuns];
       setSources(nextSources);
@@ -255,7 +229,6 @@ export function ReviewConsole() {
       setRunners(nextRunners);
       setRecentRuns(nextRecentRuns);
       setPaperLibrary(nextPaperLibrary);
-      setKnowledgeNotes(nextKnowledgeNotes);
       setPaperDrafts((current) => {
         const updated = { ...current };
         for (const paper of nextPaperLibrary) {
@@ -390,17 +363,6 @@ export function ReviewConsole() {
     return index;
   }, [comments]);
 
-  const knowledgeNoteByComment = useMemo(() => {
-    const index = new Map<string, KnowledgeNoteRecord>();
-    for (const note of knowledgeNotes) {
-      if (note.status === "archived") continue;
-      for (const commentId of note.comment_ids) {
-        if (!index.has(commentId)) index.set(commentId, note);
-      }
-    }
-    return index;
-  }, [knowledgeNotes]);
-
   const comparisonByResource = useMemo(() => {
     const index = new Map<string, ResourceRecord>();
     for (const comparison of [...comparisons].sort((left, right) =>
@@ -472,8 +434,6 @@ export function ReviewConsole() {
     setPaperDrafts({});
     setSelectedPaperIds(new Set());
     setPaperComparison(null);
-    setKnowledgeNotes([]);
-    setKnowledgeNoteDrafts({});
   }
 
   function setResourceBusy(resourceId: string, value: boolean) {
@@ -525,95 +485,6 @@ export function ReviewConsole() {
                 ? `已忽略；回收站保持 10 项，最旧的 ${result.evicted_resource_ids.length} 项已永久清理。`
                 : "已移入忽略列表；最近 10 项内可随时撤销。"
               : `已撤销忽略，恢复为「${statusLabel(result.resource.review_status)}」。`,
-        },
-      }));
-    } catch (error) {
-      setFeedback((current) => ({
-        ...current,
-        [resourceId]: { tone: "error", message: errorMessage(error) },
-      }));
-    } finally {
-      setResourceBusy(resourceId, false);
-    }
-  }
-
-  async function openResource(
-    resource: ResourceRecord,
-    existingComment?: CommentRecord,
-  ) {
-    const resourceId = resource.resource_id;
-    if (openResourceId === resourceId) {
-      setOpenResourceId(null);
-      return;
-    }
-    setOpenResourceId(resourceId);
-    setCommentDrafts((current) => ({
-      ...current,
-      [resourceId]: current[resourceId] ?? existingComment?.body_markdown ?? "",
-    }));
-    if (documents[resourceId] || loadingDocuments.has(resourceId)) return;
-    setLoadingDocuments((current) => new Set(current).add(resourceId));
-    setDocumentErrors((current) => ({ ...current, [resourceId]: "" }));
-    try {
-      const document = await api<ResourceDocument>(
-        `/api/resources/${encodeURIComponent(resourceId)}/content`,
-      );
-      setDocuments((current) => ({ ...current, [resourceId]: document }));
-    } catch (error) {
-      setDocumentErrors((current) => ({
-        ...current,
-        [resourceId]: errorMessage(error),
-      }));
-    } finally {
-      setLoadingDocuments((current) => {
-        const next = new Set(current);
-        next.delete(resourceId);
-        return next;
-      });
-    }
-  }
-
-  async function saveComment(resourceId: string) {
-    const body = commentDrafts[resourceId] ?? "";
-    if (!body.trim()) {
-      setFeedback((current) => ({
-        ...current,
-        [resourceId]: { tone: "error", message: "评论不能为空。" },
-      }));
-      return;
-    }
-    setResourceBusy(resourceId, true);
-    setFeedback((current) => ({
-      ...current,
-      [resourceId]: { tone: "progress", message: "正在保存评论到 Atlas…" },
-    }));
-    try {
-      const result = await api<CommentCompleteResponse>(
-        "/api/review-actions/complete-comment",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            resource_id: resourceId,
-            body_markdown: body,
-          }),
-        },
-      );
-      setResources((current) => current.map((resource) =>
-        resource.resource_id === resourceId ? result.resource : resource
-      ));
-      setKnowledgeRefs((current) => [
-        result.knowledge_ref,
-        ...current.filter((item) => item.knowledge_ref_id !== result.knowledge_ref.knowledge_ref_id),
-      ]);
-      setComments((current) => [
-        result.comment,
-        ...current.filter((item) => item.comment_id !== result.comment.comment_id),
-      ]);
-      setFeedback((current) => ({
-        ...current,
-        [resourceId]: {
-          tone: "success",
-          message: "评论已保存到 Atlas，Resource 已标记为已评论。",
         },
       }));
     } catch (error) {
@@ -693,7 +564,7 @@ export function ReviewConsole() {
             message: "这篇论文已有 PDF 全文总结。",
           },
         }));
-        await openResource(result.fulltext_resource);
+        window.location.assign(`/materials/${encodeURIComponent(result.fulltext_resource.resource_id)}`);
         return;
       }
       const summarizeRunId = result.invocation?.step_runs.summarize;
@@ -1142,9 +1013,6 @@ export function ReviewConsole() {
                 {group.resources.map((resource, versionIndex) => {
                   const knowledge = knowledgeByResource.get(resource.resource_id);
                   const comment = commentByResource.get(resource.resource_id);
-                  const permanentNote = comment
-                    ? knowledgeNoteByComment.get(comment.comment_id)
-                    : undefined;
                   const comparison = comparisonByResource.get(resource.resource_id);
                   const activeComparison = runs.find((candidate) =>
                     candidate.job_name === "vortex-comparison-v1"
@@ -1164,11 +1032,6 @@ export function ReviewConsole() {
                   const activePaperRun = isActiveRun(paperRun);
                   const isBusy = busyResources.has(resource.resource_id);
                   const resourceFeedback = feedback[resource.resource_id];
-                  const comparisonOpen = comparison?.resource_id === openResourceId;
-                  const readerResource = comparisonOpen ? comparison : resource;
-                  const document = documents[readerResource.resource_id];
-                  const documentOpen = openResourceId === readerResource.resource_id;
-                  const documentLoading = loadingDocuments.has(readerResource.resource_id);
                   return (
                     <section
                       className="resource-version"
@@ -1202,68 +1065,6 @@ export function ReviewConsole() {
                           <div><dt>Resource</dt><dd title={resource.resource_id}>{shortId(resource.resource_id)}</dd></div>
                         </dl>
 
-                        {documentOpen ? (
-                          <section className="resource-reader" aria-busy={documentLoading}>
-                            <header>
-                              <div>
-                                <span className="eyebrow">RESOURCE CONTENT</span>
-                                <strong>{readerResource.title}</strong>
-                              </div>
-                              <button type="button" onClick={() => setOpenResourceId(null)}>
-                                收起
-                              </button>
-                            </header>
-                            {documentLoading ? <p>正在从 Atlas 读取正文…</p> : null}
-                            {documentErrors[readerResource.resource_id] ? (
-                              <p className="reader-error">{documentErrors[readerResource.resource_id]}</p>
-                            ) : null}
-                            {document ? (
-                              isPaperReadingBrief(readerResource)
-                                ? <PaperReadingBrief markdown={document.content} />
-                                : <MarkdownPreview markdown={document.content} />
-                            ) : null}
-                            {readerResource.kind === "summary" ? (
-                              <>
-                                <div className="comment-editor" id="comment">
-                                  <label htmlFor={`comment-${resource.resource_id}`}>我的评论</label>
-                                  <textarea
-                                    id={`comment-${resource.resource_id}`}
-                                    value={commentDrafts[resource.resource_id] ?? ""}
-                                    placeholder="在这里记录你的判断、质疑和证据定位。支持 Markdown。"
-                                    onChange={(event) => setCommentDrafts((current) => ({
-                                      ...current,
-                                      [resource.resource_id]: event.target.value,
-                                    }))}
-                                  />
-                                  <div>
-                                    <small>评论直接保存在 Atlas；同步到 Obsidian 是可选操作。</small>
-                                    <button
-                                      className="comment-button"
-                                      type="button"
-                                      disabled={isBusy}
-                                      onClick={() => void saveComment(resource.resource_id)}
-                                    >
-                                      {isBusy ? "保存中…" : comment ? "更新评论" : "保存评论"}
-                                    </button>
-                                  </div>
-                                </div>
-                                {comment ? (
-                                  <div className="knowledge-promotion complete">
-                                    <span className="eyebrow">PERSONAL INSIGHT</span>
-                                    <strong>这条 Comment 是材料的一部分，不需要再重写一次。</strong>
-                                    <p>{permanentNote
-                                      ? `已被知识页「${permanentNote.title}」引用；同一条 Comment 也可以进入其他知识页。`
-                                      : "需要跨材料形成观点时，把它加入知识库中的某个知识页。"}</p>
-                                    <a className="comment-button" href={`/knowledge?comment_id=${comment.comment_id}`}>
-                                      {permanentNote ? "在知识库中继续整理" : "加入知识页"}
-                                    </a>
-                                  </div>
-                                ) : null}
-                              </>
-                            ) : null}
-                          </section>
-                        ) : null}
-
                         {knowledge ? (
                           <div className="knowledge-strip">
                             <span aria-hidden="true">✎</span>
@@ -1283,20 +1084,18 @@ export function ReviewConsole() {
                               原始材料
                             </a>
                           ) : null}
-                          <button
+                          <a
                             className="comment-button"
-                            type="button"
-                            disabled={isBusy}
-                            onClick={() => void openResource(resource, comment)}
+                            href={`/materials/${encodeURIComponent(resource.resource_id)}`}
                           >
-                            {documentOpen ? "收起 Resource" : comment ? "阅读与编辑评论" : "阅读与评论"}
-                          </button>
+                            {comment ? "阅读与编辑评论" : "阅读与评论"}
+                          </a>
                           {paperPreview ? (
                             <button
                               type="button"
                               disabled={isBusy || activePaperRun}
                               onClick={() => currentReadingBrief && fulltextResource
-                                ? void openResource(fulltextResource)
+                                ? window.location.assign(`/materials/${encodeURIComponent(fulltextResource.resource_id)}`)
                                 : void acceptPaper(resource)}
                             >
                               {currentReadingBrief
@@ -1321,7 +1120,7 @@ export function ReviewConsole() {
                             <button
                               className="comparison-link"
                               type="button"
-                              onClick={() => void openResource(comparison)}
+                              onClick={() => window.location.assign(`/materials/${encodeURIComponent(comparison.resource_id)}`)}
                             >
                               查看对比
                             </button>

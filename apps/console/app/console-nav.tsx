@@ -1,15 +1,17 @@
 "use client";
 
+import Link from "next/link";
+
 export function ConsoleNav({ current }: { current: "materials" | "knowledge" | "projects" }) {
   return (
     <nav className="workspace-nav" aria-label="Atlas 工作空间">
-      <a
+      <Link
         className={current === "materials" ? "active" : ""}
         aria-current={current === "materials" ? "page" : undefined}
         href="/materials"
       >
         <span>01</span>材料
-      </a>
+      </Link>
       <a
         className={current === "knowledge" ? "active" : ""}
         aria-current={current === "knowledge" ? "page" : undefined}
