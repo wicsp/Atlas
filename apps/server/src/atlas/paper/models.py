@@ -55,7 +55,6 @@ def _normalize_labels(values: list[str]) -> list[str]:
 class PaperLibraryUpdate(StrictModel):
     tags: list[str] = Field(default_factory=list, max_length=50)
     categories: list[str] = Field(default_factory=list, max_length=20)
-    citation_source_ids: list[str] = Field(default_factory=list, max_length=100)
 
     @field_validator("tags", "categories")
     @classmethod
@@ -65,45 +64,23 @@ class PaperLibraryUpdate(StrictModel):
             raise ValueError("paper labels cannot exceed 64 characters")
         return normalized
 
-    @field_validator("citation_source_ids")
-    @classmethod
-    def normalize_citations(cls, values: list[str]) -> list[str]:
-        normalized = list(dict.fromkeys(value.strip() for value in values if value.strip()))
-        if any(not value.startswith("src_") for value in normalized):
-            raise ValueError("citation_source_ids must contain Source IDs")
-        return normalized
-
-
 class PaperLibraryRecord(StrictModel):
     source: SourceRecord
     tags: list[str] = Field(default_factory=list)
     categories: list[str] = Field(default_factory=list)
-    citation_source_ids: list[str] = Field(default_factory=list)
     summary_resource_ids: list[str] = Field(default_factory=list)
     summary_excerpt: str | None = None
 
 
-class PaperComparisonRequest(StrictModel):
-    source_ids: list[str] = Field(min_length=2, max_length=8)
+class PaperTaxonomy(StrictModel):
+    tags: list[str] = Field(default_factory=list)
+    categories: list[str] = Field(default_factory=list)
 
-    @field_validator("source_ids")
+
+class PaperOrganizationSuggestionRequest(StrictModel):
+    resource_id: str = Field(pattern=_ID_PATTERN)
+
+    @field_validator("resource_id")
     @classmethod
-    def normalize_source_ids(cls, values: list[str]) -> list[str]:
-        normalized = list(dict.fromkeys(value.strip() for value in values if value.strip()))
-        if not 2 <= len(normalized) <= 8:
-            raise ValueError("paper comparison requires 2-8 unique Source IDs")
-        if any(not value.startswith("src_") for value in normalized):
-            raise ValueError("paper comparison requires Source IDs")
-        return normalized
-
-
-class PaperCitationEdge(StrictModel):
-    citing_source_id: str
-    cited_source_id: str
-
-
-class PaperComparisonResponse(StrictModel):
-    papers: list[PaperLibraryRecord]
-    shared_tags: list[str] = Field(default_factory=list)
-    shared_categories: list[str] = Field(default_factory=list)
-    citation_edges: list[PaperCitationEdge] = Field(default_factory=list)
+    def strip_resource_id(cls, value: str) -> str:
+        return value.strip()

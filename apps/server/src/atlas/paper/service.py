@@ -9,12 +9,11 @@ from atlas.workflows.models import WorkflowInvocationCreate
 from atlas.workflows.service import WorkflowService
 
 from .models import (
-    PaperCitationEdge,
-    PaperComparisonResponse,
     PaperFulltextResponse,
     PaperIngestResponse,
     PaperLibraryRecord,
     PaperLibraryUpdate,
+    PaperTaxonomy,
 )
 
 PAPER_LIBRARY_PROJECT_ID = "paper-library"
@@ -127,17 +126,12 @@ class PaperService:
         payload: PaperLibraryUpdate,
     ) -> PaperLibraryRecord:
         source = self._paper_source(source_id)
-        if source_id in payload.citation_source_ids:
-            raise ValueError("a paper cannot cite itself")
-        for cited_source_id in payload.citation_source_ids:
-            self._paper_source(cited_source_id)
         source = self._content.update_source(
             SourceUpdate(
                 source_id=source_id,
                 metadata={
                     "paper_tags": payload.tags,
                     "paper_categories": payload.categories,
-                    "paper_citation_source_ids": payload.citation_source_ids,
                 },
             )
         )
@@ -179,25 +173,49 @@ class PaperService:
                 break
         return matches
 
-    def compare_library(self, source_ids: list[str]) -> PaperComparisonResponse:
-        papers = [self._library_record(self._paper_source(source_id)) for source_id in source_ids]
-        shared_tags = _shared_labels([paper.tags for paper in papers])
-        shared_categories = _shared_labels([paper.categories for paper in papers])
-        selected = set(source_ids)
-        edges = [
-            PaperCitationEdge(
-                citing_source_id=paper.source.source_id,
-                cited_source_id=cited_source_id,
+    def get_library_record(self, source_id: str) -> PaperLibraryRecord:
+        return self._library_record(self._paper_source(source_id))
+
+    def taxonomy(self) -> PaperTaxonomy:
+        tags: dict[str, str] = {}
+        categories: dict[str, str] = {}
+        for source in self._content.list_sources(kind="paper", limit=500):
+            for label in _metadata_labels(source.metadata.get("paper_tags")):
+                tags.setdefault(label.casefold(), label)
+            for label in _metadata_labels(source.metadata.get("paper_categories")):
+                categories.setdefault(label.casefold(), label)
+        return PaperTaxonomy(
+            tags=sorted(tags.values(), key=str.casefold),
+            categories=sorted(categories.values(), key=str.casefold),
+        )
+
+    def suggest_organization(self, source_id: str, resource_id: str):
+        source = self._paper_source(source_id)
+        resource = self._content.get_resource(resource_id)
+        if resource.source_id != source_id or resource.kind != "summary":
+            raise ValueError("Paper organization requires a summary Resource for this Source")
+        try:
+            evidence = self._work.get_artifact_content(resource.artifact_id).content
+        except KeyError as exc:
+            raise ValueError("Paper organization evidence is unavailable") from exc
+        record = self._library_record(source)
+        taxonomy = self.taxonomy()
+        return self._workflows.invoke(
+            WorkflowInvocationCreate(
+                workflow_name="paper.organize",
+                workflow_version="1",
+                input={
+                    "source_id": source_id,
+                    "resource_id": resource_id,
+                    "title": source.title,
+                    "canonical_uri": source.canonical_uri,
+                    "current_tags": record.tags,
+                    "current_categories": record.categories,
+                    "existing_tags": taxonomy.tags,
+                    "existing_categories": taxonomy.categories,
+                    "evidence": evidence[:64_000],
+                },
             )
-            for paper in papers
-            for cited_source_id in paper.citation_source_ids
-            if cited_source_id in selected
-        ]
-        return PaperComparisonResponse(
-            papers=papers,
-            shared_tags=shared_tags,
-            shared_categories=shared_categories,
-            citation_edges=edges,
         )
 
     def _paper_source(self, source_id: str) -> SourceRecord:
@@ -227,9 +245,6 @@ class PaperService:
             source=source,
             tags=_metadata_labels(source.metadata.get("paper_tags")),
             categories=_metadata_labels(source.metadata.get("paper_categories")),
-            citation_source_ids=_metadata_source_ids(
-                source.metadata.get("paper_citation_source_ids")
-            ),
             summary_resource_ids=[resource.resource_id for resource in resources],
             summary_excerpt=excerpt,
         )
@@ -359,19 +374,3 @@ class PaperService:
 
 def _metadata_labels(value: object) -> list[str]:
     return [item for item in value if isinstance(item, str)] if isinstance(value, list) else []
-
-
-def _metadata_source_ids(value: object) -> list[str]:
-    return [
-        item for item in _metadata_labels(value) if item.startswith("src_")
-    ]
-
-
-def _shared_labels(groups: list[list[str]]) -> list[str]:
-    if not groups:
-        return []
-    shared = {item.casefold(): item for item in groups[0]}
-    for group in groups[1:]:
-        present = {item.casefold() for item in group}
-        shared = {key: value for key, value in shared.items() if key in present}
-    return sorted(shared.values(), key=str.casefold)

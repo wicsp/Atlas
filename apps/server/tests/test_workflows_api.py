@@ -160,6 +160,10 @@ def test_local_review_and_web_workflows_are_builtin(tmp_path: Path) -> None:
     assert knowledge["project_id"] == "knowledge-base"
     assert knowledge["steps"][0]["requirements"]["node_ids"] == ["macsp"]
     assert knowledge["steps"][0]["requirements"]["executors"] == ["pi"]
+    paper_organization = workflows[("paper.organize", "1")]
+    assert paper_organization["project_id"] == "paper-library"
+    assert paper_organization["steps"][0]["requirements"]["node_ids"] == ["macsp"]
+    assert paper_organization["steps"][0]["requirements"]["executors"] == ["pi"]
     assert ("vortex.resource-purge", "1") not in workflows
 
 

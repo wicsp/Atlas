@@ -206,6 +206,25 @@ BUILTIN_WORKFLOWS = [
     ),
     WorkflowDefinitionCreate.model_validate(
         {
+            "name": "paper.organize",
+            "version": "1",
+            "project_id": "paper-library",
+            "description": (
+                "Suggest paper tags and categories using the existing Atlas vocabulary. "
+                "The result remains a machine proposal until a person confirms it."
+            ),
+            "steps": [
+                {
+                    "name": "suggest",
+                    "requirements": {"node_ids": ["macsp"], "executors": ["pi"]},
+                    "max_attempts": 2,
+                    "priority": 15,
+                }
+            ],
+        }
+    ),
+    WorkflowDefinitionCreate.model_validate(
+        {
             "name": "knowledge.suggest",
             "version": "1",
             "project_id": "knowledge-base",

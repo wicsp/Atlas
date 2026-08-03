@@ -94,10 +94,8 @@ test("removes starter surfaces and keeps credentials out of client source", asyn
   assert.doesNotMatch(client, /online\)\.length\}\/\{runners\.length\}/);
   assert.match(client, /<span>活动 Run<\/span>/);
   assert.match(client, /\{executingRunCount\} 执行 · \{waitingRunCount\} 等待/);
-  assert.match(client, /\/api\/papers\?limit=20/);
-  assert.match(client, /\/api\/papers\/compare/);
-  assert.match(client, /检索、组织与对比论文/);
-  assert.match(client, /保存组织信息/);
+  assert.doesNotMatch(client, /检索、组织与对比论文/);
+  assert.doesNotMatch(client, /引用 Source/);
   assert.doesNotMatch(client, /openObsidianPair|obsidianCommentCreateUri/);
   assert.doesNotMatch(client, /shared[_-]?token|control[_-]?token|localStorage/i);
   assert.match(projectClient, /\/api\/writing-projects/);
@@ -105,9 +103,14 @@ test("removes starter surfaces and keeps credentials out of client source", asyn
   assert.match(projectClient, /\/api\/documents/);
   assert.match(projectClient, /Markdown 是唯一正文/);
   assert.match(projectClient, /knowledgeRelevance/);
-  assert.match(projectClient, /动态排序/);
+  assert.match(projectClient, /\/api\/papers\?limit=200/);
+  assert.match(projectClient, /搜索论文、知识、评论或标签/);
+  assert.match(projectClient, /阅读与评论/);
   assert.match(projectClient, /\/api\/comments\?limit=200/);
   assert.match(projectClient, /插入评论摘录/);
+  assert.match(workbenchClient, /AI 会优先复用 Atlas 已有词表/);
+  assert.match(workbenchClient, /organization-suggestions/);
+  assert.doesNotMatch(workbenchClient, /引用 Source/);
   assert.match(projectClient, /atlas:comment:/);
   assert.match(projectClient, /knowledge-page:/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton|drizzle/);

@@ -82,14 +82,14 @@ from .messages.models import MessageAck, MessageClaim, MessageCreate, MessageRec
 from .messages.service import MessageService, MessageStateError, create_message_service
 from .network import NetworkConnectivity
 from .paper.models import (
-    PaperComparisonRequest,
-    PaperComparisonResponse,
     PaperFulltextRequest,
     PaperFulltextResponse,
     PaperIngestRequest,
     PaperIngestResponse,
     PaperLibraryRecord,
     PaperLibraryUpdate,
+    PaperOrganizationSuggestionRequest,
+    PaperTaxonomy,
 )
 from .paper.service import PaperService, UnsupportedPaperIngestError
 from .probes import ProbeHistorySummary, ProbeResult
@@ -1337,17 +1337,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 detail=str(exc),
             ) from exc
 
-    @app.post(
-        "/api/papers/compare",
-        response_model=PaperComparisonResponse,
+    @app.get(
+        "/api/papers/taxonomy",
+        response_model=PaperTaxonomy,
         dependencies=[Depends(require_control_auth)],
     )
-    async def compare_papers(
-        request: Request,
-        payload: PaperComparisonRequest,
-    ) -> PaperComparisonResponse:
+    async def get_paper_taxonomy(request: Request) -> PaperTaxonomy:
+        return _paper_service(request).taxonomy()
+
+    @app.get(
+        "/api/papers/{source_id}",
+        response_model=PaperLibraryRecord,
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def get_paper(request: Request, source_id: str) -> PaperLibraryRecord:
         try:
-            return _paper_service(request).compare_library(payload.source_ids)
+            return _paper_service(request).get_library_record(source_id)
         except KeyError as exc:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -1359,6 +1364,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 detail=str(exc),
             ) from exc
 
+    @app.post(
+        "/api/papers/{source_id}/organization-suggestions",
+        response_model=WorkflowInvocationRecord,
+        dependencies=[Depends(require_control_auth)],
+    )
+    async def suggest_paper_organization(
+        request: Request,
+        source_id: str,
+        payload: PaperOrganizationSuggestionRequest,
+    ) -> WorkflowInvocationRecord:
+        try:
+            return _paper_service(request).suggest_organization(
+                source_id, payload.resource_id
+            )
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Paper Source or Resource not found",
+            ) from exc
+        except (UnsupportedPaperIngestError, ValueError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
+            ) from exc
     @app.get(
         "/api/workflows",
         response_model=list[WorkflowDefinitionRecord],
@@ -1376,12 +1405,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         request: Request,
         payload: WorkflowInvocationCreate,
     ) -> WorkflowInvocationRecord:
-        if payload.workflow_name in {"paper.ingest", "paper.fulltext"}:
+        if payload.workflow_name in {"paper.ingest", "paper.fulltext", "paper.organize"}:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=(
-                    "Paper workflows must use /api/paper/ingest or "
-                    "/api/paper/fulltext so domain validation and idempotency apply"
+                    "Paper workflows must use /api/paper/ingest, /api/paper/fulltext, "
+                    "or the matching /api/papers domain endpoint so validation and "
+                    "idempotency apply"
                 ),
             )
         try:

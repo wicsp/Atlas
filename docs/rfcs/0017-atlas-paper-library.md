@@ -1,6 +1,6 @@
 # RFC 0017: Atlas Paper Library
 
-- **Status:** Accepted
+- **Status:** Superseded by RFC 0023
 - **Owner:** Atlas
 - **Consumers:** Atlas Console, AtlasRunner, future AtlasApple clients
 

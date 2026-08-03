@@ -61,9 +61,23 @@ interface KnowledgeNote {
   revision: number;
 }
 
+interface PaperRecord {
+  source: {
+    source_id: string;
+    title: string | null;
+    canonical_uri: string;
+    external_ids: Record<string, string>;
+  };
+  tags: string[];
+  categories: string[];
+  summary_resource_ids: string[];
+  summary_excerpt: string | null;
+}
+
 type WritingReference =
   | { kind: "knowledge"; note: KnowledgeNote; score: number }
-  | { kind: "comment"; comment: CommentRecord; score: number };
+  | { kind: "comment"; comment: CommentRecord; score: number }
+  | { kind: "paper"; paper: PaperRecord; score: number };
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "发生了未知错误";
@@ -118,6 +132,24 @@ function commentRelevance(comment: CommentRecord, context: Set<string>): number 
   return score;
 }
 
+function paperRelevance(paper: PaperRecord, context: Set<string>): number {
+  if (context.size === 0) return 0;
+  const title = searchTokens(paper.source.title ?? "");
+  const labels = searchTokens(`${paper.tags.join(" ")} ${paper.categories.join(" ")}`);
+  const summary = searchTokens(paper.summary_excerpt ?? "");
+  let score = 0;
+  for (const token of context) {
+    if (title.has(token)) score += 6;
+    if (labels.has(token)) score += 3;
+    if (summary.has(token)) score += 1;
+  }
+  return score;
+}
+
+function referenceKindOrder(reference: WritingReference): number {
+  return { knowledge: 0, comment: 1, paper: 2 }[reference.kind];
+}
+
 export function ProjectsConsole() {
   const [auth, setAuth] = useState<AuthState>("checking");
   const [password, setPassword] = useState("");
@@ -129,6 +161,7 @@ export function ProjectsConsole() {
   const [markdown, setMarkdown] = useState("");
   const [notes, setNotes] = useState<KnowledgeNote[]>([]);
   const [comments, setComments] = useState<CommentRecord[]>([]);
+  const [papers, setPapers] = useState<PaperRecord[]>([]);
   const [noteQuery, setNoteQuery] = useState("");
   const [newProjectTitle, setNewProjectTitle] = useState("");
   const [newProjectGoal, setNewProjectGoal] = useState("");
@@ -161,13 +194,25 @@ export function ProjectsConsole() {
         comment,
         score: commentRelevance(comment, context),
       }));
-    return [...noteReferences, ...commentReferences]
+    const paperReferences: WritingReference[] = papers
+      .filter((paper) => {
+        if (!query) return true;
+        return [
+          paper.source.title ?? "",
+          JSON.stringify(paper.source.external_ids),
+          paper.tags.join(" "),
+          paper.categories.join(" "),
+          paper.summary_excerpt ?? "",
+        ].join("\n").toLowerCase().includes(query);
+      })
+      .map((paper) => ({ kind: "paper", paper, score: paperRelevance(paper, context) }));
+    return [...noteReferences, ...commentReferences, ...paperReferences]
       .sort((left, right) =>
         right.score - left.score
-        || (left.kind === "knowledge" ? 0 : 1) - (right.kind === "knowledge" ? 0 : 1)
+        || referenceKindOrder(left) - referenceKindOrder(right)
       )
       .slice(0, 30);
-  }, [comments, detail?.project.goal, markdown, noteQuery, notes]);
+  }, [comments, detail?.project.goal, markdown, noteQuery, notes, papers]);
 
   const loadProject = useCallback(async (nextProjectId: string) => {
     const next = await api<ProjectDetail>(`/api/writing-projects/${nextProjectId}`);
@@ -183,14 +228,16 @@ export function ProjectsConsole() {
   }, []);
 
   const load = useCallback(async () => {
-    const [nextProjects, nextNotes, nextComments] = await Promise.all([
+    const [nextProjects, nextNotes, nextComments, nextPapers] = await Promise.all([
       api<ProjectRecord[]>("/api/writing-projects?limit=100"),
       api<KnowledgeNote[]>("/api/knowledge-notes?limit=200"),
       api<CommentRecord[]>("/api/comments?limit=200"),
+      api<PaperRecord[]>("/api/papers?limit=200"),
     ]);
     setProjects(nextProjects);
     setNotes(nextNotes);
     setComments(nextComments);
+    setPapers(nextPapers);
     const selected = projectId && nextProjects.some((item) => item.project_id === projectId)
       ? projectId
       : nextProjects[0]?.project_id;
@@ -207,6 +254,23 @@ export function ProjectsConsole() {
   // Initial session check only.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (auth !== "authenticated") return;
+    let active = true;
+    const query = noteQuery.trim();
+    const timer = window.setTimeout(() => {
+      const params = new URLSearchParams({ limit: query ? "100" : "200" });
+      if (query) params.set("q", query);
+      void api<PaperRecord[]>(`/api/papers?${params.toString()}`)
+        .then((records) => { if (active) setPapers(records); })
+        .catch((error) => { if (active) setMessage(errorMessage(error)); });
+    }, query ? 250 : 0);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [auth, noteQuery]);
 
   async function login(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -553,15 +617,15 @@ export function ProjectsConsole() {
 
         <aside className="knowledge-sidebar">
           <header>
-            <p className="eyebrow">KNOWLEDGE</p>
-            <h2>写作参考</h2>
+            <p className="eyebrow">PROJECT MATERIALS</p>
+            <h2>项目材料</h2>
             <p>
-              根据项目目标和当前正文动态排序。知识页可以只建立引用，也可以嵌入正文；Comment 可直接作为材料摘录。
+              围绕项目目标和当前正文搜索论文、知识页与 Comment；只有你的明确操作才会把内容加入正文。
             </p>
           </header>
           <input
             aria-label="搜索写作参考"
-            placeholder="搜索知识、评论或标签"
+            placeholder="搜索论文、知识、评论或标签"
             value={noteQuery}
             onChange={(event) => setNoteQuery(event.target.value)}
           />
@@ -583,7 +647,7 @@ export function ProjectsConsole() {
                     <a href={`/knowledge?note_id=${reference.note.knowledge_note_id}`}>打开知识页</a>
                   </div>
                 </article>
-              ) : (
+              ) : reference.kind === "comment" ? (
                 <article key={reference.comment.comment_id}>
                   <span className="reference-kind comment">个人评论</span>
                   <h3>来自材料处理的判断</h3>
@@ -603,12 +667,31 @@ export function ProjectsConsole() {
                     ) : null}
                   </div>
                 </article>
+              ) : (
+                <article key={reference.paper.source.source_id}>
+                  <span className="reference-kind paper">论文</span>
+                  <h3>{reference.paper.source.title ?? "未命名论文"}</h3>
+                  <p>{reference.paper.summary_excerpt?.slice(0, 320) || "尚无 Atlas 摘要"}</p>
+                  <small>
+                    {[...reference.paper.categories, ...reference.paper.tags].join(" · ") || "尚未确认分类与标签"}
+                  </small>
+                  <div className="reference-actions">
+                    {reference.paper.summary_resource_ids[0] ? (
+                      <Link href={`/materials/${reference.paper.summary_resource_ids[0]}`}>
+                        阅读与评论
+                      </Link>
+                    ) : null}
+                    <a href={reference.paper.source.canonical_uri} target="_blank" rel="noreferrer">
+                      打开论文
+                    </a>
+                  </div>
+                </article>
               )
             )}
             {writingReferences.length === 0 ? (
               <div className="reference-empty">
                 <strong>还没有可用参考</strong>
-                <p>先在材料页保存 Comment，或在知识库建立知识页。</p>
+                <p>调整搜索词，或先让 Atlas 导入一篇论文并生成阅读材料。</p>
                 <Link href="/materials">去处理材料</Link>
               </div>
             ) : null}

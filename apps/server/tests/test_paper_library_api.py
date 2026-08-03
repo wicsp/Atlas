@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from atlas.config import AgentSettings, AuthSettings, Settings, Sub2ApiSettings, WorkSettings
+from atlas.content.repository import ResourceRow
 from atlas.db.session import create_sqlite_session_factory
 from atlas.main import create_app
 from atlas.work.repository import ArtifactContentRow, ArtifactRow, RunRow
@@ -44,7 +45,7 @@ def create_paper(client: TestClient, key: str, title: str) -> dict:
     return response.json()
 
 
-def add_central_fulltext(client: TestClient, source_id: str, content: str) -> None:
+def add_central_fulltext(client: TestClient, source_id: str, content: str) -> str:
     now = datetime(2026, 7, 29, 9, 0, tzinfo=UTC).isoformat()
     session_factory = create_sqlite_session_factory(
         client.app.state.settings.work.database_path
@@ -91,13 +92,39 @@ def add_central_fulltext(client: TestClient, source_id: str, content: str) -> No
                 updated_at=now,
             )
         )
+        session.add(
+            ResourceRow(
+                resource_id="res_paper_summary_12345678",
+                source_id=source_id,
+                produced_by_run_id="run_fulltext_search",
+                artifact_id="art_fulltext_search",
+                kind="summary",
+                title="Paper reading brief",
+                content_hash=f"sha256:{'e' * 64}",
+                generator_json=json.dumps(
+                    {
+                        "mode": "ai",
+                        "name": "test",
+                        "version": "1",
+                        "model_provider": "test",
+                        "model_id": "test",
+                        "prompt_version": "test",
+                    }
+                ),
+                metadata_json=json.dumps({"profile_id": "paper-reading-brief-v3"}),
+                review_status="pending",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+    return "res_paper_summary_12345678"
 
 
-def test_paper_library_tags_search_citations_and_comparison(tmp_path: Path) -> None:
+def test_paper_search_taxonomy_and_organization_suggestion(tmp_path: Path) -> None:
     client = make_client(tmp_path)
     first = create_paper(client, "2607.00001", "Agent Safety One")
     second = create_paper(client, "2607.00002", "Agent Safety Two")
-    add_central_fulltext(
+    resource_id = add_central_fulltext(
         client,
         first["source_id"],
         "The hidden evaluation phrase is mechanistic anomaly detection.",
@@ -108,7 +135,6 @@ def test_paper_library_tags_search_citations_and_comparison(tmp_path: Path) -> N
         json={
             "tags": ["Agent", "Safety", "agent"],
             "categories": ["Security"],
-            "citation_source_ids": [second["source_id"]],
         },
     )
     assert updated.status_code == 200, updated.text
@@ -120,7 +146,6 @@ def test_paper_library_tags_search_citations_and_comparison(tmp_path: Path) -> N
         json={
             "tags": ["Safety"],
             "categories": ["Security", "Evaluation"],
-            "citation_source_ids": [],
         },
     )
     assert second_update.status_code == 200, second_update.text
@@ -137,31 +162,41 @@ def test_paper_library_tags_search_citations_and_comparison(tmp_path: Path) -> N
         first["source_id"]
     ]
 
-    comparison = client.post(
-        "/api/papers/compare",
-        json={"source_ids": [first["source_id"], second["source_id"]]},
+    taxonomy = client.get("/api/papers/taxonomy")
+    assert taxonomy.status_code == 200, taxonomy.text
+    assert taxonomy.json() == {
+        "tags": ["Agent", "Safety"],
+        "categories": ["Evaluation", "Security"],
+    }
+
+    paper = client.get(f"/api/papers/{first['source_id']}")
+    assert paper.status_code == 200, paper.text
+    assert "citation_source_ids" not in paper.json()
+
+    suggestion = client.post(
+        f"/api/papers/{first['source_id']}/organization-suggestions",
+        json={"resource_id": resource_id},
     )
-    assert comparison.status_code == 200, comparison.text
-    payload = comparison.json()
-    assert len(payload["papers"]) == 2
-    assert payload["shared_tags"] == ["Safety"]
-    assert payload["shared_categories"] == ["Security"]
-    assert payload["citation_edges"] == [
-        {
-            "citing_source_id": first["source_id"],
-            "cited_source_id": second["source_id"],
-        }
-    ]
+    assert suggestion.status_code == 200, suggestion.text
+    run_id = suggestion.json()["step_runs"]["suggest"]
+    run = client.get(f"/api/runs/{run_id}").json()
+    assert run["workflow"]["name"] == "paper.organize"
+    workflow_input = run["input"]["workflow_input"]
+    assert workflow_input["existing_tags"] == ["Agent", "Safety"]
+    assert workflow_input["existing_categories"] == ["Evaluation", "Security"]
+    assert "mechanistic anomaly detection" in workflow_input["evidence"]
 
 
-def test_paper_library_rejects_self_citation_and_non_paper_source(tmp_path: Path) -> None:
+def test_paper_organization_rejects_internal_citation_ids_and_non_paper_source(
+    tmp_path: Path,
+) -> None:
     client = make_client(tmp_path)
     paper = create_paper(client, "2607.00003", "Paper")
-    self_citation = client.patch(
+    internal_citation = client.patch(
         f"/api/papers/{paper['source_id']}",
         json={"citation_source_ids": [paper["source_id"]]},
     )
-    assert self_citation.status_code == 422
+    assert internal_citation.status_code == 422
 
     video = client.post(
         "/api/sources",
