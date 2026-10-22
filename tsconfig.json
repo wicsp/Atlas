@@ -1,0 +1,7 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/api-client" },
+    { "path": "apps/feishu-bot" }
+  ]
+}

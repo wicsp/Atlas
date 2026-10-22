@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://atlas.local/schema/entities/task.json",
+  "title": "Task",
+  "allOf": [{ "$ref": "../common.json#/$defs/Base" }],
+  "type": "object",
+  "properties": {
+    "type": { "const": "task" },
+    "status": { "enum": ["todo", "doing", "blocked", "review", "done"], "default": "todo" },
+    "project": { "$ref": "../common.json#/$defs/Id" },
+    "assignee": { "$ref": "../common.json#/$defs/Assignee", "default": "human" },
+    "due": { "$ref": "../common.json#/$defs/Timestamp" },
+    "job": { "$ref": "../common.json#/$defs/Id", "description": "派给 AI 时对应的 job" }
+  }
+}

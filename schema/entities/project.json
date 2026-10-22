@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://atlas.local/schema/entities/project.json",
+  "title": "Project",
+  "allOf": [{ "$ref": "../common.json#/$defs/Base" }],
+  "type": "object",
+  "properties": {
+    "type": { "const": "project" },
+    "status": { "enum": ["planning", "active", "paused", "done"], "default": "planning" },
+    "goal": { "type": "string" },
+    "repo": { "type": "string", "description": "关联代码仓库路径或 URL" },
+    "deadline": { "$ref": "../common.json#/$defs/Timestamp" }
+  }
+}

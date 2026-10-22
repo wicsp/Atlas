@@ -1,0 +1,7 @@
+{
+  "name": "@atlas/feishu-bot",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": { "@atlas/api-client": "workspace:*" }
+}

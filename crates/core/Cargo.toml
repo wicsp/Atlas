@@ -1,0 +1,9 @@
+[package]
+name = "atlas-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# 规则：只放纯本地逻辑，不引入任何网络库。
+[dependencies]

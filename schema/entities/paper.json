@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://atlas.local/schema/entities/paper.json",
+  "title": "Paper",
+  "description": "论文笔记。文件位于 vault/papers/<citekey>.md",
+  "allOf": [{ "$ref": "../common.json#/$defs/Base" }],
+  "type": "object",
+  "required": ["type", "citekey", "authors", "year"],
+  "properties": {
+    "type": { "const": "paper" },
+    "citekey": { "type": "string", "pattern": "^[a-z]+[0-9]{4}[a-z0-9]*$", "description": "如 vaswani2017attention，与 refs.bib 对应" },
+    "authors": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "year": { "type": "integer" },
+    "venue": { "type": "string" },
+    "arxiv": { "type": "string" },
+    "doi": { "type": "string" },
+    "url": { "type": "string", "format": "uri" },
+    "status": { "enum": ["to-read", "reading", "read"], "default": "to-read" }
+  }
+}
