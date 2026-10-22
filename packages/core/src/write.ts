@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { open, readFile, rename, stat, unlink } from "node:fs/promises";
+import { link, open, readFile, rename, stat, unlink } from "node:fs/promises";
 import { dirname, basename, join } from "node:path";
 import { CoreError } from "./errors.ts";
 
 export interface WriteOptions {
+  overwrite?: boolean;
   expectedContent?: Uint8Array;
   beforeCommit?: () => void | Promise<void>;
 }
@@ -27,6 +28,11 @@ export async function writeFileAtomic(path: string, content: Uint8Array, options
     await checkOriginal();
     let mode = 0o666;
     try {
+      if (options.overwrite === false) {
+        // link publishes a complete file without replacing another creator's file.
+        await stat(path);
+        throw new CoreError("FILE_EXISTS", `文件已存在：${path}`);
+      }
       if ((await readFile(path)).equals(content)) return false;
       mode = (await stat(path)).mode & 0o777;
     } catch (cause) {
@@ -40,11 +46,17 @@ export async function writeFileAtomic(path: string, content: Uint8Array, options
     // Keep this read immediately before rename. This is an optimistic content
     // check, not a filesystem compare-and-swap against concurrent editors.
     await checkOriginal();
-    await rename(temp, path);
-    temp = undefined;
+    if (options.overwrite === false) await link(temp, path);
+    else {
+      await rename(temp, path);
+      temp = undefined;
+    }
     return true;
   } catch (cause) {
     if (cause instanceof CoreError) throw cause;
+    if (options.overwrite === false && (cause as NodeJS.ErrnoException).code === "EEXIST") {
+      throw new CoreError("FILE_EXISTS", `文件已存在：${path}`, { cause });
+    }
     throw new CoreError("WRITE_FAILED", `无法安全写入文件：${path}`, { cause });
   } finally {
     if (temp) await unlink(temp).catch(() => {});
