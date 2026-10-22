@@ -26,8 +26,8 @@ export function renderIdea(title: string, ctx: FillContext): NewNote {
 
 export async function saveNewNote(vault: string, note: NewNote): Promise<string> {
   try {
-    if (!/^ideas\/[^/\\]+\.md$/.test(note.relativePath)) {
-      throw new CoreError("INVALID_NOTE_PATH", "想法笔记必须位于 ideas/ 目录内");
+    if (!/^(ideas|papers)\/[^/\\]+\.md$/.test(note.relativePath)) {
+      throw new CoreError("INVALID_NOTE_PATH", "新笔记必须位于 ideas/ 或 papers/ 目录内");
     }
     if (!(await stat(vault)).isDirectory()) throw new Error("vault 路径不是目录");
     const path = join(vault, note.relativePath);

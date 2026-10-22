@@ -1,0 +1,41 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<feed xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/" xmlns:arxiv="http://arxiv.org/schemas/atom" xmlns="http://www.w3.org/2005/Atom">
+  <id>https://arxiv.org/api/z2NwNQ9YuIWaAfKNjaJha39KnaQ</id>
+  <title>arXiv Query: search_query=&amp;id_list=2403.14720&amp;start=0&amp;max_results=10</title>
+  <updated>2026-10-22T14:00:42Z</updated>
+  <link href="https://arxiv.org/api/query?search_query=&amp;start=0&amp;max_results=10&amp;id_list=2403.14720" type="application/atom+xml"/>
+  <opensearch:itemsPerPage>10</opensearch:itemsPerPage>
+  <opensearch:totalResults>1</opensearch:totalResults>
+  <opensearch:startIndex>0</opensearch:startIndex>
+  <entry>
+    <id>http://arxiv.org/abs/2403.14720v1</id>
+    <title>Defending Against Indirect Prompt Injection Attacks With Spotlighting</title>
+    <updated>2024-03-20T15:26:23Z</updated>
+    <link href="https://arxiv.org/abs/2403.14720v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2403.14720v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Large Language Models (LLMs), while powerful, are built and trained to process a single text input. In common applications, multiple inputs can be processed by concatenating them together into a single stream of text. However, the LLM is unable to distinguish which sections of prompt belong to various input sources. Indirect prompt injection attacks take advantage of this vulnerability by embedding adversarial instructions into untrusted data being processed alongside user commands. Often, the LLM will mistake the adversarial instructions as user commands to be followed, creating a security vulnerability in the larger system. We introduce spotlighting, a family of prompt engineering techniques that can be used to improve LLMs' ability to distinguish among multiple sources of input. The key insight is to utilize transformations of an input to provide a reliable and continuous signal of its provenance. We evaluate spotlighting as a defense against indirect prompt injection attacks, and find that it is a robust defense that has minimal detrimental impact to underlying NLP tasks. Using GPT-family models, we find that spotlighting reduces the attack success rate from greater than {50}\% to below {2}\% in our experiments with minimal impact on task efficacy.</summary>
+    <category term="cs.CR" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.CL" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2024-03-20T15:26:23Z</published>
+    <arxiv:primary_category term="cs.CR"/>
+    <author>
+      <name>Keegan Hines</name>
+    </author>
+    <author>
+      <name>Gary Lopez</name>
+    </author>
+    <author>
+      <name>Matthew Hall</name>
+    </author>
+    <author>
+      <name>Federico Zarfati</name>
+    </author>
+    <author>
+      <name>Yonatan Zunger</name>
+    </author>
+    <author>
+      <name>Emre Kiciman</name>
+    </author>
+  </entry>
+</feed>
