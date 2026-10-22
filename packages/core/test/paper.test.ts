@@ -89,3 +89,19 @@ test("cannot silently skip an existing malformed paper while checking identities
   expect(await readdir(join(vault, "papers"))).toEqual(["broken.md"]);
   expect(await readFile(join(vault, "papers/broken.md"))).toEqual(bad);
 });
+
+test("concurrent new paper creation never replaces another complete note", async () => {
+  const secondCtx: FillContext = { ...ctx, newId: (prefix) => `${prefix}_01J9Z3K8M2N4P6Q8R0S2T4V6W9` };
+  const results = await Promise.allSettled([
+    createPaper(vault, metadata, confirmed, bibtex, ctx),
+    createPaper(vault, metadata, confirmed, bibtex, secondCtx),
+  ]);
+  expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+  const failure = results.find((result) => result.status === "rejected") as PromiseRejectedResult;
+  expect(["CITEKEY_EXISTS", "DUPLICATE_PAPER"]).toContain(failure.reason.code);
+  const winnerCtx = results[0]!.status === "fulfilled" ? ctx : secondCtx;
+  const bytes = await readFile(join(vault, "papers/He_2020_LightGCN.md"));
+  expect(bytes.equals(renderPaper(metadata, confirmed, bibtex, winnerCtx).content)).toBe(true);
+  expect(Paper.safeParse(parseFrontmatter(bytes).data).success).toBe(true);
+  expect(await readdir(join(vault, "papers"))).toEqual(["He_2020_LightGCN.md"]);
+});

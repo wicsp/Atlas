@@ -16,8 +16,8 @@ test("a candidate is distinct from a user-confirmed citekey", () => {
 test.each([
   ["Mislav Balunović", "Balunovic_2020_LightGCN"],
   ["A Müller", "Muller_2020_LightGCN"],
-  ["A Fernandez-Lopez", "FernandezLopez_2020_LightGCN"],
-  ["A O'Connor", "OConnor_2020_LightGCN"],
+  ["A Fernández-López", "FernandezLopez_2020_LightGCN"],
+  ["A O'Brien", "OBrien_2020_LightGCN"],
   ["Laurens van der Maaten", "Maaten_2020_LightGCN"],
 ])("arXiv full name %s uses the last word then ASCII normalization", (author, citekey) => {
   expect(proposeCitekey({ ...metadata, authors: [author] })?.citekey).toBe(citekey);
@@ -26,6 +26,14 @@ test.each([
 test("Crossref family takes precedence; only its first character is capitalized", () => {
   expect(proposeCitekey({ ...metadata, authors: ["Laurens van der Maaten"], firstAuthorFamily: "van der Maaten" })?.citekey)
     .toBe("VanderMaaten_2020_LightGCN");
+});
+
+test.each([
+  ["van der Maaten", "VanderMaaten"],
+  ["Fernández-López", "FernandezLopez"],
+  ["O'Brien", "OBrien"],
+])("Crossref family %s matches the accepted ADR 0004 example %s", (family, expected) => {
+  expect(proposeCitekey({ ...metadata, firstAuthorFamily: family })?.citekey).toBe(`${expected}_2020_LightGCN`);
 });
 
 test("fallback takes four non-stopword initials; Spotlighting is not the first named word", () => {
