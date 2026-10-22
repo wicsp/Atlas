@@ -2,13 +2,21 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://atlas.local/schema/entities/paper.json",
   "title": "Paper",
-  "description": "论文笔记。文件位于 vault/papers/<citekey>.md",
+  "description": "论文笔记。文件位于 vault/papers/<citekey 中的 ':' 换成 '-'>.md，如 He-2020-LightGCN.md（见 ADR 0004）",
   "allOf": [{ "$ref": "../common.json#/$defs/Base" }],
   "type": "object",
   "required": ["type", "citekey", "authors", "year"],
   "properties": {
     "type": { "const": "paper" },
-    "citekey": { "type": "string", "pattern": "^[a-z]+[0-9]{4}[a-z0-9]*$", "description": "如 vaswani2017attention，与 refs.bib 对应" },
+    "citekey": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Za-z]*:[0-9]{4}:[A-Za-z0-9]+$",
+      "description": "第一作者姓:年份:标题缩写，如 He:2020:LightGCN；与 refs.bib 的 key 一致。规则见 ADR 0004"
+    },
+    "aliases": {
+      "type": "array", "items": { "type": "string" },
+      "description": "Obsidian 别名；入库时自动写入 citekey 本身，便于按 He:2020:LightGCN 搜索"
+    },
     "authors": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
     "year": { "type": "integer" },
     "venue": { "type": "string" },

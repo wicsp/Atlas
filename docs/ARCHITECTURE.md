@@ -49,6 +49,9 @@ Vault：独立 git 仓库，唯一事实来源
 
 - **Vault 是唯一事实来源**；SQLite 只是派生索引，可随时删除重建。
 - **人与 AI 通过同一套文件协作**；AI 的产出以 commit/分支/PR 回到 vault，由人 review 合并。
+- **AI 提议，链接由人建立**：AI 可以写草稿、提议链接，但不能直接写入人拥有的链接或改人写的正文（ADR 0006）。
+- **论文以 citekey 为人可读的身份**：`He:2020:LightGCN`，文件名 `He-2020-LightGCN.md`（ADR 0004）。
+- **执行不怕中断**：区分 Job 与 Attempt；exit 0 不等于成功；状态不明时交给人，不自动重试（ADR 0005）。
 - **Agent 不自己实现**；Runtime 通过适配器调用现成 agent：`run(job, workspace) → result`。
 - **飞书只做入口与通知**；本地内容单向发布到飞书，飞书原生文档以只读快照拉回。
 - **密钥**：配置只写占位符，由 Runtime 从本机 secret store 注入。
