@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://atlas.local/schema/entities/idea.json",
+  "$id": "https://lumio.local/schema/entities/idea.json",
   "title": "Idea",
   "description": "想法 / 灵感。可链接论文、其他想法，最后被串进报告。",
   "allOf": [{ "$ref": "../common.json#/$defs/Base" }],

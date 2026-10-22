@@ -1,7 +1,7 @@
 {
-  "name": "@atlas/feishu-bot",
+  "name": "@lumio/feishu-bot",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "dependencies": { "@atlas/api-client": "workspace:*" }
+  "dependencies": { "@lumio/api-client": "workspace:*" }
 }

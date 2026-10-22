@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://atlas.local/schema/entities/paper.json",
+  "$id": "https://lumio.local/schema/entities/paper.json",
   "title": "Paper",
   "description": "论文笔记。文件位于 vault/papers/<citekey>.md，如 He_2020_LightGCN.md（见 ADR 0004）",
   "allOf": [{ "$ref": "../common.json#/$defs/Base" }],

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://atlas.local/schema/protocol/job.json",
+  "$id": "https://lumio.local/schema/protocol/job.json",
   "title": "Job",
   "description": "Hub ↔ Runtime 的工作单元。Runtime 按 capabilities 领取，执行后回报结果。",
   "type": "object",

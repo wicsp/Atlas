@@ -3,26 +3,26 @@
 version = 4
 
 [[package]]
-name = "atlas-cli"
+name = "lumio-cli"
 version = "0.0.0"
 dependencies = [
- "atlas-core",
+ "lumio-core",
 ]
 
 [[package]]
-name = "atlas-core"
+name = "lumio-core"
 version = "0.0.0"
 
 [[package]]
-name = "atlas-hub"
+name = "lumio-hub"
 version = "0.0.0"
 dependencies = [
- "atlas-core",
+ "lumio-core",
 ]
 
 [[package]]
-name = "atlas-runtime"
+name = "lumio-runtime"
 version = "0.0.0"
 dependencies = [
- "atlas-core",
+ "lumio-core",
 ]

@@ -1,4 +1,4 @@
-# Atlas
+# Lumio
 
 个人研究工作台：论文笔记、想法、项目/任务、实验结果，以及在多台设备上给 AI 派活。
 
@@ -13,7 +13,7 @@
 |---|---|---|
 | `schema/` | 契约：实体与 job 协议的 JSON Schema，唯一事实来源 | JSON |
 | `crates/core` | vault 解析、链接、索引、BibTeX，纯本地逻辑 | Rust |
-| `crates/cli` | `atlas` 命令行 | Rust |
+| `crates/cli` | `lumio` 命令行 | Rust |
 | `crates/hub` | 服务器：HTTP API、job 队列、定时调度、MCP | Rust |
 | `crates/runtime` | 每台设备上的 daemon，领取 job 并调用 agent | Rust |
 | `packages/api-client` | 调 Hub 的 TS SDK（从 OpenAPI 生成） | TS |

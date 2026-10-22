@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://atlas.local/schema/common.json",
+  "$id": "https://lumio.local/schema/common.json",
   "title": "Common",
   "$defs": {
     "Id": {

@@ -9,4 +9,4 @@ license = "UNLICENSED"
 publish = false
 
 [workspace.dependencies]
-atlas-core = { path = "crates/core" }
+lumio-core = { path = "crates/core" }

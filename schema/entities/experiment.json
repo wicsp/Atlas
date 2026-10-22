@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://atlas.local/schema/entities/experiment.json",
+  "$id": "https://lumio.local/schema/entities/experiment.json",
   "title": "Experiment",
   "allOf": [{ "$ref": "../common.json#/$defs/Base" }],
   "type": "object",

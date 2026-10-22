@@ -1,5 +1,5 @@
 [package]
-name = "atlas-core"
+name = "lumio-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
