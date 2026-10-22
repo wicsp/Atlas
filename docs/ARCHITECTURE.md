@@ -54,6 +54,9 @@ CLI、Hub、Runtime 用 `bun build --compile` 编译为单个二进制，分别�
 - **人与 AI 通过同一套文件协作**；AI 的产出以 commit/分支/PR 回到 vault，由人 review 合并。
 - **AI 提议，链接由人建立**：AI 可以写草稿、提议链接，但不能直接写入人拥有的链接或改人写的正文（ADR 0006）。
 - **论文以 citekey 为人可读的身份**：`He_2020_LightGCN`，同时是文件名、链接和 `\cite{}` 的 key（ADR 0004）。
+- **元数据由 Lumio 负责，Obsidian 只是编辑器**：用 `lumio new <类型>` 创建，或随手写后由 `lumio sync`
+  （P1 起由 Hub 自动）补全；两条路径共用同一个补全器（ADR 0009）。
+- **vault 中的空字段视为未填写**（ADR 0008）。
 - **执行不怕中断**：区分 Job 与 Attempt；exit 0 不等于成功；状态不明时交给人，不自动重试（ADR 0005）。
 - **Agent 不自己实现**；Runtime 通过适配器调用现成 agent：`run(job, workspace) → result`。
 - **飞书只做入口与通知**；本地内容单向发布到飞书，飞书原生文档以只读快照拉回。
@@ -63,7 +66,7 @@ CLI、Hub、Runtime 用 `bun build --compile` 编译为单个二进制，分别�
 
 | 阶段 | 内容 | 涉及模块 |
 |---|---|---|
-| P0 | schema 定稿；论文入库（arXiv/DOI → 笔记 + BibTeX）；Obsidian 编辑 | schema, core, cli |
+| P0 | `lumio new paper`（arXiv/DOI → 笔记 + BibTeX）、`lumio new idea`、`lumio sync`（补全元数据） | schema, core, cli |
 | P1 | indexer + MCP：让 AI 查询链接、由想法串出带引用的报告初稿 | core, hub, api-client |
 | P2 | 任务/实验；Runtime + job 派发；Python 实验 SDK；Chrome 插件入库 | runtime, hub, sdk/python, chrome-ext |
 | P3 | 飞书 Bot、多维表格镜像、定时工作流 | feishu-bot, hub |

@@ -32,4 +32,4 @@ bun run schema:export  # 把契约导出为 JSON Schema（packages/schema/json/�
 
 ## 当前阶段
 
-P0：`packages/schema` + `packages/core` + `apps/cli`，做到"arXiv/DOI 一键入库 → 笔记 + BibTeX"。
+P0：`lumio new paper`、`lumio new idea`、`lumio sync`（见 ADR 0009）。
