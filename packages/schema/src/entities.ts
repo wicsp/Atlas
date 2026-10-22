@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Assignee, Base, Timestamp, idOf } from "./common.ts";
+import { Assignee, Base, Timestamp, idOf, optional, withDefault } from "./common.ts";
 
 /**
  * 论文 citekey：`<第一作者姓>_<年份>_<标题缩写>`，例如 `He_2020_LightGCN`。
@@ -17,50 +17,50 @@ export const Paper = Base.extend({
   citekey: Citekey,
   authors: z.array(z.string().min(1)).min(1),
   year: z.number().int(),
-  venue: z.string().optional(),
-  arxiv: z.string().optional(),
-  doi: z.string().optional(),
-  url: z.url().optional(),
-  status: z.enum(["to-read", "reading", "read"]).default("to-read"),
+  venue: optional(z.string()),
+  arxiv: optional(z.string()),
+  doi: optional(z.string()),
+  url: optional(z.url()),
+  status: withDefault(z.enum(["to-read", "reading", "read"]), "to-read"),
 });
 
 /** 想法 / 灵感，可以链接论文和其他想法，最后被串进报告。 */
 export const Idea = Base.extend({
   type: z.literal("idea"),
   id: idOf("idea"),
-  status: z.enum(["seed", "developing", "used", "dropped"]).default("seed"),
-  project: idOf("prj").optional(),
+  status: withDefault(z.enum(["seed", "developing", "used", "dropped"]), "seed"),
+  project: optional(idOf("prj")),
 });
 
 export const Project = Base.extend({
   type: z.literal("project"),
   id: idOf("prj"),
-  status: z.enum(["planning", "active", "paused", "done"]).default("planning"),
-  goal: z.string().optional(),
-  repo: z.string().optional().describe("关联代码仓库的路径或 URL"),
-  deadline: Timestamp.optional(),
+  status: withDefault(z.enum(["planning", "active", "paused", "done"]), "planning"),
+  goal: optional(z.string()),
+  repo: optional(z.string()).describe("关联代码仓库的路径或 URL"),
+  deadline: optional(Timestamp),
 });
 
 export const Task = Base.extend({
   type: z.literal("task"),
   id: idOf("task"),
-  status: z.enum(["todo", "doing", "blocked", "review", "done"]).default("todo"),
-  project: idOf("prj").optional(),
-  assignee: Assignee.default("human"),
-  due: Timestamp.optional(),
-  job: idOf("job").optional().describe("派给 AI 时对应的 job"),
+  status: withDefault(z.enum(["todo", "doing", "blocked", "review", "done"]), "todo"),
+  project: optional(idOf("prj")),
+  assignee: withDefault(Assignee, "human"),
+  due: optional(Timestamp),
+  job: optional(idOf("job")).describe("派给 AI 时对应的 job"),
 });
 
 export const Experiment = Base.extend({
   type: z.literal("experiment"),
   id: idOf("exp"),
   project: idOf("prj"),
-  status: z.enum(["planned", "running", "done", "failed"]).default("planned"),
-  hypothesis: z.string().optional(),
-  config_ref: z.string().optional().describe("配置文件路径或 git commit"),
-  device: z.string().optional(),
-  metrics: z.record(z.string(), z.number()).optional(),
-  artifacts: z.array(z.string()).optional(),
+  status: withDefault(z.enum(["planned", "running", "done", "failed"]), "planned"),
+  hypothesis: optional(z.string()),
+  config_ref: optional(z.string()).describe("配置文件路径或 git commit"),
+  device: optional(z.string()),
+  metrics: optional(z.record(z.string(), z.number())),
+  artifacts: optional(z.array(z.string())),
 });
 
 /** 任意 vault 实体，按 `type` 字段区分。 */

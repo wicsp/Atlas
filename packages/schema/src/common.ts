@@ -28,6 +28,17 @@ export const idOf = (prefix: (typeof ID_PREFIXES)[keyof typeof ID_PREFIXES]) =>
 export const Timestamp = z.iso.datetime({ offset: true });
 
 /**
+ * vault 实体的可选字段：缺失或 YAML 里留空（解析为 `null`）都视为未填写（ADR 0008）。
+ * 人手写 frontmatter 时一定会留空字段，例如 `venue:`。
+ */
+export const optional = <T extends z.ZodType>(schema: T) =>
+  schema.nullish().transform((v): z.output<T> | undefined => v ?? undefined);
+
+/** vault 实体的带默认值字段：缺失或留空都取默认值（ADR 0008）。 */
+export const withDefault = <T extends z.ZodType>(schema: T, value: z.output<T>) =>
+  schema.nullish().transform((v): z.output<T> => v ?? value);
+
+/**
  * 所有 vault 实体共有的 frontmatter 字段。
  *
  * 用 looseObject：frontmatter 里可能有 Obsidian 或其他工具写入的额外字段，
@@ -39,11 +50,10 @@ export const Base = z.looseObject({
   title: z.string().min(1),
   created: Timestamp,
   updated: Timestamp,
-  tags: z.array(z.string()).default([]),
-  related: z
-    .array(Id)
-    .default([])
-    .describe("显式关联，由人维护（ADR 0006）；正文里的 [[链接]] 由 indexer 另行解析"),
+  tags: withDefault(z.array(z.string()), []),
+  related: withDefault(z.array(Id), []).describe(
+    "显式关联，由人维护（ADR 0006）；正文里的 [[链接]] 由 indexer 另行解析",
+  ),
 });
 
 export const AGENTS = ["claude-code", "codex", "pi"] as const;

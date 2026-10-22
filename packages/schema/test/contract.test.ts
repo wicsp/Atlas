@@ -55,6 +55,53 @@ describe("Paper", () => {
   });
 });
 
+describe("empty YAML fields (ADR 0008)", () => {
+  test("null optional fields are treated as absent", () => {
+    const parsed = Paper.parse({ ...paper, venue: null, doi: null, url: null });
+    expect(parsed.venue).toBeUndefined();
+    expect(parsed.doi).toBeUndefined();
+    expect(parsed.url).toBeUndefined();
+  });
+
+  test("null fields with defaults take the default", () => {
+    const parsed = Paper.parse({ ...paper, status: null, tags: null, related: null });
+    expect(parsed.status).toBe("to-read");
+    expect(parsed.tags).toEqual([]);
+    expect(parsed.related).toEqual([]);
+  });
+
+  test("required fields still reject null", () => {
+    expect(Paper.safeParse({ ...paper, id: null }).success).toBe(false);
+    expect(Paper.safeParse({ ...paper, citekey: null }).success).toBe(false);
+  });
+
+  test("a filled-in value is still validated", () => {
+    expect(Paper.safeParse({ ...paper, url: "not a url" }).success).toBe(false);
+  });
+
+  test("the job protocol does not accept null for optional fields", () => {
+    const job = {
+      protocol_version: 1,
+      id: `job_${ULID}`,
+      kind: "paper.ingest",
+      requires: [],
+      input: {},
+      status: "queued",
+      created: now,
+    };
+    expect(Job.safeParse({ ...job, error: null }).success).toBe(false);
+  });
+
+  test("JSON Schema marks optional fields as nullable and not required", () => {
+    const json = z.toJSONSchema(Paper, { io: "input" }) as {
+      required: string[];
+      properties: Record<string, unknown>;
+    };
+    expect(json.required).not.toContain("venue");
+    expect(JSON.stringify(json.properties.venue)).toContain("null");
+  });
+});
+
 describe("Entity", () => {
   test("dispatches on type", () => {
     expect(Entity.parse(paper).type).toBe("paper");
