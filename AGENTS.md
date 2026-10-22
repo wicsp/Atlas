@@ -22,7 +22,10 @@
 8. **提交前必须通过 `bun run check`**。
 
 ## 约定
-- TypeScript strict，ESM，运行时 Bun ≥ 1.3；测试用 `bun test`。
+- TypeScript strict，ESM；测试用 `bun test`。
+- **Bun 版本固定为 1.3.x**（见 `package.json` 的 `packageManager`），与人类的 Nix 环境一致。
+  `bun.lock` 必须用 1.3.x 生成；用更新版本的 Bun 会把锁文件升级成旧版本读不了的格式。
+  升级 Bun 需要人类决定，并同时更新 Nix 环境。
 - 包内互相引用用 `.ts` 扩展名；跨包只通过包名（`@lumio/schema`）引用，不写相对路径。
 - 库代码抛出带 `code` 的错误类；只有 `apps/*` 负责打印和设置退出码。
 - ID 格式：`<前缀>_<ULID>`，例如 `pap_01J...`。不要用文件名或标题当 ID。
