@@ -1,4 +1,3 @@
-target/
 node_modules/
 dist/
 *.tsbuildinfo
@@ -7,3 +6,5 @@ dist/
 .DS_Store
 .venv/
 __pycache__/
+# 由 `bun run schema:export` 生成，不入库
+packages/schema/json/

@@ -1,0 +1,9 @@
+{
+  "name": "@lumio/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": { "lumio": "./src/main.ts" },
+  "scripts": { "build": "bun build --compile src/main.ts --outfile dist/lumio" },
+  "dependencies": { "@lumio/core": "workspace:*", "@lumio/schema": "workspace:*" }
+}

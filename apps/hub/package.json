@@ -1,0 +1,8 @@
+{
+  "name": "@lumio/hub",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "bun build --compile src/main.ts --outfile dist/lumio-hub" },
+  "dependencies": { "@lumio/core": "workspace:*", "@lumio/schema": "workspace:*" }
+}

@@ -1,7 +1,4 @@
 {
-  "files": [],
-  "references": [
-    { "path": "packages/api-client" },
-    { "path": "apps/feishu-bot" }
-  ]
+  "extends": "./tsconfig.base.json",
+  "include": ["packages/*/src", "packages/*/test", "packages/*/scripts", "apps/*/src", "apps/*/test"]
 }

@@ -33,17 +33,20 @@ Vault：独立 git 仓库，唯一事实来源
 
 ## 3. 模块与依赖方向
 
+全部使用 TypeScript，运行在 Bun 上（ADR 0002）。
+
 | 模块 | 职责 | 可以依赖 |
 |---|---|---|
-| `schema/` | 契约（JSON Schema） | — |
-| `crates/core` | vault 解析、链接、索引、BibTeX；纯本地，无网络 | 生成的类型 |
-| `crates/cli` | 命令行 | core |
-| `crates/hub` | API、队列、调度、MCP | core |
-| `crates/runtime` | 设备 daemon | core（与 hub 只走 HTTP） |
-| `packages/api-client` | TS SDK | 生成的类型 |
-| `apps/*` | 各个 TS 客户端 | api-client |
+| `packages/schema` | 契约（Zod），导出 JSON Schema 给其他语言（ADR 0003） | 仅 zod |
+| `packages/core` | vault 解析、链接、索引、BibTeX；纯本地，无网络 | schema |
+| `packages/api-client` | 调用 Hub 的 SDK | schema |
+| `apps/cli` | 命令行 | core, schema |
+| `apps/hub` | API、队列、调度、MCP | core, schema |
+| `apps/runtime` | 设备 daemon（与 hub 只走 HTTP） | schema |
+| `apps/feishu-bot` `apps/web` 等 | 各个客户端 | api-client |
 
-禁止：反向依赖、apps 之间互相依赖、runtime ↔ hub 代码依赖、core 做网络请求。
+禁止：反向依赖、apps 之间互相依赖、core 做网络请求。由 `bun run lint:deps` 强制。
+CLI、Hub、Runtime 用 `bun build --compile` 编译为单个二进制，分别部署到 Mac 和服务器。
 
 ## 4. 关键设计
 
@@ -61,7 +64,7 @@ Vault：独立 git 仓库，唯一事实来源
 | 阶段 | 内容 | 涉及模块 |
 |---|---|---|
 | P0 | schema 定稿；论文入库（arXiv/DOI → 笔记 + BibTeX）；Obsidian 编辑 | schema, core, cli |
-| P1 | indexer + MCP：让 AI 查询链接、由想法串出带引用的报告初稿 | core, hub |
+| P1 | indexer + MCP：让 AI 查询链接、由想法串出带引用的报告初稿 | core, hub, api-client |
 | P2 | 任务/实验；Runtime + job 派发；Python 实验 SDK；Chrome 插件入库 | runtime, hub, sdk/python, chrome-ext |
 | P3 | 飞书 Bot、多维表格镜像、定时工作流 | feishu-bot, hub |
 | P4 | Web Dashboard、Docker/Nix、对外 SDK、手机端 | web, infra, mobile |
