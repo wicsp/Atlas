@@ -1,9 +1,10 @@
 import { lstat, mkdir, stat } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { Idea } from "@lumio/schema";
 import { CoreError } from "./errors.ts";
 import { fillMetadata, type FillContext } from "./fill.ts";
 import { parseFrontmatter } from "./frontmatter.ts";
+import { entityDirectory, entityTypeOfPath, VAULT_LAYOUT } from "./vault.ts";
 import { writeFileAtomic } from "./write.ts";
 
 export interface NewNote { relativePath: string; content: Buffer }
@@ -21,19 +22,28 @@ export function renderIdea(title: string, ctx: FillContext): NewNote {
   if (issues.length || !Idea.safeParse(frontmatter).success) {
     throw new CoreError("INVALID_METADATA", "无法生成合法的想法元数据");
   }
-  return { relativePath: `ideas/${fileName}.md`, content: parseFrontmatter("\n").render(frontmatter) };
+  return { relativePath: `${entityDirectory("idea")}/${fileName}.md`, content: parseFrontmatter("\n").render(frontmatter) };
 }
 
 export async function saveNewNote(vault: string, note: NewNote): Promise<string> {
   try {
-    if (!/^(ideas|papers)\/[^/\\]+\.md$/.test(note.relativePath)) {
-      throw new CoreError("INVALID_NOTE_PATH", "新笔记必须位于 ideas/ 或 papers/ 目录内");
+    const type = entityTypeOfPath(note.relativePath);
+    const name = type && note.relativePath.slice(entityDirectory(type).length + 1);
+    if (!type || !name || !/^[^/\\]+\.md$/.test(name)) {
+      const dirs = VAULT_LAYOUT.map((e) => `${e.dir}/`).join("、");
+      throw new CoreError("INVALID_NOTE_PATH", `新笔记必须直接位于类型目录内（${dirs}）`);
     }
     if (!(await stat(vault)).isDirectory()) throw new Error("vault 路径不是目录");
-    const path = join(vault, note.relativePath);
-    const directory = dirname(path);
-    await mkdir(directory, { recursive: true });
-    if (!(await lstat(directory)).isDirectory()) throw new CoreError("INVALID_NOTE_DIRECTORY", "笔记目录不能是符号链接");
+    const segments = note.relativePath.split("/");
+    const path = join(vault, ...segments);
+    // 逐级创建并检查：大类目录（如 research/）和类型目录都不能是符号链接，否则会写到 vault 之外。
+    let directory = vault;
+    for (const segment of segments.slice(0, -1)) {
+      directory = join(directory, segment);
+      try { await mkdir(directory); }
+      catch (cause) { if ((cause as NodeJS.ErrnoException).code !== "EEXIST") throw cause; }
+      if (!(await lstat(directory)).isDirectory()) throw new CoreError("INVALID_NOTE_DIRECTORY", "笔记目录不能是符号链接");
+    }
     await writeFileAtomic(path, note.content, { overwrite: false });
     return note.relativePath;
   } catch (cause) {

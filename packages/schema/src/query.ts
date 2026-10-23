@@ -7,14 +7,14 @@ import { Citekey } from "./entities.ts";
  * AI 通过 skill 依赖这些结构，修改即为契约变更。
  */
 
-export const NOTE_TYPES = ["paper", "idea", "project", "task", "experiment"] as const;
+export const NOTE_TYPES = ["paper", "idea", "project", "task", "experiment", "source", "post", "asset"] as const;
 
 /** 一篇笔记的简要信息，出现在搜索结果和链接列表中。 */
 export const NoteRef = z.strictObject({
   id: Id,
   type: z.enum(NOTE_TYPES),
   title: z.string(),
-  path: z.string().describe("相对 vault 根目录的路径，如 papers/He_2020_LightGCN.md"),
+  path: z.string().describe("相对 vault 根目录的路径，如 library/papers/He_2020_LightGCN.md"),
   citekey: Citekey.optional().describe("仅论文有"),
 });
 

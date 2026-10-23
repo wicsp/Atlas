@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, readdir, rm, stat, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Idea } from "@lumio/schema";
@@ -17,7 +17,7 @@ afterEach(async () => { await rm(vault, { recursive: true, force: true }); });
 test.each([cases.chinese, cases.unicode, cases.illegal])("new idea preserves original title and passes Idea contract: %s", async (title) => {
   const expectedFile = title === cases.illegal ? cases.illegalFilename : title;
   const path = await createIdea(vault, title, ctx);
-  expect(path).toBe(`ideas/${expectedFile}.md`);
+  expect(path).toBe(`research/ideas/${expectedFile}.md`);
   const parsed = parseFrontmatter(await readFile(join(vault, path)));
   expect(Idea.safeParse(parsed.data).success).toBe(true);
   expect(parsed.data.title).toBe(title);
@@ -46,7 +46,7 @@ test("same filename is refused without modifying contents, mtime or inode", asyn
   expect(await readFile(path)).toEqual(content);
   expect((await stat(path)).mtimeMs).toBe(before.mtimeMs);
   expect((await stat(path)).ino).toBe(before.ino);
-  expect(await readdir(join(vault, "ideas"))).toEqual([`${cases.chinese}.md`]);
+  expect(await readdir(join(vault, "research/ideas"))).toEqual([`${cases.chinese}.md`]);
 });
 
 test("concurrent creation publishes one complete file and never overwrites the winner", async () => {
@@ -54,9 +54,9 @@ test("concurrent creation publishes one complete file and never overwrites the w
   expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
   const failed = results.find((r) => r.status === "rejected") as PromiseRejectedResult;
   expect(failed.reason).toMatchObject({ code: "FILE_EXISTS" });
-  const content = await readFile(join(vault, "ideas", `${cases.chinese}.md`));
+  const content = await readFile(join(vault, "research/ideas", `${cases.chinese}.md`));
   expect(Idea.safeParse(parseFrontmatter(content).data).success).toBe(true);
-  expect(await readdir(join(vault, "ideas"))).toHaveLength(1);
+  expect(await readdir(join(vault, "research/ideas"))).toHaveLength(1);
 });
 
 test.each(cases.empty)("rejects empty title before creating files: %j", async (title) => {
@@ -72,7 +72,17 @@ test("a title containing only illegal characters cannot produce a filename", asy
 test("creation does not follow a symlinked ideas directory", async () => {
   const outside = await mkdtemp(join(tmpdir(), "lumio-idea-outside-test-"));
   try {
-    await symlink(outside, join(vault, "ideas"));
+    await mkdir(join(vault, "research"));
+    await symlink(outside, join(vault, "research/ideas"));
+    await expect(createIdea(vault, cases.chinese, ctx)).rejects.toMatchObject({ code: "INVALID_NOTE_DIRECTORY" });
+    expect(await readdir(outside)).toEqual([]);
+  } finally { await rm(outside, { recursive: true, force: true }); }
+});
+
+test("creation does not follow a symlinked category directory (research/)", async () => {
+  const outside = await mkdtemp(join(tmpdir(), "lumio-idea-outside-test-"));
+  try {
+    await symlink(outside, join(vault, "research"));
     await expect(createIdea(vault, cases.chinese, ctx)).rejects.toMatchObject({ code: "INVALID_NOTE_DIRECTORY" });
     expect(await readdir(outside)).toEqual([]);
   } finally { await rm(outside, { recursive: true, force: true }); }

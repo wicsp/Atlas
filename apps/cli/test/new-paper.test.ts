@@ -29,8 +29,8 @@ test.each([
   ["https://doi.org/10.1145/3397271.3401063", "He_2020_LightGCN", "doi"],
 ])("new paper %s passes Paper and sync writes nothing", async (input, citekey, identifier) => {
   const result = await run(["new", "paper", input]);
-  expect(result).toEqual({ code: 0, output: [`papers/${citekey}.md`] });
-  const path = join(vault, "papers", `${citekey}.md`);
+  expect(result).toEqual({ code: 0, output: [`library/papers/${citekey}.md`] });
+  const path = join(vault, "library/papers", `${citekey}.md`);
   const bytes = await readFile(path);
   const parsed = parseFrontmatter(bytes);
   expect(Paper.safeParse(parsed.data).success).toBe(true);
@@ -42,12 +42,12 @@ test.each([
   expect(await readFile(path)).toEqual(bytes);
   expect((await stat(path)).mtimeMs).toBe(before.mtimeMs);
   expect((await stat(path)).ino).toBe(before.ino);
-  expect(await readdir(vault)).toEqual(["papers"]);
+  expect(await readdir(vault)).toEqual(["library"]);
 });
 
 test("--abbr supplies Spotlighting and changes only the abbreviation", async () => {
-  expect(await run(["new", "paper", "2403.14720", "--abbr", "Spotlighting"])).toEqual({ code: 0, output: ["papers/Hines_2024_Spotlighting.md"] });
-  const parsed = parseFrontmatter(await readFile(join(vault, "papers/Hines_2024_Spotlighting.md")));
+  expect(await run(["new", "paper", "2403.14720", "--abbr", "Spotlighting"])).toEqual({ code: 0, output: ["library/papers/Hines_2024_Spotlighting.md"] });
+  const parsed = parseFrontmatter(await readFile(join(vault, "library/papers/Hines_2024_Spotlighting.md")));
   expect(parsed.body.toString()).toContain("@misc{Hines_2024_Spotlighting,");
 });
 
@@ -56,12 +56,12 @@ test.each([
   ["doi", "10.1145/3397271.3401063", "https://doi.org/10.1145/3397271.3401063", "--abbr", "Other", "已存在"],
 ])("duplicate %s is rejected without overwriting any note", async (_kind, first, second, flag, abbreviation, message) => {
   await run(["new", "paper", first]);
-  const files = await readdir(join(vault, "papers"));
-  const path = join(vault, "papers", files[0]!);
+  const files = await readdir(join(vault, "library/papers"));
+  const path = join(vault, "library/papers", files[0]!);
   const bytes = await readFile(path);
   const before = await stat(path);
   await expect(run(["new", "paper", second, flag, abbreviation])).rejects.toThrow(message);
-  expect(await readdir(join(vault, "papers"))).toEqual(files);
+  expect(await readdir(join(vault, "library/papers"))).toEqual(files);
   expect(await readFile(path)).toEqual(bytes);
   expect((await stat(path)).mtimeMs).toBe(before.mtimeMs);
   expect((await stat(path)).ino).toBe(before.ino);
@@ -76,9 +76,9 @@ test("a real CLI process with piped stdin adds a paper without flags or reading 
   try {
     // Keep stdin open: the command must finish without waiting for confirmation or EOF.
     const [code, stdout, stderr] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
-    expect({ code, stdout, stderr }).toEqual({ code: 0, stdout: "papers/Hines_2024_DAIP.md\n", stderr: "" });
+    expect({ code, stdout, stderr }).toEqual({ code: 0, stdout: "library/papers/Hines_2024_DAIP.md\n", stderr: "" });
   } finally { clearTimeout(timeout); proc.stdin.end(); }
-  const path = join(vault, "papers/Hines_2024_DAIP.md");
+  const path = join(vault, "library/papers/Hines_2024_DAIP.md");
   const original = await readFile(path);
   const before = await stat(path);
   expect(Paper.safeParse(parseFrontmatter(original).data).success).toBe(true);
@@ -116,7 +116,7 @@ test.each(["invalid XML", "wrong ID", "invalid BibTeX"])("bad source content (%s
 test("a title without ASCII content uses Paper automatically", async () => {
   const xml = (await fixture("2002.02126.xml")).replace(/(<entry>[\s\S]*?<title>)[\s\S]*?(<\/title>)/, "$1---$2");
   const fetcher: PaperFetcher = (url, init) => url.includes("export.arxiv") ? Promise.resolve(new Response(xml)) : fixtureFetcher(url, init);
-  expect(await run(["new", "paper", "2002.02126"], { fetcher })).toEqual({ code: 0, output: ["papers/He_2020_Paper.md"] });
+  expect(await run(["new", "paper", "2002.02126"], { fetcher })).toEqual({ code: 0, output: ["library/papers/He_2020_Paper.md"] });
 });
 
 test("a Chinese author and title can be added automatically without an abbreviation", async () => {
@@ -124,8 +124,8 @@ test("a Chinese author and title can be added automatically without an abbreviat
     .replace(/(<entry>[\s\S]*?<title>)[\s\S]*?(<\/title>)/, "$1中文标题$2")
     .replace("<name>Xiangnan He</name>", "<name>张三</name>");
   const fetcher: PaperFetcher = (url, init) => url.includes("export.arxiv") ? Promise.resolve(new Response(xml)) : fixtureFetcher(url, init);
-  expect(await run(["new", "paper", "2002.02126"], { fetcher })).toEqual({ code: 0, output: ["papers/Anon_2020_Paper.md"] });
-  const parsed = parseFrontmatter(await readFile(join(vault, "papers/Anon_2020_Paper.md")));
+  expect(await run(["new", "paper", "2002.02126"], { fetcher })).toEqual({ code: 0, output: ["library/papers/Anon_2020_Paper.md"] });
+  const parsed = parseFrontmatter(await readFile(join(vault, "library/papers/Anon_2020_Paper.md")));
   expect(Paper.safeParse(parsed.data).success).toBe(true);
   expect(parsed.data.title).toBe("中文标题");
   expect((parsed.data.authors as string[])[0]).toBe("张三");
@@ -149,11 +149,11 @@ test("removed --yes is an unknown argument, rejected before any requests", async
 });
 
 test.each([1, 2])("a different paper with %i occupied citekeys uses the next suffix", async (occupied) => {
-  await mkdir(join(vault, "papers"));
-  const source = await readFile(new URL("../../../fixtures/sync-vault/papers/He_2020_LightGCN.md", import.meta.url), "utf8");
+  await mkdir(join(vault, "library/papers"), { recursive: true });
+  const source = await readFile(new URL("../../../fixtures/sync-vault/library/papers/He_2020_LightGCN.md", import.meta.url), "utf8");
   const existing: { path: string; bytes: Buffer; mtime: number; ino: number }[] = [];
   for (const suffix of ["", "b"].slice(0, occupied)) {
-    const path = join(vault, `papers/He_2020_LightGCN${suffix}.md`);
+    const path = join(vault, `library/papers/He_2020_LightGCN${suffix}.md`);
     const bytes = parseFrontmatter(source.replace("citekey: He_2020_LightGCN", `citekey: He_2020_LightGCN${suffix}`)).render({ doi: `10.1234/occupied${suffix}` });
     await writeFile(path, bytes);
     const info = await stat(path);
@@ -161,12 +161,12 @@ test.each([1, 2])("a different paper with %i occupied citekeys uses the next suf
   }
   const suffix = occupied === 1 ? "b" : "c";
   const citekey = `He_2020_LightGCN${suffix}`;
-  expect(await run(["new", "paper", "2002.02126"])).toEqual({ code: 0, output: [`papers/${citekey}.md`] });
-  const parsed = parseFrontmatter(await readFile(join(vault, `papers/${citekey}.md`)));
+  expect(await run(["new", "paper", "2002.02126"])).toEqual({ code: 0, output: [`library/papers/${citekey}.md`] });
+  const parsed = parseFrontmatter(await readFile(join(vault, `library/papers/${citekey}.md`)));
   expect(Paper.safeParse(parsed.data).success).toBe(true);
   expect(parsed.data.citekey).toBe(citekey);
   expect(parsed.body.toString()).toContain(`@misc{${citekey},`);
-  const newPath = join(vault, `papers/${citekey}.md`);
+  const newPath = join(vault, `library/papers/${citekey}.md`);
   const newBytes = await readFile(newPath);
   const newInfo = await stat(newPath);
   expect((await run(["sync"])).output).toEqual([`完成：扫描 ${occupied + 1} 个，补全 0 个，问题 0 个，跳过 0 个`]);
@@ -178,5 +178,5 @@ test.each([1, 2])("a different paper with %i occupied citekeys uses the next suf
     expect((await stat(file.path)).mtimeMs).toBe(file.mtime);
     expect((await stat(file.path)).ino).toBe(file.ino);
   }
-  expect(await readdir(join(vault, "papers"))).toHaveLength(occupied + 1);
+  expect(await readdir(join(vault, "library/papers"))).toHaveLength(occupied + 1);
 });
