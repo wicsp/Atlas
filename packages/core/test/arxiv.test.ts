@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { Paper } from "@lumio/schema";
-import { confirmCitekey, parseArxivMetadata, parseFrontmatter, proposeCitekey, renderPaper } from "../src/index.ts";
+import { generateCitekey, parseArxivMetadata, parseFrontmatter, renderPaper } from "../src/index.ts";
 
 const fixture = (name: string) => readFile(new URL(`../../../fixtures/papers/${name}`, import.meta.url), "utf8");
 
@@ -9,15 +9,15 @@ test.each([
   ["2002.02126", "He_2020_LightGCN", "Xiangnan He"],
   ["2403.14720", "Hines_2024_DAIP", "Keegan Hines"],
   ["2406.13352", "Debenedetti_2024_AgentDojo", "Edoardo Debenedetti"],
-])("real Atom %s generates the recorded candidate and a schema-valid note", async (id, citekey, firstAuthor) => {
+])("real Atom %s generates the recorded citekey and a schema-valid note", async (id, citekey, firstAuthor) => {
   const metadata = parseArxivMetadata(await fixture(`${id}.xml`));
   expect(metadata.authors[0]).toBe(firstAuthor);
   expect(metadata.arxiv).toBe(id);
   expect(metadata.url).toBe(`https://arxiv.org/abs/${id}`);
   expect(metadata).not.toHaveProperty("venue");
-  const candidate = proposeCitekey(metadata)!;
-  expect(candidate.citekey).toBe(citekey);
-  const note = renderPaper(metadata, confirmCitekey(metadata, candidate.abbreviation), await fixture(`${id}.bib`), {
+  const generated = generateCitekey(metadata);
+  expect(generated).toBe(citekey);
+  const note = renderPaper(metadata, generated, await fixture(`${id}.bib`), {
     now: new Date("2026-10-22T23:00:00+08:00"), tz: "Asia/Singapore",
     newId: (prefix) => `${prefix}_01J9Z3K8M2N4P6Q8R0S2T4V6W8`,
   });

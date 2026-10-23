@@ -2,32 +2,35 @@ import { Citekey } from "@lumio/schema";
 import { CoreError } from "./errors.ts";
 import type { PaperMetadata } from "./paper-metadata.ts";
 
-export interface CitekeyCandidate { kind: "candidate"; citekey: string; abbreviation: string }
-export interface ConfirmedCitekey { kind: "confirmed"; citekey: string }
 const STOP_WORDS = new Set(["a", "an", "the", "of", "for", "with", "and", "on", "in", "to", "at", "by", "from", "as", "is", "are"]);
 
-function stem(metadata: PaperMetadata): string {
-  const surname = metadata.firstAuthorFamily ?? metadata.authors[0]?.trim().split(/\s+/u).at(-1) ?? "";
-  const ascii = surname.normalize("NFD").replace(/\p{M}/gu, "").replace(/[\s\-'’]/gu, "");
-  const family = ascii.charAt(0).toUpperCase() + ascii.slice(1);
-  return `${family}_${metadata.year}_`;
-}
+const asciiAbbreviation = (value: string): string => value.replace(/[^A-Za-z0-9]/g, "");
 
-export function proposeCitekey(metadata: PaperMetadata): CitekeyCandidate | undefined {
-  const colon = metadata.title.indexOf(":");
-  const prefix = colon < 0 ? "" : metadata.title.slice(0, colon).trim();
-  // A named method before ':' is preferable; otherwise use the first four content words.
-  const abbreviation = prefix && !/\s/u.test(prefix) ? prefix : (metadata.title.match(/[\p{L}\p{N}]+/gu) ?? [])
-    .filter((word) => !STOP_WORDS.has(word.toLowerCase())).slice(0, 4).map((word) => word.charAt(0).toUpperCase()).join("");
-  const citekey = stem(metadata) + abbreviation;
-  return Citekey.safeParse(citekey).success ? { kind: "candidate", citekey, abbreviation } : undefined;
-}
-
-/** Call only after the user accepts a candidate or supplies an explicit abbreviation. */
-export function confirmCitekey(metadata: PaperMetadata, abbreviation: string): ConfirmedCitekey {
-  const citekey = stem(metadata) + abbreviation;
-  if (!Citekey.safeParse(citekey).success) {
-    throw new CoreError("INVALID_CITEKEY", "citekey 不合法：作者姓须能转写为 ASCII，年份须为四位数，缩写只能含 ASCII 字母和数字");
+/** Mechanical ASCII rules from ADR 0004; no confirmation or transliteration table. */
+export function generateCitekey(metadata: PaperMetadata, abbreviation?: string): string {
+  if (!Number.isInteger(metadata.year) || metadata.year < 1000 || metadata.year > 9999) {
+    throw new CoreError("INVALID_PAPER_YEAR", "论文年份必须是四位数");
   }
-  return { kind: "confirmed", citekey };
+  const surname = metadata.firstAuthorFamily ?? metadata.authors[0]?.trim().split(/\s+/u).at(-1) ?? "";
+  const ascii = surname.normalize("NFD").replace(/\p{M}/gu, "").replace(/[^A-Za-z]/g, "");
+  const family = ascii ? ascii.charAt(0).toUpperCase() + ascii.slice(1) : "Anon";
+  let short: string;
+  if (abbreviation !== undefined) {
+    short = asciiAbbreviation(abbreviation);
+    if (!short) throw new CoreError("INVALID_ABBREVIATION", "--abbr 删除非法字符后为空，请提供含 ASCII 字母或数字的缩写");
+  } else {
+    const colon = metadata.title.indexOf(":");
+    const prefix = colon < 0 ? "" : metadata.title.slice(0, colon).trim();
+    short = prefix && !/\s/u.test(prefix) ? asciiAbbreviation(prefix) : "";
+    if (!short) {
+      short = metadata.title.split(/\s+/u).map(asciiAbbreviation)
+        .filter((word) => word && !STOP_WORDS.has(word.toLowerCase())).slice(0, 4)
+        .map((word) => word.charAt(0).toUpperCase()).join("") || "Paper";
+    }
+  }
+  const citekey = `${family}_${metadata.year}_${short}`;
+  if (!Citekey.safeParse(citekey).success) {
+    throw new CoreError("INVALID_CITEKEY", "生成的 citekey 不符合契约");
+  }
+  return citekey;
 }

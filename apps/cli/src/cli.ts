@@ -1,20 +1,16 @@
 import { randomBytes } from "node:crypto";
-import { createInterface } from "node:readline/promises";
 import { parseArgs } from "node:util";
 import {
-  createIdea, createPaper, newId, parseArxivMetadata,
+  createIdea, createPaper, generateCitekey, newId, parseArxivMetadata,
   parseCrossrefMetadata, parsePaperInput, resolveVault,
 } from "@lumio/core";
 import { version } from "../package.json";
 import { syncVault } from "./sync.ts";
-import { selectCitekey } from "./paper-confirm.ts";
 import { fetchPaperSource, type PaperFetcher } from "./paper-source.ts";
 
 export interface CliOptions {
   fetcher?: PaperFetcher;
   log?: (line: string) => void;
-  interactive?: boolean;
-  ask?: (question: string) => Promise<string>;
 }
 
 export async function runCli(args: string[], options: CliOptions = {}): Promise<number> {
@@ -23,15 +19,15 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
     args, allowPositionals: true, strict: true,
     options: {
       vault: { type: "string" }, "dry-run": { type: "boolean" },
-      abbr: { type: "string" }, yes: { type: "boolean" },
+      abbr: { type: "string" },
     },
   });
   const sync = positionals.length === 1 && positionals[0] === "sync";
   const idea = positionals.length === 3 && positionals[0] === "new" && positionals[1] === "idea";
   const paper = positionals.length === 3 && positionals[0] === "new" && positionals[1] === "paper";
   if ((!sync && !idea && !paper) || (!sync && values["dry-run"] !== undefined)
-    || (!paper && (values.abbr !== undefined || values.yes !== undefined))) {
-    throw new Error("用法：lumio sync [--vault <路径>] [--dry-run]；lumio new idea <标题> [--vault <路径>]；lumio new paper <输入> [--vault <路径>] [--abbr <缩写>] [--yes]");
+    || (!paper && values.abbr !== undefined)) {
+    throw new Error("用法：lumio sync [--vault <路径>] [--dry-run]；lumio new idea <标题> [--vault <路径>]；lumio new paper <输入> [--vault <路径>] [--abbr <缩写>]");
   }
   const root = resolveVault(values.vault, process.env.LUMIO_VAULT);
   const now = new Date();
@@ -41,10 +37,6 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
   };
   if (paper) {
     const input = parsePaperInput(positionals[2]!);
-    const interactive = options.interactive ?? Boolean(process.stdin.isTTY);
-    if (!interactive && values.abbr === undefined && !values.yes) {
-      throw new Error("标准输入不是终端，请使用 --abbr <缩写> 或 --yes");
-    }
     const source = await fetchPaperSource(input, {
       version, fetcher: options.fetcher, contactEmail: process.env.LUMIO_CONTACT_EMAIL,
     });
@@ -54,18 +46,8 @@ export async function runCli(args: string[], options: CliOptions = {}): Promise<
       if (metadata.doi && metadata.doi.toLowerCase() !== input.doi.toLowerCase()) throw new Error("Crossref 返回的 DOI 与输入不一致");
       metadata.doi ??= input.doi;
     }
-    let readline: ReturnType<typeof createInterface> | undefined;
-    try {
-      const confirmed = await selectCitekey(metadata, {
-        abbreviation: values.abbr, yes: values.yes, interactive, log,
-        ask: options.ask ?? ((question) => {
-          readline ??= createInterface({ input: process.stdin, output: process.stdout });
-          return readline.question(question);
-        }),
-      });
-      log(await createPaper(root, metadata, confirmed, source.bibtex, ctx));
-      return 0;
-    } finally { readline?.close(); }
+    log(await createPaper(root, metadata, generateCitekey(metadata, values.abbr), source.bibtex, ctx));
+    return 0;
   }
   if (idea) {
     log(await createIdea(root, positionals[2]!, ctx));
