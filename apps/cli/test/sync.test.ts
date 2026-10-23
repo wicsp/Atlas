@@ -3,8 +3,9 @@ import { cp, lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeF
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseFrontmatter } from "@lumio/core";
+import { parseFrontmatter, writeFileAtomic } from "@lumio/core";
 import { Idea, Paper } from "@lumio/schema";
+import { syncVault } from "../src/sync.ts";
 
 const fixture = fileURLToPath(new URL("../../../fixtures/sync-vault", import.meta.url));
 const main = fileURLToPath(new URL("../src/main.ts", import.meta.url));
@@ -152,4 +153,47 @@ test("missing vault directory fails without reporting success", async () => {
   expect(result.code).toBe(1);
   expect(result.stderr).toContain("无法扫描 vault");
   expect(result.stdout).toBe("");
+});
+
+test("sync fills every null metadata field in place, validates the notes and remains idempotent", async () => {
+  const nullVault = join(temp, "null-vault");
+  await cp(fileURLToPath(new URL("../../../fixtures/sync-null-vault", import.meta.url)), nullVault, { recursive: true });
+  const before = await snapshot(nullVault);
+  const result = await run(["sync", "--vault", nullVault]);
+  expect(result).toEqual({ code: 0, stderr: "", stdout: expect.stringContaining("扫描 2 个，补全 2 个，问题 0 个，跳过 0 个") });
+  const after = await snapshot(nullVault);
+  for (const [path, original] of Object.entries(before)) {
+    const old = parseFrontmatter(original.bytes);
+    const parsed = parseFrontmatter(after[path]!.bytes);
+    expect(Object.keys(parsed.data)).toEqual(Object.keys(old.data));
+    expect(parsed.body).toEqual(old.body);
+    expect((path.startsWith("/ideas/") ? Idea : Paper).safeParse(parsed.data).success).toBe(true);
+  }
+  expect(parseFrontmatter(after["/ideas/空元数据.md"]!.bytes).data).toMatchObject({ tags: null, related: null });
+  expect(parseFrontmatter(after["/papers/He_2020_LightGCN.md"]!.bytes).data.citekey).toBe("He_2020_LightGCN");
+  expect((await run(["sync", "--vault", nullVault])).stdout).toContain("补全 0 个");
+  expect(await snapshot(nullVault)).toEqual(after);
+});
+
+test("sync skips a file changed during processing and preserves the human edit", async () => {
+  const path = join(vault, "ideas/新的想法.md");
+  const original = await readFile(path);
+  const edited = Buffer.concat([original, Buffer.from("\n人工并发追加的正文 [[链接]]\n")]);
+  const output: string[] = [];
+  let guarded = false;
+  const code = await syncVault(vault, {
+    log: (line) => output.push(line),
+    writeFile: (target, content, options) => {
+      if (target !== path) return writeFileAtomic(target, content, options);
+      expect(options?.expectedContent).toEqual(original);
+      guarded = true;
+      return writeFileAtomic(target, content, { ...options, beforeCommit: () => writeFile(path, edited) });
+    },
+  });
+  expect(guarded).toBe(true);
+  expect(code).toBe(1);
+  expect(output).toContain("跳过  ideas/新的想法.md  文件在处理中被修改，请重新运行");
+  expect(output.at(-1)).toBe("完成：扫描 5 个，补全 2 个，问题 1 个，跳过 2 个");
+  expect(await readFile(path)).toEqual(edited);
+  expect((await readdir(join(vault, "ideas"))).filter((name) => name.endsWith(".tmp"))).toEqual([]);
 });

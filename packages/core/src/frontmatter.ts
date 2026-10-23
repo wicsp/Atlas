@@ -46,18 +46,24 @@ export function parseFrontmatter(source: string | Uint8Array): Frontmatter {
           if (Object.keys(patch).length === 0) return bytes;
           let updated = header;
           const additions = new Document();
+          const replacements: { start: number; end: number; text: string }[] = [];
           for (const [key, value] of Object.entries(patch)) {
             if (Object.hasOwn(data, key)) {
-              if (key !== "id" || data.id !== null) {
+              if (data[key] !== null) {
                 throw new CoreError("EXISTING_METADATA", `不能覆盖已有字段 ${key}`);
               }
               const node = doc.get(key, true);
-              if (!isScalar(node) || !node.range) throw new CoreError("INVALID_FRONTMATTER", "无法定位空 ID");
+              if (!isScalar(node) || !node.range) throw new CoreError("INVALID_FRONTMATTER", `无法定位空字段 ${key}`);
               const [start, end] = node.range;
               const replacement = new Document(value).toString().trimEnd();
               const text = start === end ? ` ${replacement} ` : replacement;
-              updated = updated.slice(0, start) + text + updated.slice(end);
+              replacements.push({ start, end, text });
             } else additions.set(key, value);
+          }
+          // Ranges refer to the original source. Work backwards so replacing
+          // several null fields cannot shift any pending replacement's offsets.
+          for (const { start, end, text } of replacements.sort((a, b) => b.start - a.start)) {
+            updated = updated.slice(0, start) + text + updated.slice(end);
           }
           if (isMap(additions.contents) && additions.contents.items.length) {
             if (isMap(doc.contents) && doc.contents.flow) {

@@ -58,3 +58,31 @@ test("refuses edits whose YAML tags or anchors would change existing values", ()
       .toThrow(CoreError);
   }
 });
+
+test.each(["\n", "\r\n"])("replaces all null metadata in place without duplicate keys: %j", (nl) => {
+  const header = ["updated: # updated comment", "title: null # title comment", "citekey: ~", "id:", "type: null", "created:", "aliases: [keep]", ""].join(nl);
+  // Deliberately use a different patch order than the source key order.
+  const patch = { id: "pap_01J9Z3K8M2N4P6Q8R0S2T4V6W8", type: "paper", title: "中文标题", created: "2026-10-22T21:00:00+08:00", updated: "2026-10-22T22:00:00+08:00", citekey: "He_2020_LightGCN" };
+  const body = Buffer.concat([Buffer.from(`正文 [[链接]]${nl}`), Buffer.from([0xff])]);
+  const source = Buffer.concat([Buffer.from(`---${nl}${header}---${nl}`), body]);
+  const rendered = parseFrontmatter(source).render(patch);
+  const parsed = parseFrontmatter(rendered);
+  expect(parsed.data).toEqual({ ...patch, aliases: ["keep"] });
+  expect(Object.keys(parsed.data)).toEqual(["updated", "title", "citekey", "id", "type", "created", "aliases"]);
+  expect(parsed.body).toEqual(body);
+  expect(rendered.toString()).toContain("# updated comment");
+  expect(rendered.toString()).toContain("# title comment");
+  for (const key of Object.keys(patch)) expect(rendered.toString().match(new RegExp(`^${key}:`, "gm"))).toHaveLength(1);
+});
+
+test("multiple null replacements in a flow map preserve original order and allow new keys", () => {
+  const rendered = parseFrontmatter("---\n{ updated: null, title: ~, id: null, } # preserve\n---\nbody").render({ id: "idea_01J9Z3K8M2N4P6Q8R0S2T4V6W8", title: "idea", updated: "2026-10-22T22:00:00+08:00", type: "idea" });
+  const parsed = parseFrontmatter(rendered);
+  expect(Object.keys(parsed.data)).toEqual(["updated", "title", "id", "type"]);
+  expect(parsed.data.title).toBe("idea");
+  expect(rendered.toString()).toContain("# preserve");
+});
+
+test("an existing empty string cannot be replaced", () => {
+  expect(() => parseFrontmatter('---\ntitle: ""\n---\nbody').render({ title: "new" })).toThrow(CoreError);
+});

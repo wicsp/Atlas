@@ -28,12 +28,12 @@ function timestamp(date: Date, tz: string): string {
   }
 }
 
-/** Only return additions; the task explicitly permits replacing an empty ID. */
+/** Fill absent/null metadata only; leave non-null values for schema validation. */
 export function fillMetadata(input: FillInput, ctx: FillContext): { patch: Record<string, unknown>; issues: Issue[] } {
   const { frontmatter: fm, type } = input;
   const patch: Record<string, unknown> = {};
-  const missing = (key: string) => !Object.hasOwn(fm, key);
-  if (missing("id") || fm.id === null) patch.id = ctx.newId(ID_PREFIXES[type]);
+  const missing = (key: string) => !Object.hasOwn(fm, key) || fm[key] === null;
+  if (missing("id")) patch.id = ctx.newId(ID_PREFIXES[type]);
   if (missing("type")) patch.type = type;
   if (missing("title")) patch.title = input.fileName;
   if (missing("created")) {

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { cp, chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, utimes } from "node:fs/promises";
+import { cp, chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -43,4 +43,36 @@ test("can safely create a file; filesystem failures have a code and leave the de
   await mkdir(directory);
   await expect(writeFileAtomic(directory, Buffer.from("synthetic"))).rejects.toMatchObject({ code: "WRITE_FAILED" });
   expect((await stat(directory)).isDirectory()).toBe(true);
+});
+
+test("a matching original permits the guarded replacement", async () => {
+  const original = await readFile(path);
+  expect(await writeFileAtomic(path, Buffer.from("completed note"), { expectedContent: original })).toBe(true);
+  expect(await readFile(path, "utf8")).toBe("completed note");
+});
+
+test("edits after the initial read reject stale input without overwriting the new bytes", async () => {
+  const original = await readFile(path);
+  await writeFile(path, "human edit before preparation");
+  await expect(writeFileAtomic(path, Buffer.from("stale completed note"), { expectedContent: original })).rejects.toMatchObject({ code: "FILE_CHANGED" });
+  expect(await readFile(path, "utf8")).toBe("human edit before preparation");
+  expect(await readdir(temp)).toEqual(["synthetic.md"]);
+});
+
+test("edits immediately before rename are preserved and the temporary file is cleaned up", async () => {
+  const original = await readFile(path);
+  await expect(writeFileAtomic(path, Buffer.from("stale completed note"), {
+    expectedContent: original,
+    beforeCommit: () => writeFile(path, "human edit before rename"),
+  })).rejects.toMatchObject({ code: "FILE_CHANGED" });
+  expect(await readFile(path, "utf8")).toBe("human edit before rename");
+  expect(await readdir(temp)).toEqual(["synthetic.md"]);
+});
+
+test("deletion while preparing the write is not undone by recreating the file", async () => {
+  const original = await readFile(path);
+  await expect(writeFileAtomic(path, Buffer.from("stale completed note"), {
+    expectedContent: original, beforeCommit: () => rm(path),
+  })).rejects.toMatchObject({ code: "FILE_CHANGED" });
+  expect(await readdir(temp)).toEqual([]);
 });

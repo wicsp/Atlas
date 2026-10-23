@@ -38,7 +38,7 @@ test.each([
 
 test("does not replace any existing values, unknown fields, or links, including invalid values", () => {
   const fm = {
-    id: "bad-id", type: "idea", title: "", created: "invalid", updated: null,
+    id: "bad-id", type: "idea", title: "", created: "invalid", updated: "invalid",
     related: [`pap_${ulid}`], aliases: ["my alias"], status: "wrong", tags: null,
   };
   const snapshot = structuredClone(fm);
@@ -83,13 +83,43 @@ test("paper filename may supply citekey, but no authors/year are guessed", () =>
   expect(patch).not.toHaveProperty("year");
 });
 
-test("invalid filename reports missing citekey, existing citekey including null remains unchanged", () => {
+test("invalid filename reports missing citekey, non-null existing citekey remains unchanged", () => {
   const input = { ...base, type: "paper" as const };
   expect(fillMetadata(input, ctx).issues).toContainEqual({ path: "citekey", message: "缺失，且文件名不是合法 citekey" });
-  for (const citekey of ["Vaswani_2017_Transformer", null]) {
+  for (const citekey of ["Vaswani_2017_Transformer", ""]) {
     const result = fillMetadata({ ...input, fileName: "He_2020_LightGCN", frontmatter: { citekey } }, ctx);
     expect(result.patch).not.toHaveProperty("citekey");
   }
+});
+
+test.each(["id", "type", "title", "created", "updated"])("null %s is filled just like an absent field", (key) => {
+  const expected = fillMetadata(base, ctx);
+  const fm = { ...expected.patch, [key]: null };
+  const result = fillMetadata({ ...base, frontmatter: fm }, ctx);
+  expect(result).toEqual({ patch: { [key]: expected.patch[key] }, issues: [] });
+  expect(fm[key]).toBeNull();
+  expect(Idea.safeParse({ ...fm, ...result.patch }).success).toBe(true);
+});
+
+test("null paper citekey comes from a valid filename; null authors/year are still reported", () => {
+  const result = fillMetadata({ ...base, type: "paper", fileName: "He_2020_LightGCN", frontmatter: { citekey: null, authors: null, year: null } }, ctx);
+  expect(result.patch.citekey).toBe("He_2020_LightGCN");
+  expect(result.issues.map((issue) => issue.path)).toEqual(["authors", "year"]);
+  expect(result.patch).not.toHaveProperty("authors");
+  expect(result.patch).not.toHaveProperty("year");
+});
+
+test("a null paper citekey with an invalid filename is reported instead of guessed", () => {
+  const result = fillMetadata({ ...base, type: "paper", frontmatter: { citekey: null } }, ctx);
+  expect(result.patch).not.toHaveProperty("citekey");
+  expect(result.issues).toContainEqual({ path: "citekey", message: "缺失，且文件名不是合法 citekey" });
+});
+
+test.each(["id", "type", "title", "created", "updated"])("empty string %s is preserved and reported", (key) => {
+  const fm = { ...fillMetadata(base, ctx).patch, [key]: "" };
+  const result = fillMetadata({ ...base, frontmatter: fm }, ctx);
+  expect(result.patch).toEqual({});
+  expect(result.issues.map((issue) => issue.path)).toContain(key);
 });
 
 test("complete paper requires no patch and passes the contract", () => {
