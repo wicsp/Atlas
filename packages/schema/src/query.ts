@@ -14,7 +14,7 @@ export const NoteRef = z.strictObject({
   id: Id,
   type: z.enum(NOTE_TYPES),
   title: z.string(),
-  path: z.string().describe("相对 vault 根目录的路径，如 papers/He_2020_LightGCN.md"),
+  path: z.string().describe("相对 vault 根目录的路径，如 library/papers/He_2020_LightGCN.md"),
   citekey: Citekey.optional().describe("仅论文有"),
 });
 

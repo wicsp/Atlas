@@ -22,9 +22,9 @@ async function run(args: string[]) {
 
 test.each([cases.chinese, cases.unicode, cases.illegal])("new idea writes a valid note; sync fills zero for %s", async (title) => {
   const filename = title === cases.illegal ? cases.illegalFilename : title;
-  const path = join(vault, "ideas", `${filename}.md`);
+  const path = join(vault, "research/ideas", `${filename}.md`);
   const created = await run(["new", "idea", title, "--vault", vault]);
-  expect(created).toEqual({ stdout: `ideas/${filename}.md\n`, stderr: "", code: 0 });
+  expect(created).toEqual({ stdout: `research/ideas/${filename}.md\n`, stderr: "", code: 0 });
   const bytes = await readFile(path);
   expect(Idea.safeParse(parseFrontmatter(bytes).data).success).toBe(true);
   expect(parseFrontmatter(bytes).data.title).toBe(title);

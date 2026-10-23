@@ -77,9 +77,11 @@ export const Source = Base.extend({
   status: withDefault(z.enum(["to-read", "reading", "read"]), "to-read"),
 });
 
-/** 不含 `..` 段、不以 `/` 开头的相对路径。 */
+const URL_SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*:/;
+
+/** 相对路径：非空，不以 `/` 开头，不含 `..` 段、空段、反斜杠或任何 URL scheme（如 `https:`、`file:`）。 */
 function isSafeRelativePath(path: string): boolean {
-  if (!path || path.startsWith("/") || path.includes("\\")) return false;
+  if (!path || path.startsWith("/") || path.includes("\\") || URL_SCHEME.test(path)) return false;
   return path.split("/").every((segment) => segment !== ".." && segment !== "");
 }
 
@@ -90,8 +92,7 @@ function isSafeRelativePath(path: string): boolean {
 export const MediaRef = z
   .string()
   .refine((value) => {
-    if (value.startsWith("media://")) return isSafeRelativePath(value.slice("media://".length));
-    return !value.includes("://") && isSafeRelativePath(value);
+    return isSafeRelativePath(value.startsWith("media://") ? value.slice("media://".length) : value);
   }, "媒体引用必须是 vault 内的相对路径，或 media://<相对路径>；不能以 / 开头，也不能含 ..");
 
 export const POST_FORMATS = ["video", "gallery", "article", "text"] as const;
@@ -118,7 +119,13 @@ export const Post = Base.extend({
   format: z.enum(POST_FORMATS).describe("默认形态，target 可以覆盖"),
   status: withDefault(z.enum(["idea", "drafting", "ready", "done"]), "idea"),
   derived_from: withDefault(z.array(Id), []).describe("来源的 source / idea / paper"),
-  media: withDefault(z.record(z.string().min(1), z.union([MediaRef, z.array(MediaRef)])), {}).describe(
+  media: withDefault(
+    z.record(
+      z.string().regex(/^[a-z][a-z0-9_-]*$/, "媒体角色名只能用小写字母、数字、- 和 _，例如 main、cover"),
+      z.union([MediaRef, z.array(MediaRef)]),
+    ),
+    {},
+  ).describe(
     "按用途命名的媒体，例如 main、vertical、cover、images",
   ),
   targets: withDefault(z.array(PostTarget), []),

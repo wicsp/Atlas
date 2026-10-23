@@ -7,7 +7,7 @@ import { fillMetadata, type FillContext } from "./fill.ts";
 import { parseFrontmatter } from "./frontmatter.ts";
 import { parsePaperInput } from "./paper-input.ts";
 import type { PaperMetadata } from "./paper-metadata.ts";
-import { scanVault } from "./vault.ts";
+import { entityDirectory, scanVault } from "./vault.ts";
 
 export function renderPaper(metadata: PaperMetadata, citekey: string, bibtex: string, ctx: FillContext): NewNote {
   if (!Citekey.safeParse(citekey).success) {
@@ -27,7 +27,7 @@ export function renderPaper(metadata: PaperMetadata, citekey: string, bibtex: st
   if (issues.length || !Paper.safeParse(frontmatter).success) throw new CoreError("INVALID_METADATA", "无法生成合法的论文元数据");
   const rewritten = rewriteBibtexKey(bibtex, citekey);
   const body = ["", "## 一句话", "", "## 我的笔记", "", "## 可以引用的点", "", "## 和我的研究的关系", "", "## BibTeX", "", "```bibtex", rewritten, "```", ""].join("\n");
-  return { relativePath: `papers/${citekey}.md`, content: parseFrontmatter(body).render(frontmatter) };
+  return { relativePath: `${entityDirectory("paper")}/${citekey}.md`, content: parseFrontmatter(body).render(frontmatter) };
 }
 
 function identity(value: unknown, kind: "arxiv" | "doi"): string | undefined {

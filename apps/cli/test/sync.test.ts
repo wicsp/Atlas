@@ -52,13 +52,13 @@ test("sync uses synthetic fixtures, prints one line per changed/problem file and
   expect(result.code).toBe(1);
   expect(result.stderr).toBe("");
   expect(result.stdout).toContain("完成：扫描 5 个，补全 3 个，问题 1 个，跳过 1 个");
-  expect(result.stdout).toContain("补全  ideas/新的想法.md  +id +type +title +created +updated");
-  expect(result.stdout).toContain("补全  ideas/缺少ID.md  +id");
-  expect(result.stdout).toContain("问题  papers/Foo.md  +id +type +created +updated citekey: 缺失，且文件名不是合法 citekey");
-  expect(result.stdout).toContain("跳过  ideas/坏文件.md  frontmatter 不是合法 YAML");
+  expect(result.stdout).toContain("补全  research/ideas/新的想法.md  +id +type +title +created +updated");
+  expect(result.stdout).toContain("补全  research/ideas/缺少ID.md  +id");
+  expect(result.stdout).toContain("问题  library/papers/Foo.md  +id +type +created +updated citekey: 缺失，且文件名不是合法 citekey");
+  expect(result.stdout).toContain("跳过  research/ideas/坏文件.md  frontmatter 不是合法 YAML");
   expect(result.stdout.trim().split("\n")).toHaveLength(5);
   const after = await snapshot();
-  const changed = ["/ideas/新的想法.md", "/ideas/缺少ID.md", "/papers/Foo.md"];
+  const changed = ["/research/ideas/新的想法.md", "/research/ideas/缺少ID.md", "/library/papers/Foo.md"];
   for (const [path, previous] of Object.entries(before)) {
     const current = after[path]!;
     if (!changed.includes(path)) expect(current).toEqual(previous);
@@ -69,11 +69,11 @@ test("sync uses synthetic fixtures, prints one line per changed/problem file and
       expect(parsed.data).toMatchObject(original.data);
       expect(parsed.data.created).toMatch(/T\d\d:\d\d:\d\d\+08:00$/);
       expect(parsed.data.updated).toMatch(/T\d\d:\d\d:\d\d\+08:00$/);
-      if (path.startsWith("/ideas/")) expect(Idea.safeParse(parsed.data).success).toBe(true);
-      if (path === "/papers/Foo.md") expect(Paper.safeParse(parsed.data).success).toBe(false);
+      if (path.startsWith("/research/ideas/")) expect(Idea.safeParse(parsed.data).success).toBe(true);
+      if (path === "/library/papers/Foo.md") expect(Paper.safeParse(parsed.data).success).toBe(false);
     }
   }
-  expect(Paper.safeParse(parseFrontmatter(after["/papers/He_2020_LightGCN.md"]!.bytes).data).success).toBe(true);
+  expect(Paper.safeParse(parseFrontmatter(after["/library/papers/He_2020_LightGCN.md"]!.bytes).data).success).toBe(true);
 });
 
 test("second sync fills zero and writes no files, even with unresolved issues and invalid YAML", async () => {
@@ -109,20 +109,20 @@ test("LUMIO_VAULT is used, explicit --vault wins, missing vault explains setup",
 });
 
 test("clean vault exits zero, nested notes are completed, all five entity directories are handled", async () => {
-  await rm(join(vault, "papers/Foo.md"));
-  await rm(join(vault, "ideas/坏文件.md"));
-  await mkdir(join(vault, "ideas/sub"));
-  await cp(join(fixture, "ideas/新的想法.md"), join(vault, "ideas/sub/nested.md"));
-  for (const dir of ["projects", "tasks", "experiments"]) {
-    await mkdir(join(vault, dir));
+  await rm(join(vault, "library/papers/Foo.md"));
+  await rm(join(vault, "research/ideas/坏文件.md"));
+  await mkdir(join(vault, "research/ideas/sub"));
+  await cp(join(fixture, "research/ideas/新的想法.md"), join(vault, "research/ideas/sub/nested.md"));
+  for (const dir of ["plan/projects", "plan/tasks", "research/experiments"]) {
+    await mkdir(join(vault, dir), { recursive: true });
     // Experiment's project is required and cannot be inferred by the completer.
-    const source = dir === "experiments" ? "---\nproject: prj_01J9Z3K8M2N4P6Q8R0S2T4V6W8\n---\nbody" : "body";
+    const source = dir === "research/experiments" ? "---\nproject: prj_01J9Z3K8M2N4P6Q8R0S2T4V6W8\n---\nbody" : "body";
     await writeFile(join(vault, dir, "synthetic.md"), source);
   }
   const result = await run(["sync", "--vault", vault]);
   expect(result.code).toBe(0);
   expect(result.stdout).toContain("完成：扫描 7 个，补全 6 个，问题 0 个，跳过 0 个");
-  expect(result.stdout).toContain("ideas/sub/nested.md");
+  expect(result.stdout).toContain("research/ideas/sub/nested.md");
   const before = await snapshot();
   expect((await run(["sync", "--vault", vault])).stdout).toBe("完成：扫描 7 个，补全 0 个，问题 0 个，跳过 0 个\n");
   expect(await snapshot()).toEqual(before);
@@ -130,16 +130,17 @@ test("clean vault exits zero, nested notes are completed, all five entity direct
 
 test("symlinks are not followed into files or directories outside the synthetic vault", async () => {
   const outside = join(temp, "outside");
-  await cp(join(fixture, "ideas"), outside, { recursive: true });
+  await cp(join(fixture, "research/ideas"), outside, { recursive: true });
   const before = await snapshot(outside);
-  await symlink(outside, join(vault, "ideas/linked"));
-  await symlink(join(outside, "新的想法.md"), join(vault, "ideas/linked.md"));
-  await symlink(outside, join(vault, "projects"));
+  await symlink(outside, join(vault, "research/ideas/linked"));
+  await symlink(join(outside, "新的想法.md"), join(vault, "research/ideas/linked.md"));
+  await mkdir(join(vault, "plan"));
+  await symlink(outside, join(vault, "plan/projects"));
   const result = await run(["sync", "--vault", vault]);
   expect(result.stdout).toContain("扫描 5 个");
   expect(result.stdout).not.toContain("linked");
   expect(await snapshot(outside)).toEqual(before);
-  expect((await lstat(join(vault, "ideas/linked.md"))).isSymbolicLink()).toBe(true);
+  expect((await lstat(join(vault, "research/ideas/linked.md"))).isSymbolicLink()).toBe(true);
 });
 
 test.each([["new", "idea"], ["sync", "extra"], ["sync", "--unknown"], ["sync", "--vault"]])("bad CLI arguments fail: %s %s", async (first, second) => {
@@ -167,16 +168,16 @@ test("sync fills every null metadata field in place, validates the notes and rem
     const parsed = parseFrontmatter(after[path]!.bytes);
     expect(Object.keys(parsed.data)).toEqual(Object.keys(old.data));
     expect(parsed.body).toEqual(old.body);
-    expect((path.startsWith("/ideas/") ? Idea : Paper).safeParse(parsed.data).success).toBe(true);
+    expect((path.startsWith("/research/ideas/") ? Idea : Paper).safeParse(parsed.data).success).toBe(true);
   }
-  expect(parseFrontmatter(after["/ideas/空元数据.md"]!.bytes).data).toMatchObject({ tags: null, related: null });
-  expect(parseFrontmatter(after["/papers/He_2020_LightGCN.md"]!.bytes).data.citekey).toBe("He_2020_LightGCN");
+  expect(parseFrontmatter(after["/research/ideas/空元数据.md"]!.bytes).data).toMatchObject({ tags: null, related: null });
+  expect(parseFrontmatter(after["/library/papers/He_2020_LightGCN.md"]!.bytes).data.citekey).toBe("He_2020_LightGCN");
   expect((await run(["sync", "--vault", nullVault])).stdout).toContain("补全 0 个");
   expect(await snapshot(nullVault)).toEqual(after);
 });
 
 test("sync skips a file changed during processing and preserves the human edit", async () => {
-  const path = join(vault, "ideas/新的想法.md");
+  const path = join(vault, "research/ideas/新的想法.md");
   const original = await readFile(path);
   const edited = Buffer.concat([original, Buffer.from("\n人工并发追加的正文 [[链接]]\n")]);
   const output: string[] = [];
@@ -192,8 +193,8 @@ test("sync skips a file changed during processing and preserves the human edit",
   });
   expect(guarded).toBe(true);
   expect(code).toBe(1);
-  expect(output).toContain("跳过  ideas/新的想法.md  文件在处理中被修改，请重新运行");
+  expect(output).toContain("跳过  research/ideas/新的想法.md  文件在处理中被修改，请重新运行");
   expect(output.at(-1)).toBe("完成：扫描 5 个，补全 2 个，问题 1 个，跳过 2 个");
   expect(await readFile(path)).toEqual(edited);
-  expect((await readdir(join(vault, "ideas"))).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+  expect((await readdir(join(vault, "research/ideas"))).filter((name) => name.endsWith(".tmp"))).toEqual([]);
 });
