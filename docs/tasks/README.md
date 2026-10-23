@@ -9,15 +9,18 @@
 | [P0-2](P0-2-new-idea.md) ✅ | `lumio new idea` | 后端（Codex） | P0-1 |
 | [P0-3](P0-3-new-paper.md) ✅ | `lumio new paper` | 后端（Codex） | P0-1 |
 | [P0-4](P0-4-auto-citekey.md) ✅ | citekey 全自动生成，删除确认流程 | 后端（Codex） | P0-3 |
-| [P0-5](P0-5-new-entity-schemas.md) | schema：source、post、asset | Claude 起草，人类批准 | P0-4 |
-| [P0-6](P0-6-vault-layout.md) | vault 目录分组与路径映射 | 后端（Codex） | P0-5 |
-| [P1-1](P1-1-index-query.md) | 本地索引与查询：`search`/`show`/`links`/`export bib` | 后端（Codex） | P0-6 |
+| [P0-5](P0-5-new-entity-schemas.md) ✅ | schema：source、post、asset，卡号防护 | Claude 起草，人类批准 | P0-4 |
+| [P0-6](P0-6-vault-layout.md) ✅ | vault 目录分组与路径映射 | 后端 | P0-5 |
+| P0-7 | 迁移真实 vault 到新目录（清单见 P0-6 末尾） | 人类 + Claude | P0-6 |
+| [P1-1](P1-1-index-query.md) | 本地索引与查询：`search`/`show`/`links`/`export bib` | 后端（Codex） | P0-7 |
 | [P1-2](P1-2-hub-server.md) | Hub 骨架：配置、令牌、查询 API、CLI 远程模式 | 后端（Codex） | P1-1 |
 | [P1-3](P1-3-watch-autosave.md) | 文件监听、自动补全、自动提交 | 后端（Codex） | P1-2 |
 | [P1-4](P1-4-proposals.md) | 提议队列 | 后端（Codex） | P1-3 |
 | [P1-5](P1-5-skill.md) | `skills/lumio/SKILL.md` | Claude | P1-4 |
 
 P1 的设计决定见 ADR 0011；契约见 `packages/schema/src/query.ts` 与 `proposal.ts`。
+
+已完成（✅）的任务说明保留当时的原文，其中的 vault 路径（如 `papers/`）以 ADR 0012 的新目录为准。
 
 ## 给实现者的约定
 - 开始前读 `AGENTS.md`、`docs/ARCHITECTURE.md`，以及任务说明里列出的 ADR。

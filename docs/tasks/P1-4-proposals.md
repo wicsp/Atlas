@@ -32,6 +32,7 @@ lumio proposals reject <提议ID>                               # 只有 human �
    - `POST /v1/proposals`：请求体 `NewProposal` → 返回 `Proposal`。校验 from、to 都能解析为**有 ID 的**笔记、
      from ≠ to、`to` 不在 from 的 `related` 中、不存在内容相同的 pending 提议；否则 400 或 409。
      `author` 取当前令牌的名称。
+     **agent 令牌不能引用私密实体**（ADR 0012）：from 或 to 是私密笔记时，按"不存在"返回 400。
    - `GET /v1/proposals?status=…` → `Proposal[]`，按创建时间倒序。
    - `POST /v1/proposals/<id>/accept`、`/reject`：**agent 令牌返回 403**。只有 pending 的提议可以决定，否则 409。
      接受时执行第 1 条的写入，成功后才把状态改为 accepted；写入失败（如 `FILE_CHANGED`）时提议保持 pending，返回 409。

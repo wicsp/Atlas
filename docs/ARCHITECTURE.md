@@ -76,7 +76,7 @@ CLI、Hub、Runtime 用 `bun build --compile` 编译为单个二进制，分别�
 
 | 阶段 | 内容 | 涉及模块 |
 |---|---|---|
-| P0 | `lumio new paper`（arXiv/DOI → 笔记 + BibTeX）、`lumio new idea`、`lumio sync`（补全元数据） | schema, core, cli |
+| P0 ✅ | `lumio new paper`（arXiv/DOI → 笔记 + BibTeX）、`lumio new idea`、`lumio sync`（补全元数据）；vault 目录分组与 source/post/asset 契约（ADR 0012） | schema, core, cli |
 | P1 | Hub（文件监听与自动补全、索引、搜索 API、提议队列）；CLI 增加 `search`/`show`/`links`/`propose`（`--json`）；`skills/lumio/SKILL.md` | core, hub, cli, api-client |
 | P2 | 任务/实验；Runtime + job 派发；Python 实验 SDK；Chrome 插件入库 | runtime, hub, sdk/python, chrome-ext |
 | P3 | 飞书 Bot、多维表格镜像、定时工作流 | feishu-bot, hub |

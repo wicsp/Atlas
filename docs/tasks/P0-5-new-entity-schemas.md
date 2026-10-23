@@ -1,7 +1,7 @@
 # P0-5 schema：source、post、asset 三种新类型
 
 - 负责：Claude 起草，人类批准　Review：Codex
-- 状态：**已起草**（2026-10-23），待人类批准
+- 状态：✅ 已完成（2026-10-23，PR #8，经人类批准）
 - 相关 ADR：0012（Accepted）、0008、0006
 - 涉及：`packages/schema`（**契约变更**）
 - 依赖：P0-4

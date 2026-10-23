@@ -193,17 +193,18 @@ ID 前缀 `ast`，位于 `life/assets/`。所有资产共用一个类型，用 `
   这条规则只约束经过 Lumio 的访问；要真正隔离，需要在 agent 的沙箱配置中排除 `life/` 目录（属于部署配置）。
 - 生成的 `refs.bib`、报告等**不得引用私密实体**。
 
-### 7. schema 与代码变更（批准后实施）
+### 7. schema 与代码变更（已完成：P0-5、P0-6，PR #8）
 - `ID_PREFIXES` 增加 `source: "src"`、`post: "post"`、`asset: "ast"`。
 - 新增 `Source`、`Post`、`PostTarget`、`MediaRef`、`Asset`，并加入 `Entity` 联合类型。
 - `packages/core`：用"路径 → 类型"映射表取代 `DIRECTORIES`；`paper.ts`、`create.ts` 中硬编码的
   `papers/`、`ideas/` 改为从映射表取得；扫描器跳过 Excalidraw 文件。
 - `entities.ts` 中注释的路径 `vault/papers/<citekey>.md` 随之更新。
 
-### 8. 迁移
+### 8. 迁移（待执行）
 vault 中的现有内容很少（4 篇论文、1 个想法、1 份报告），一次性搬迁即可：
-代码合并后，用 git mv 把各目录移到新位置，同时更新 Obsidian 设置和 vault 的 README。
-不提供旧路径的兼容模式。
+用 git mv 把各目录移到新位置，同时更新 Obsidian 设置和 vault 的 README。不提供旧路径的兼容模式。
+迁移清单见 `docs/tasks/P0-6-vault-layout.md` 末尾。另外，已有论文笔记顶部的 `> [!note] AI 草稿` 提示
+改为第 3 节的 `<!-- lumio:ai -->` 区块格式。
 
 ## 范围
 - 本 ADR 只定义目录结构、数据格式和访问边界。

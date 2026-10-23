@@ -12,7 +12,7 @@
 1. **Obsidian 只是编辑器和阅读器。** 所有元数据（`id`、`type`、`created`、`updated`、
    默认值，以及论文的 citekey 与书目信息）都由 Lumio 生成，不依赖 Obsidian 的模板或插件。
 2. **两种创建方式，结果完全一致：**
-   - **显式创建**：通过 Lumio 的命令（P0）或 Hub API（P1 起，供飞书、快捷指令、网页调用）。
+   - **显式创建**：通过 Lumio 的命令；以后再为飞书、快捷指令、网页提供 Hub 上的创建接口。
    - **随手写，自动补全**：在对应目录下直接新建普通 Markdown（可以不写 frontmatter），
      由 Lumio 补全缺失的元数据。P0 用 `lumio sync` 手动触发；P1 起由 Hub 监听文件变化自动完成。
 3. **命令统一为"动词在前"**：
@@ -33,7 +33,8 @@
      asset 自动续费后顺延的 `renews_on`，见 ADR 0012），程序可以更新已有的值。没有声明的字段一律不覆盖。
      这类更新属于修改性写入，必须经过 Hub（ADR 0007、0011）。
    - 无法自动补全的必填项（如论文的 citekey 缩写）不猜测，报告给人处理。
-6. **vault 中的 `templates/` 不再作为 Obsidian 模板使用**；笔记结构由 Lumio 在创建时生成。
+6. **Lumio 不依赖 Obsidian 模板**；笔记结构和元数据由 Lumio 在创建或补全时生成。`files/templates/`（ADR 0012）
+   可以放你个人使用的模板，但模板里不要写 `id`、`created` 等元数据，留给 Lumio 补全。
 
 ## 范围
 - P0：`lumio new paper`、`lumio new idea`、`lumio sync`。
