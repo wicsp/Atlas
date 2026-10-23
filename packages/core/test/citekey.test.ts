@@ -1,16 +1,13 @@
 import { expect, test } from "bun:test";
-import { CITEKEY_PATTERN } from "@lumio/schema";
-import { confirmCitekey, proposeCitekey, type PaperMetadata } from "../src/index.ts";
+import { Citekey } from "@lumio/schema";
+import { generateCitekey, type PaperMetadata } from "../src/index.ts";
 
 const metadata: PaperMetadata = { title: "LightGCN: A model", authors: ["Xiangnan He"], year: 2020 };
 
-test("a candidate is distinct from a user-confirmed citekey", () => {
-  const candidate = proposeCitekey(metadata);
-  expect(candidate).toEqual({ kind: "candidate", citekey: "He_2020_LightGCN", abbreviation: "LightGCN" });
-  const confirmed = confirmCitekey(metadata, candidate!.abbreviation);
-  expect(confirmed).toEqual({ kind: "confirmed", citekey: candidate!.citekey });
-  expect(CITEKEY_PATTERN.test(confirmed.citekey)).toBe(true);
-  expect(confirmCitekey(metadata, "LightGCNb").citekey).toBe("He_2020_LightGCNb");
+test("automatically returns a schema-valid citekey string", () => {
+  const citekey = generateCitekey(metadata);
+  expect(citekey).toBe("He_2020_LightGCN");
+  expect(Citekey.parse(citekey)).toBe(citekey);
 });
 
 test.each([
@@ -19,12 +16,15 @@ test.each([
   ["A Fernández-López", "FernandezLopez_2020_LightGCN"],
   ["A O'Brien", "OBrien_2020_LightGCN"],
   ["Laurens van der Maaten", "Maaten_2020_LightGCN"],
+  ["Anders Søgaard", "Sgaard_2020_LightGCN"],
+  ["Jan Łukasiewicz", "Ukasiewicz_2020_LightGCN"],
+  ["张三", "Anon_2020_LightGCN"],
 ])("arXiv full name %s uses the last word then ASCII normalization", (author, citekey) => {
-  expect(proposeCitekey({ ...metadata, authors: [author] })?.citekey).toBe(citekey);
+  expect(generateCitekey({ ...metadata, authors: [author] })).toBe(citekey);
 });
 
 test("Crossref family takes precedence; only its first character is capitalized", () => {
-  expect(proposeCitekey({ ...metadata, authors: ["Laurens van der Maaten"], firstAuthorFamily: "van der Maaten" })?.citekey)
+  expect(generateCitekey({ ...metadata, authors: ["Laurens van der Maaten"], firstAuthorFamily: "van der Maaten" }))
     .toBe("VanderMaaten_2020_LightGCN");
 });
 
@@ -32,22 +32,39 @@ test.each([
   ["van der Maaten", "VanderMaaten"],
   ["Fernández-López", "FernandezLopez"],
   ["O'Brien", "OBrien"],
+  ["Müller", "Muller"],
+  ["Søgaard", "Sgaard"],
+  ["Łukasiewicz", "Ukasiewicz"],
+  ["张三", "Anon"],
 ])("Crossref family %s matches the accepted ADR 0004 example %s", (family, expected) => {
-  expect(proposeCitekey({ ...metadata, firstAuthorFamily: family })?.citekey).toBe(`${expected}_2020_LightGCN`);
+  expect(generateCitekey({ ...metadata, firstAuthorFamily: family })).toBe(`${expected}_2020_LightGCN`);
 });
 
-test("fallback takes four non-stopword initials; Spotlighting is not the first named word", () => {
-  const result = proposeCitekey({ title: "Defending Against Indirect Prompt Injection Attacks With Spotlighting", authors: ["Keegan Hines"], year: 2024 });
-  expect(result?.citekey).toBe("Hines_2024_DAIP");
-  expect(proposeCitekey({ ...metadata, title: "A study of the graph and for with on in to model" })?.citekey).toBe("He_2020_SGM");
+test.each([
+  ["LightGCN: A model", "LightGCN"], ["AgentDojo: A dynamic environment", "AgentDojo"],
+  ["GPT-4: An example", "GPT4"], ["😀GPT-4!: An example", "GPT4"],
+  ["Defending Against Indirect Prompt Injection Attacks With Spotlighting", "DAIP"],
+  ["A study of the graph and for with on in to model", "SGM"],
+  ["中文标题", "Paper"], ["!!!", "Paper"], ["", "Paper"],
+  ["!!!: Useful work", "UW"], ["of, the graph and model", "GM"],
+  ["GPT-4 models for agents", "GMA"], ["中文of, the graph and model", "GM"],
+  ["of the and with on in to", "Paper"],
+])("title %j automatically supplies abbreviation %s", (title, abbreviation) => {
+  const citekey = generateCitekey({ ...metadata, title });
+  expect(citekey).toBe(`He_2020_${abbreviation}`);
+  expect(Citekey.safeParse(citekey).success).toBe(true);
 });
 
-test("no candidate if it cannot match the contract; explicit abbreviation can fix only the abbreviation", () => {
-  expect(proposeCitekey({ ...metadata, title: "---" })).toBeUndefined();
-  expect(proposeCitekey({ ...metadata, authors: ["张三"] })).toBeUndefined();
-  expect(proposeCitekey({ ...metadata, year: 20 })).toBeUndefined();
-  expect(confirmCitekey({ ...metadata, title: "---" }, "Manual").citekey).toBe("He_2020_Manual");
-  for (const abbr of ["", "not-valid", "two words", "中文", "Foo/../bar"]) {
-    expect(() => confirmCitekey(metadata, abbr)).toThrow("citekey 不合法");
-  }
+test.each([["Spotlighting", "Spotlighting"], ["GPT-4!", "GPT4"], ["two words", "twowords"], ["中文A_1", "A1"]])("explicit abbreviation %j is cleaned to %s", (input, cleaned) => {
+  expect(generateCitekey(metadata, input)).toBe(`He_2020_${cleaned}`);
+});
+
+test.each(["", "!!", " \t", "中文"])("explicit empty-after-cleaning abbreviation is rejected: %j", (abbreviation) => {
+  expect(() => generateCitekey(metadata, abbreviation)).toThrow("--abbr 删除非法字符后为空");
+});
+
+test.each([20, 999, 10000, 2020.5, NaN, Infinity, -2020])("invalid year %s is not hidden by fallbacks", (year) => {
+  try { generateCitekey({ ...metadata, year, authors: ["张三"], title: "中文" }); }
+  catch (cause) { expect(cause).toMatchObject({ code: "INVALID_PAPER_YEAR" }); return; }
+  throw new Error("expected invalid year");
 });
