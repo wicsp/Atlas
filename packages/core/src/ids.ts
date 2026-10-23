@@ -1,0 +1,28 @@
+import { Id, ID_PREFIXES } from "@lumio/schema";
+import { CoreError } from "./errors.ts";
+
+export type IdPrefix = (typeof ID_PREFIXES)[keyof typeof ID_PREFIXES];
+const BASE32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+export function newId(prefix: IdPrefix, now: Date, random: (n: number) => Uint8Array): string {
+  const time = now.getTime();
+  if (!Number.isSafeInteger(time) || time < 0 || time > 0xffffffffffff) {
+    throw new CoreError("INVALID_ID_TIME", "ULID 时间必须在 48 位毫秒范围内");
+  }
+  try {
+    const bytes = random(10);
+    if (bytes.length !== 10) throw new Error("随机源必须返回 10 字节");
+    let value = BigInt(time);
+    for (const byte of bytes) value = (value << 8n) | BigInt(byte);
+    let ulid = "";
+    for (let i = 0; i < 26; i++) {
+      ulid = BASE32[Number(value & 31n)] + ulid;
+      value >>= 5n;
+    }
+    const id = `${prefix}_${ulid}`;
+    if (!Id.safeParse(id).success) throw new Error("ID 前缀不合法");
+    return id;
+  } catch (cause) {
+    throw new CoreError("INVALID_ID_SOURCE", "无法生成 ID", { cause });
+  }
+}

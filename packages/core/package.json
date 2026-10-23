@@ -4,5 +4,8 @@
   "private": true,
   "type": "module",
   "exports": { ".": "./src/index.ts" },
-  "dependencies": { "@lumio/schema": "workspace:*" }
+  "dependencies": {
+    "@lumio/schema": "workspace:*",
+    "yaml": "^2.9.1"
+  }
 }

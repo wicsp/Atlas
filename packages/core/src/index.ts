@@ -2,6 +2,11 @@
  * @lumio/core —— vault 解析、链接图、索引、BibTeX。
  *
  * 纯本地逻辑，不做网络请求（由 lint:deps 部分强制，其余靠 review）。
- * P0 从这里开始：读写 papers/<citekey>.md 的 frontmatter，维护 refs.bib。
+ * P0：vault 扫描、frontmatter 读写与元数据补全。
  */
-export {};
+export * from "./errors.ts";
+export * from "./ids.ts";
+export * from "./fill.ts";
+export * from "./frontmatter.ts";
+export * from "./vault.ts";
+export * from "./write.ts";
