@@ -12,24 +12,26 @@
 ## 2. 总体结构
 
 ```
-┌─────────── 入口层（可替换）───────────┐
-│ CLI │ Obsidian │ 飞书 Bot/多维表格 │ Web/插件/手机(后期) │
-└───────────────┬───────────────────────┘
-                │ HTTP API / MCP
-┌───────────────▼───────────────────────┐
-│ Hub（实验室服务器）                      │
-│  indexer: vault → SQLite（全文、链接图） │
-│  job 队列 + 定时调度 + MCP server        │
-└──────┬─────────────────────┬──────────┘
-       │ Tailscale            │
-┌──────▼──────┐       ┌──────▼──────┐
-│ Runtime@Mac │       │ Runtime@服务器│   领取 job → 调用 claude/codex/pi/脚本
-└──────┬──────┘       └──────┬──────┘
-       └── 结果写回 vault（git commit / 分支 / PR）──┘
+ Obsidian（Mac / iPad / 手机）── 直接编辑文件 ──┐
+                                                ▼
+┌──── 程序入口（可替换）────┐      ┌──────────────────────────────┐
+│ CLI │ 飞书 Bot │ Web/插件  │─API─▶│ Hub（唯一写入裁判，位置可配置）│
+└──────────────────────────┘ token │  校验 → 执行 ADR 0006 → 写文件 │
+                                    │  监听文件变化 → 补全与索引    │
+                                    │  提议队列 · job 队列 · MCP    │
+                                    └───────┬───────────┬──────────┘
+            Tailscale（或 HTTPS 反向代理）  │           │ 自动 commit
+                   ┌────────────────────────┘           ▼
+            ┌──────▼───────┐                 vault 的 git（只做历史与备份，
+            │ Runtime@设备 │ 领取 job →       .git 在同步目录之外）
+            │ 调用 agent   │ 结果经 Hub API 写回
+            └──────────────┘
 
-Vault：独立 git 仓库，唯一事实来源
-  papers/ ideas/ projects/ tasks/ experiments/ reports/ refs.bib
+Vault = Hub 的数据目录 = Obsidian vault（唯一事实来源，当前位于 iCloud）
+  papers/ ideas/ projects/ tasks/ experiments/ reports/
+SQLite 只是派生索引；refs.bib 由各论文笔记的 BibTeX 一节生成
 ```
+
 
 ## 3. 模块与依赖方向
 
@@ -50,9 +52,13 @@ CLI、Hub、Runtime 用 `bun build --compile` 编译为单个二进制，分别�
 
 ## 4. 关键设计
 
+- **Hub 是唯一的写入裁判**：程序（CLI、AI、飞书、Runtime）的写入一律经过 Hub API；人可以在 Obsidian 里直接改文件，
+  Hub 监听并补全，不拒绝、不覆盖人的改动。git 只做历史与备份（ADR 0007）。
 - **Vault 是唯一事实来源**；SQLite 只是派生索引，可随时删除重建。
-- **人与 AI 通过同一套文件协作**；AI 的产出以 commit/分支/PR 回到 vault，由人 review 合并。
-- **AI 提议，链接由人建立**：AI 可以写草稿、提议链接，但不能直接写入人拥有的链接或改人写的正文（ADR 0006）。
+- **部署不绑定位置**：Hub 只讲 HTTP、默认只监听 `127.0.0.1`，HTTPS 交给反向代理；所有 API 都要求 token，
+  内网也不例外（ADR 0007）。
+- **AI 提议，链接由人建立**：AI 的提议进入 Hub 的提议队列，由人接受后才写入；AI 不能直接写入人拥有的链接
+  或改人写的正文（ADR 0006）。
 - **论文以 citekey 为人可读的身份**：`He_2020_LightGCN`，同时是文件名、链接和 `\cite{}` 的 key（ADR 0004）。
 - **元数据由 Lumio 负责，Obsidian 只是编辑器**：用 `lumio new <类型>` 创建，或随手写后由 `lumio sync`
   （P1 起由 Hub 自动）补全；两条路径共用同一个补全器（ADR 0009）。

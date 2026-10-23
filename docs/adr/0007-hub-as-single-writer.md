@@ -1,8 +1,8 @@
 # 0007 Hub 是唯一的写入裁判，git 只做历史与备份
 
-- 状态：**Proposed**（方向已获同意，待人类审阅本文后改为 Accepted）
-- 日期：2026-10-22
-- 影响：ADR 0001、ADR 0006、`docs/ARCHITECTURE.md`（审阅通过后一并修改）
+- 状态：Accepted
+- 日期：2026-10-22（2026-10-23 接受，并补充"部署与安全"一节）
+- 影响：ADR 0001、ADR 0006、`docs/ARCHITECTURE.md`（已同步修改）
 
 ## 背景
 原设计中 vault 的 git 仓库是事实来源，手机、Mac、服务器上的 AI 都直接向它写入，靠 git 合并。
@@ -32,14 +32,22 @@
 - 已知代价：Mac 离线时，服务器与其他设备之间不同步。若将来把 Hub 迁到服务器，需要为
   手机/iPad 换一种同步方式（如 Obsidian Sync、Syncthing），届时另立 ADR。
 
-## P0 的过渡
-P0 尚无 Hub。`lumio paper add` 直接调用 `@lumio/core` 写文件，性质等同于人手动编辑；
-P1 引入 Hub 后，CLI 改为调用 Hub API。
+## 部署与安全（从 P1 第一版 Hub 起就必须满足）
+目标：Hub 今后从 Tailscale 内网迁到公网服务器时，**代码不用改**，只在前面加一层反向代理。
+1. **Hub 不处理 HTTPS。** 加密由前面的反向代理负责（Caddy 自动申请证书，或 Cloudflare Tunnel，
+   后者不需要开放服务器端口，还可以叠加 Cloudflare Access）。Hub 只讲 HTTP。
+2. **所有 API 都要求 token，内网也不例外。** CLI、每台设备的 Runtime、飞书 Bot 各用独立的 token，
+   可以单独吊销。不依赖"能连上就是自己的设备"这种网络层信任；事后补认证要改所有客户端，代价最大。
+   token 不出现在日志和 job 中，按 AGENTS 第 7 条以占位符配置。
+3. **地址全部可配置。** Hub 默认只监听 `127.0.0.1`；客户端里的 Hub 地址是完整 URL
+   （如 `https://lumio.example.com`），代码中不写死协议、主机或端口。
+4. **只信任配置过的代理。** Hub 通过配置指定可信代理，只从它转发的请求头中读取客户端真实 IP 和协议，
+   用于日志和限流；其他来源的这类请求头一律忽略。
+5. 飞书 Bot 使用官方 SDK 的长连接接收事件，不需要公网回调地址，不受部署位置影响。
 
-## 审阅通过后需要同步修改
-- ADR 0001：事实来源由"vault git 仓库"改为"Hub 的数据目录"。
-- ADR 0006：提议的载体由 git 分支 / PR 改为 Hub 内的提议队列。
-- `docs/ARCHITECTURE.md`：架构图与"关键设计"一节。
+## P0 的过渡
+P0 尚无 Hub。`lumio new paper`、`lumio new idea`、`lumio sync` 直接调用 `@lumio/core` 写文件，性质等同于人手动编辑；
+P1 引入 Hub 后，CLI 改为调用 Hub API。
 
 ## 后果
 - 好处：写入有唯一裁判，冲突与 AI 权限都在写入时处理；Obsidian 照常可用；git 历史完整。

@@ -1,7 +1,7 @@
 # 0001 代码用 monorepo，数据用独立 vault 仓库
 
 - 状态：Accepted
-- 日期：2026-10-22
+- 日期：2026-10-22（2026-10-23 按 ADR 0007 修订数据部分）
 
 ## 背景
 后期会有 CLI、Hub、Runtime、飞书 Bot、Chrome 插件、Web、手机端，全部依赖同一套契约；
@@ -9,7 +9,9 @@
 
 ## 决定
 - 所有代码放在一个 monorepo（本仓库）。
-- 笔记、论文、任务等数据放在独立的 vault 仓库，格式为 Markdown + YAML frontmatter。
+- 笔记、论文、任务等数据放在独立的 vault（Markdown + YAML frontmatter），不在本仓库中。
+- 事实来源是 **Hub 的数据目录**（即 vault 本身）；vault 的 git 仓库只做历史、备份与撤销，
+  `.git` 放在同步目录之外（ADR 0007）。
 
 ## 后果
 - 好处：契约只有一份；AI 能在一个 PR 里看到并修改所有受影响的部分；CI 统一守住边界。
