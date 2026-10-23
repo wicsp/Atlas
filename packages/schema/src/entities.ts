@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { Assignee, Base, Timestamp, idOf, optional, withDefault } from "./common.ts";
+import { Assignee, Base, Id, Timestamp, idOf, optional, withDefault } from "./common.ts";
+import { containsCardNumber } from "./secrets.ts";
 
 /**
  * 论文 citekey：`<第一作者姓>_<年份>_<标题缩写>`，例如 `He_2020_LightGCN`。
@@ -10,7 +11,7 @@ export const Citekey = z
   .string()
   .regex(CITEKEY_PATTERN, "citekey 必须是 姓_年份_缩写，例如 He_2020_LightGCN");
 
-/** 论文笔记，文件位于 `vault/papers/<citekey>.md`。 */
+/** 论文笔记，文件位于 `library/papers/<citekey>.md`（ADR 0012）。 */
 export const Paper = Base.extend({
   type: z.literal("paper"),
   id: idOf("pap"),
@@ -63,12 +64,133 @@ export const Experiment = Base.extend({
   artifacts: optional(z.array(z.string())),
 });
 
+// ───────────────────────── ADR 0012：source、post、asset ─────────────────────────
+
+/** 外部资料（网页、视频、播客、课程、书），位于 `library/sources/`。 */
+export const Source = Base.extend({
+  type: z.literal("source"),
+  id: idOf("src"),
+  kind: withDefault(z.enum(["web", "video", "podcast", "course", "book"]), "web"),
+  url: optional(z.url()),
+  author: optional(z.string()),
+  site: optional(z.string()).describe("来源站点或平台名"),
+  status: withDefault(z.enum(["to-read", "reading", "read"]), "to-read"),
+});
+
+/** 不含 `..` 段、不以 `/` 开头的相对路径。 */
+function isSafeRelativePath(path: string): boolean {
+  if (!path || path.startsWith("/") || path.includes("\\")) return false;
+  return path.split("/").every((segment) => segment !== ".." && segment !== "");
+}
+
+/**
+ * 媒体引用：vault 内的相对路径（如 `files/attachments/cover.png`），
+ * 或 `media://<相对路径>`，指向各设备本机配置的媒体根目录（ADR 0012 第 4 节）。
+ */
+export const MediaRef = z
+  .string()
+  .refine((value) => {
+    if (value.startsWith("media://")) return isSafeRelativePath(value.slice("media://".length));
+    return !value.includes("://") && isSafeRelativePath(value);
+  }, "媒体引用必须是 vault 内的相对路径，或 media://<相对路径>；不能以 / 开头，也不能含 ..");
+
+export const POST_FORMATS = ["video", "gallery", "article", "text"] as const;
+
+/** 发布到某一个平台。归属为"程序"的字段（ADR 0009 程序字段例外）由发布流程经 Hub 写入。 */
+export const PostTarget = z.strictObject({
+  platform: z
+    .string()
+    .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, "platform 必须是小写 kebab-case，例如 bilibili、xiaohongshu"),
+  format: optional(z.enum(POST_FORMATS)).describe("覆盖 post 的 format"),
+  media: optional(z.string().min(1)).describe("post.media 中的角色名"),
+  schedule: optional(Timestamp),
+  // 以下为程序字段
+  status: withDefault(z.enum(["pending", "scheduled", "published", "failed"]), "pending"),
+  url: optional(z.url()),
+  published_at: optional(Timestamp),
+  error: optional(z.string()),
+});
+
+/** 一篇要发布的内容；发到每个平台算一个 target。位于 `create/posts/`。 */
+export const Post = Base.extend({
+  type: z.literal("post"),
+  id: idOf("post"),
+  format: z.enum(POST_FORMATS).describe("默认形态，target 可以覆盖"),
+  status: withDefault(z.enum(["idea", "drafting", "ready", "done"]), "idea"),
+  derived_from: withDefault(z.array(Id), []).describe("来源的 source / idea / paper"),
+  media: withDefault(z.record(z.string().min(1), z.union([MediaRef, z.array(MediaRef)])), {}).describe(
+    "按用途命名的媒体，例如 main、vertical、cover、images",
+  ),
+  targets: withDefault(z.array(PostTarget), []),
+}).superRefine((post, ctx) => {
+  post.targets.forEach((target, index) => {
+    if (target.media !== undefined && !Object.hasOwn(post.media, target.media)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["targets", index, "media"],
+        message: `media 中没有名为"${target.media}"的角色`,
+      });
+    }
+  });
+});
+
+export const ASSET_KINDS = [
+  "subscription", "domain", "card", "bank-account", "account", "server", "insurance", "document", "other",
+] as const;
+
+/** 后四位。YAML 中不加引号的 `0123` 会被解析成数字 123，这里补回前导零。 */
+const Last4 = z.union([
+  z.string().regex(/^\d{4}$/, "last4 必须正好是 4 位数字"),
+  z.number().int().min(0).max(9999).transform((n) => String(n).padStart(4, "0")),
+]);
+
+const CARD_NUMBER_MESSAGE = "疑似完整卡号：vault 中只能记后四位（last4），完整卡号请放在密码管理器中";
+
+/**
+ * 订阅、卡、账户、域名、保险、证件等资产，位于 `life/assets/`（私密，ADR 0012 第 5、6 节）。
+ * 禁止存放完整卡号或账号、CVV、密码、密钥、余额、证件号码。
+ */
+export const Asset = Base.extend({
+  type: z.literal("asset"),
+  id: idOf("ast"),
+  kind: z.enum(ASSET_KINDS),
+  provider: optional(z.string()).describe("服务商、发卡行、注册商"),
+  status: withDefault(z.enum(["active", "paused", "cancelled", "expired"]), "active"),
+  cost: optional(z.number().nonnegative()).describe("每个周期的金额"),
+  currency: optional(z.string().regex(/^[A-Z]{3}$/, "currency 必须是 ISO 4217 代码，例如 CNY、USD")),
+  cycle: optional(z.union([z.enum(["monthly", "yearly", "once"]), z.number().int().positive()])).describe(
+    "monthly、yearly、once，或周期天数",
+  ),
+  renews_on: optional(z.iso.date()).describe("下次扣费日，YYYY-MM-DD；程序字段（自动续费时顺延）"),
+  expires: optional(
+    z.union([z.iso.date(), z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/)], "expires 必须是 YYYY-MM-DD 或 YYYY-MM"),
+  ),
+  auto_renew: optional(z.boolean()),
+  paid_with: optional(idOf("ast")).describe("由哪张卡或哪个账户支付"),
+  login: optional(z.string()).describe("登录用的邮箱或用户名"),
+  last4: optional(Last4),
+  vault_item: optional(z.string()).describe("密码管理器中对应条目的名称"),
+  manage_url: optional(z.url()),
+}).superRefine((asset, ctx) => {
+  // 检查所有键，包括 schema 之外的未知字段（Base 是 looseObject）。
+  for (const [key, value] of Object.entries(asset)) {
+    if (containsCardNumber(value)) ctx.addIssue({ code: "custom", path: [key], message: CARD_NUMBER_MESSAGE });
+  }
+});
+
 /** 任意 vault 实体，按 `type` 字段区分。 */
-export const Entity = z.discriminatedUnion("type", [Paper, Idea, Project, Task, Experiment]);
+export const Entity = z.discriminatedUnion("type", [
+  Paper, Idea, Project, Task, Experiment, Source, Post, Asset,
+]);
 
 export type Paper = z.infer<typeof Paper>;
 export type Idea = z.infer<typeof Idea>;
 export type Project = z.infer<typeof Project>;
 export type Task = z.infer<typeof Task>;
 export type Experiment = z.infer<typeof Experiment>;
+export type Source = z.infer<typeof Source>;
+export type MediaRef = z.infer<typeof MediaRef>;
+export type PostTarget = z.infer<typeof PostTarget>;
+export type Post = z.infer<typeof Post>;
+export type Asset = z.infer<typeof Asset>;
 export type Entity = z.infer<typeof Entity>;

@@ -10,6 +10,9 @@ export const ID_PREFIXES = {
   report: "rpt",
   job: "job",
   proposal: "prop",
+  source: "src",
+  post: "post",
+  asset: "ast",
 } as const;
 
 const ULID = "[0-9A-HJKMNP-TV-Z]{26}";
