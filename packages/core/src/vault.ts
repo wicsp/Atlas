@@ -15,7 +15,7 @@ export function resolveVault(explicit: string | undefined, env: string | undefin
   return path;
 }
 
-export async function scanVault(root: string): Promise<VaultFile[]> {
+export async function scanVault(root: string, types?: readonly EntityType[]): Promise<VaultFile[]> {
   const files: VaultFile[] = [];
   async function walk(dir: string, type: EntityType) {
     const entries = await readdir(dir, { withFileTypes: true });
@@ -30,6 +30,7 @@ export async function scanVault(root: string): Promise<VaultFile[]> {
   try {
     if (!(await stat(root)).isDirectory()) throw new Error("vault 路径不是目录");
     for (const [dir, type] of Object.entries(DIRECTORIES)) {
+      if (types && !types.includes(type)) continue;
       const path = join(root, dir);
       let info;
       try { info = await lstat(path); }

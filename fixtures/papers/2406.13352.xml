@@ -1,0 +1,41 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<feed xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/" xmlns:arxiv="http://arxiv.org/schemas/atom" xmlns="http://www.w3.org/2005/Atom">
+  <id>https://arxiv.org/api/NMrbS1toj4IyjBqaVzmjKwfkCZQ</id>
+  <title>arXiv Query: search_query=&amp;id_list=2406.13352&amp;start=0&amp;max_results=10</title>
+  <updated>2026-10-22T14:56:34Z</updated>
+  <link href="https://arxiv.org/api/query?search_query=&amp;start=0&amp;max_results=10&amp;id_list=2406.13352" type="application/atom+xml"/>
+  <opensearch:itemsPerPage>10</opensearch:itemsPerPage>
+  <opensearch:totalResults>1</opensearch:totalResults>
+  <opensearch:startIndex>0</opensearch:startIndex>
+  <entry>
+    <id>http://arxiv.org/abs/2406.13352v3</id>
+    <title>AgentDojo: A Dynamic Environment to Evaluate Prompt Injection Attacks and Defenses for LLM Agents</title>
+    <updated>2024-11-24T22:04:23Z</updated>
+    <link href="https://arxiv.org/abs/2406.13352v3" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2406.13352v3" rel="related" type="application/pdf" title="pdf"/>
+    <summary>AI agents aim to solve complex tasks by combining text-based reasoning with external tool calls. Unfortunately, AI agents are vulnerable to prompt injection attacks where data returned by external tools hijacks the agent to execute malicious tasks. To measure the adversarial robustness of AI agents, we introduce AgentDojo, an evaluation framework for agents that execute tools over untrusted data. To capture the evolving nature of attacks and defenses, AgentDojo is not a static test suite, but rather an extensible environment for designing and evaluating new agent tasks, defenses, and adaptive attacks. We populate the environment with 97 realistic tasks (e.g., managing an email client, navigating an e-banking website, or making travel bookings), 629 security test cases, and various attack and defense paradigms from the literature. We find that AgentDojo poses a challenge for both attacks and defenses: state-of-the-art LLMs fail at many tasks (even in the absence of attacks), and existing prompt injection attacks break some security properties but not all. We hope that AgentDojo can foster research on new design principles for AI agents that solve common tasks in a reliable and robust manner.. We release the code for AgentDojo at https://github.com/ethz-spylab/agentdojo.</summary>
+    <category term="cs.CR" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2024-06-19T08:55:56Z</published>
+    <arxiv:comment>Updated version after fixing a bug in the Llama implementation and updating the travel suite</arxiv:comment>
+    <arxiv:primary_category term="cs.CR"/>
+    <author>
+      <name>Edoardo Debenedetti</name>
+    </author>
+    <author>
+      <name>Jie Zhang</name>
+    </author>
+    <author>
+      <name>Mislav Balunović</name>
+    </author>
+    <author>
+      <name>Luca Beurer-Kellner</name>
+    </author>
+    <author>
+      <name>Marc Fischer</name>
+    </author>
+    <author>
+      <name>Florian Tramèr</name>
+    </author>
+  </entry>
+</feed>
