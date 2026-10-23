@@ -7,9 +7,13 @@
 export * from "./common.ts";
 export * from "./entities.ts";
 export * from "./job.ts";
+export * from "./query.ts";
+export * from "./proposal.ts";
 
 import { Experiment, Idea, Paper, Project, Task } from "./entities.ts";
 import { Job } from "./job.ts";
+import { LinksResult, NoteDetail, SearchResult } from "./query.ts";
+import { NewProposal, Proposal } from "./proposal.ts";
 
 /** 需要导出为 JSON Schema 的全部契约，键名即输出文件名。 */
 export const CONTRACTS = {
@@ -19,4 +23,9 @@ export const CONTRACTS = {
   task: Task,
   experiment: Experiment,
   job: Job,
+  "search-result": SearchResult,
+  "links-result": LinksResult,
+  "note-detail": NoteDetail,
+  proposal: Proposal,
+  "new-proposal": NewProposal,
 } as const;

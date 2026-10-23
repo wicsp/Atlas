@@ -8,7 +8,14 @@
 | [P0-1](P0-1-sync.md) ✅ | 补全器 + `lumio sync` | 后端（Codex） | — |
 | [P0-2](P0-2-new-idea.md) ✅ | `lumio new idea` | 后端（Codex） | P0-1 |
 | [P0-3](P0-3-new-paper.md) ✅ | `lumio new paper` | 后端（Codex） | P0-1 |
-| [P0-4](P0-4-auto-citekey.md) | citekey 全自动生成，删除确认流程 | 后端（Codex） | P0-3 |
+| [P0-4](P0-4-auto-citekey.md) ✅ | citekey 全自动生成，删除确认流程 | 后端（Codex） | P0-3 |
+| [P1-1](P1-1-index-query.md) | 本地索引与查询：`search`/`show`/`links`/`export bib` | 后端（Codex） | P0 |
+| [P1-2](P1-2-hub-server.md) | Hub 骨架：配置、令牌、查询 API、CLI 远程模式 | 后端（Codex） | P1-1 |
+| [P1-3](P1-3-watch-autosave.md) | 文件监听、自动补全、自动提交 | 后端（Codex） | P1-2 |
+| [P1-4](P1-4-proposals.md) | 提议队列 | 后端（Codex） | P1-3 |
+| [P1-5](P1-5-skill.md) | `skills/lumio/SKILL.md` | Claude | P1-4 |
+
+P1 的设计决定见 ADR 0011；契约见 `packages/schema/src/query.ts` 与 `proposal.ts`。
 
 ## 给实现者的约定
 - 开始前读 `AGENTS.md`、`docs/ARCHITECTURE.md`，以及任务说明里列出的 ADR。
