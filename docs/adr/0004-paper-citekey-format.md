@@ -22,7 +22,7 @@ citekey 同时用于笔记间的链接、`refs.bib` 的 key、论文写作中的
 - citekey 由工具**全自动生成，不需要人确认**；可以用 `--abbr` 主动指定缩写。生成后不再改动。
 - 规则刻意保持机械：宁可生成不好看的 key（如 `Sgaard`），也不引入转写表或人工确认步骤。
   想要更好看的 key，可以在入库时用 `--abbr`，或之后手动重命名。
-- citekey 就是文件名：`papers/He_2020_LightGCN.md`；笔记里写 `[[He_2020_LightGCN]]`，
+- citekey 就是文件名：`library/papers/He_2020_LightGCN.md`（目录见 ADR 0012）；笔记里写 `[[He_2020_LightGCN]]`，
   写论文时写 `\cite{He_2020_LightGCN}`，三处完全一致，不需要任何转换。
 
 ## 为什么不用 `:`、`/`、`-`

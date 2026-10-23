@@ -1,7 +1,7 @@
 # 0010 AI 通过 CLI + skill 访问 Lumio；MCP 推迟为可选适配层
 
 - 状态：Accepted
-- 日期：2026-10-23
+- 日期：2026-10-23（同日按 ADR 0012 增加私密实体的规则）
 - 修改：`docs/ARCHITECTURE.md` 中 P1 原定的"indexer + MCP"
 
 ## 背景
@@ -21,7 +21,10 @@ Lumio 要让 AI 查询笔记、链接，并提出修改提议。接入的 AI 主
 2. **P1 的 AI 入口是 CLI + skill：**
    - `lumio` 增加查询与提议命令（如 `search`、`show`、`links`、`propose`），全部支持 `--json`。
    - 仓库内提供 `skills/lumio/SKILL.md`：何时使用、命令列表、AI 的边界。Claude Code、Codex、pi 共用这一份。
-3. **MCP 推迟，作为可选的薄适配层。** 只有在出现**没有 shell 的客户端**需求时（例如在手机 Claude App 里
+3. **私密实体默认不返回**（ADR 0012）：`life/` 下的实体不出现在查询结果中，必须显式传入
+   `--include-private` 并由人在当次会话中确认。skill 中写明 AI 不得自行加上这个参数。
+   这条规则只约束经过 Lumio 的访问，直接读文件的路径需要在 agent 沙箱中另行排除。
+4. **MCP 推迟，作为可选的薄适配层。** 只有在出现**没有 shell 的客户端**需求时（例如在手机 Claude App 里
    查询笔记）才实现：一个把 MCP 工具映射到 Hub API 的适配器，走 ADR 0007 的 HTTPS + token。
    不在 MCP 层实现任何业务逻辑。
 

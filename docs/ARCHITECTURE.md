@@ -28,7 +28,8 @@
             └──────────────┘
 
 Vault = Hub 的数据目录 = Obsidian vault（唯一事实来源，当前位于 iCloud）
-  papers/ ideas/ projects/ tasks/ experiments/ reports/
+  library/{papers,sources}  research/{ideas,experiments,reports}  plan/{projects,tasks}
+  create/posts  life/assets（私密）  files/{attachments,drawings,templates}   （ADR 0012）
 SQLite 只是派生索引；refs.bib 由各论文笔记的 BibTeX 一节生成
 ```
 
@@ -63,6 +64,7 @@ CLI、Hub、Runtime 用 `bun build --compile` 编译为单个二进制，分别�
 - **元数据由 Lumio 负责，Obsidian 只是编辑器**：用 `lumio new <类型>` 创建，或随手写后由 `lumio sync`
   （P1 起由 Hub 自动）补全；两条路径共用同一个补全器（ADR 0009）。
 - **vault 中的空字段视为未填写**（ADR 0008）。
+- **vault 按大类分组，类型由路径中的类型目录决定**；`life/` 下为私密实体，AI 查询默认不返回（ADR 0012）。
 - **执行不怕中断**：区分 Job 与 Attempt；exit 0 不等于成功；状态不明时交给人，不自动重试（ADR 0005）。
 - **AI 通过 CLI + skill 访问 Lumio**：所有能力只在 Hub API 中实现；有 shell 的 agent 用 `lumio … --json` 和
   `skills/lumio/SKILL.md`；MCP 只在需要支持没有 shell 的客户端时，作为薄适配层再加（ADR 0010）。
