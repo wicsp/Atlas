@@ -10,3 +10,4 @@ export * from "./fill.ts";
 export * from "./frontmatter.ts";
 export * from "./vault.ts";
 export * from "./write.ts";
+export * from "./create.ts";
