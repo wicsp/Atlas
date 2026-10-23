@@ -10,7 +10,7 @@ let path: string;
 beforeEach(async () => {
   temp = await mkdtemp(join(tmpdir(), "lumio-write-test-"));
   path = join(temp, "synthetic.md");
-  await cp(fileURLToPath(new URL("../../../fixtures/sync-vault/ideas/新的想法.md", import.meta.url)), path);
+  await cp(fileURLToPath(new URL("../../../fixtures/sync-vault/research/ideas/新的想法.md", import.meta.url)), path);
 });
 afterEach(async () => { await rm(temp, { recursive: true, force: true }); });
 

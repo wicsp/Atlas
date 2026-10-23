@@ -9,8 +9,9 @@ export * from "./entities.ts";
 export * from "./job.ts";
 export * from "./query.ts";
 export * from "./proposal.ts";
+export * from "./secrets.ts";
 
-import { Experiment, Idea, Paper, Project, Task } from "./entities.ts";
+import { Asset, Experiment, Idea, Paper, Post, Project, Source, Task } from "./entities.ts";
 import { Job } from "./job.ts";
 import { LinksResult, NoteDetail, SearchResult } from "./query.ts";
 import { NewProposal, Proposal } from "./proposal.ts";
@@ -22,6 +23,9 @@ export const CONTRACTS = {
   project: Project,
   task: Task,
   experiment: Experiment,
+  source: Source,
+  post: Post,
+  asset: Asset,
   job: Job,
   "search-result": SearchResult,
   "links-result": LinksResult,

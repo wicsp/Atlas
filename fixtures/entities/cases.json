@@ -1,0 +1,474 @@
+{
+  "valid": {
+    "source-minimal": {
+      "type": "source",
+      "id": "src_01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "title": "Welcome to Excalidraw Essentials",
+      "created": "2026-10-23T16:00:00+08:00",
+      "updated": "2026-10-23T16:00:00+08:00",
+      "url": "https://community.sketch-your-mind.com/t/welcome-to-excalidraw-essentials/722"
+    },
+    "source-book-no-url": {
+      "type": "source",
+      "id": "src_01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "title": "How to Take Smart Notes",
+      "created": "2026-10-23T16:00:00+08:00",
+      "updated": "2026-10-23T16:00:00+08:00",
+      "kind": "book",
+      "author": "Sönke Ahrens",
+      "status": "reading"
+    },
+    "source-podcast-nulls": {
+      "type": "source",
+      "id": "src_01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "title": "Some podcast",
+      "created": "2026-10-23T16:00:00+08:00",
+      "updated": "2026-10-23T16:00:00+08:00",
+      "kind": "podcast",
+      "url": null,
+      "author": null,
+      "status": null
+    },
+    "post-video": {
+      "type": "post",
+      "id": "post_01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "title": "Excalidraw 入门：用画图整理思路",
+      "created": "2026-10-23T16:00:00+08:00",
+      "updated": "2026-10-23T16:00:00+08:00",
+      "format": "video",
+      "status": "drafting",
+      "derived_from": [
+        "src_01J9Z3K8M2N4P6Q8R0S2T4V6W8"
+      ],
+      "media": {
+        "main": "media://2026-10/excalidraw/main.mp4",
+        "vertical": "media://2026-10/excalidraw/vertical.mp4",
+        "cover": "files/attachments/excalidraw-cover.png",
+        "images": [
+          "files/attachments/ex-1.png",
+          "files/attachments/ex-2.png"
+        ]
+      },
+      "targets": [
+        {
+          "platform": "bilibili",
+          "media": "main",
+          "status": "published",
+          "url": "https://www.bilibili.com/video/BV1xx411c7mD",
+          "published_at": "2026-10-25T20:00:00+08:00"
+        },
+        {
+          "platform": "youtube",
+          "media": "main",
+          "schedule": "2026-10-26T09:00:00+08:00",
+          "status": "scheduled"
+        },
+        {
+          "platform": "tiktok",
+          "media": "vertical"
+        },
+        {
+          "platform": "xiaohongshu",
+          "format": "gallery",
+          "media": "images"
+        }
+      ]
+    },
+    "post-text-minimal": {
+      "type": "post",
+      "id": "post_01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "title": "一条短文本",
+      "created": "2026-10-23T16:00:00+08:00",
+      "updated": "2026-10-23T16:00:00+08:00",
+      "format": "text"
+    },
+    "post-null-defaults": {
+      "type": "post",
+      "id": "post_01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "title": "空字段",
+      "created": "2026-10-23T16:00:00+08:00",
+      "updated": "2026-10-23T16:00:00+08:00",
+      "format": "article",
+      "status": null,
+      "media": null,
+      "targets": null,
+      "derived_from": null
+    },
+    "asset-subscription": {
+      "type": "asset",
+      "id": "ast_01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "title": "Claude Max",
+      "created": "2026-10-23T16:00:00+08:00",
+      "updated": "2026-10-23T16:00:00+08:00",
+      "kind": "subscription",
+      "provider": "Anthropic",
+      "cost": 200,
+      "currency": "USD",
+      "cycle": "monthly",
+      "renews_on": "2026-11-05",
+      "auto_renew": true,
+      "paid_with": "ast_01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "login": "someone@example.com",
+      "manage_url": "https://claude.ai/settings/billing"
+    },
+    "asset-card": {
+      "type": "asset",
+      "id": "ast_01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "title": "招行 Visa 4417",
+      "created": "2026-10-23T16:00:00+08:00",
+      "updated": "2026-10-23T16:00:00+08:00",
+      "kind": "card",
+      "provider": "招商银行",
+      "last4": "4417",
+      "expires": "2028-09",
+      "vault_item": "招行 Visa"
+    },
+    "asset-domain": {
+      "type": "asset",
+      "id": "ast_01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "title": "example.dev",
+      "created": "2026-10-23T16:00:00+08:00",
+      "updated": "2026-10-23T16:00:00+08:00",
+      "kind": "domain",
+      "provider": "Cloudflare",
+      "expires": "2027-03-14",
+      "auto_renew": true,
+      "cycle": "yearly"
+    },
+    "asset-document": {
+      "type": "asset",
+      "id": "ast_01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "title": "护照",
+      "created": "2026-10-23T16:00:00+08:00",
+      "updated": "2026-10-23T16:00:00+08:00",
+      "kind": "document",
+      "expires": "2031-05-01"
+    },
+    "asset-custom-cycle": {
+      "type": "asset",
+      "id": "ast_01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "title": "服务器",
+      "created": "2026-10-23T16:00:00+08:00",
+      "updated": "2026-10-23T16:00:00+08:00",
+      "kind": "server",
+      "cycle": 90,
+      "cost": 0
+    },
+    "asset-last4-unquoted-number": {
+      "type": "asset",
+      "id": "ast_01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "title": "招行 Visa 4417",
+      "created": "2026-10-23T16:00:00+08:00",
+      "updated": "2026-10-23T16:00:00+08:00",
+      "kind": "card",
+      "provider": "招商银行",
+      "last4": 4417,
+      "expires": "2028-09",
+      "vault_item": "招行 Visa"
+    }
+  },
+  "invalid": {
+    "source-bad-kind": {
+      "type": "source",
+      "id": "src_01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "title": "Welcome to Excalidraw Essentials",
+      "created": "2026-10-23T16:00:00+08:00",
+      "updated": "2026-10-23T16:00:00+08:00",
+      "url": "https://community.sketch-your-mind.com/t/welcome-to-excalidraw-essentials/722",
+      "kind": "tweet"
+    },
+    "source-wrong-prefix": {
+      "type": "source",
+      "id": "pap_01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "title": "Welcome to Excalidraw Essentials",
+      "created": "2026-10-23T16:00:00+08:00",
+      "updated": "2026-10-23T16:00:00+08:00",
+      "url": "https://community.sketch-your-mind.com/t/welcome-to-excalidraw-essentials/722"
+    },
+    "post-missing-format": {
+      "type": "post",
+      "id": "post_01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "title": "一条短文本",
+      "created": "2026-10-23T16:00:00+08:00",
+      "updated": "2026-10-23T16:00:00+08:00"
+    },
+    "post-media-parent-dir": {
+      "type": "post",
+      "id": "post_01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "title": "一条短文本",
+      "created": "2026-10-23T16:00:00+08:00",
+      "updated": "2026-10-23T16:00:00+08:00",
+      "format": "text",
+      "media": {
+        "main": "../x.mp4"
+      }
+    },
+    "post-media-absolute": {
+      "type": "post",
+      "id": "post_01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "title": "一条短文本",
+      "created": "2026-10-23T16:00:00+08:00",
+      "updated": "2026-10-23T16:00:00+08:00",
+      "format": "text",
+      "media": {
+        "main": "/abs/x.mp4"
+      }
+    },
+    "post-media-scheme-parent": {
+      "type": "post",
+      "id": "post_01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "title": "一条短文本",
+      "created": "2026-10-23T16:00:00+08:00",
+      "updated": "2026-10-23T16:00:00+08:00",
+      "format": "text",
+      "media": {
+        "main": "media://../x.mp4"
+      }
+    },
+    "post-media-other-scheme": {
+      "type": "post",
+      "id": "post_01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "title": "一条短文本",
+      "created": "2026-10-23T16:00:00+08:00",
+      "updated": "2026-10-23T16:00:00+08:00",
+      "format": "text",
+      "media": {
+        "main": "https://cdn.example.com/x.mp4"
+      }
+    },
+    "post-target-unknown-media": {
+      "type": "post",
+      "id": "post_01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "title": "一条短文本",
+      "created": "2026-10-23T16:00:00+08:00",
+      "updated": "2026-10-23T16:00:00+08:00",
+      "format": "text",
+      "media": {
+        "main": "media://a.mp4"
+      },
+      "targets": [
+        {
+          "platform": "bilibili",
+          "media": "vertical"
+        }
+      ]
+    },
+    "post-target-platform-case": {
+      "type": "post",
+      "id": "post_01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "title": "一条短文本",
+      "created": "2026-10-23T16:00:00+08:00",
+      "updated": "2026-10-23T16:00:00+08:00",
+      "format": "text",
+      "targets": [
+        {
+          "platform": "Bilibili"
+        }
+      ]
+    },
+    "post-target-unknown-field": {
+      "type": "post",
+      "id": "post_01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "title": "一条短文本",
+      "created": "2026-10-23T16:00:00+08:00",
+      "updated": "2026-10-23T16:00:00+08:00",
+      "format": "text",
+      "targets": [
+        {
+          "platform": "bilibili",
+          "views": 10
+        }
+      ]
+    },
+    "post-target-bad-status": {
+      "type": "post",
+      "id": "post_01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "title": "一条短文本",
+      "created": "2026-10-23T16:00:00+08:00",
+      "updated": "2026-10-23T16:00:00+08:00",
+      "format": "text",
+      "targets": [
+        {
+          "platform": "bilibili",
+          "status": "done"
+        }
+      ]
+    },
+    "asset-missing-kind": {
+      "type": "asset",
+      "id": "ast_01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "title": "招行 Visa 4417",
+      "created": "2026-10-23T16:00:00+08:00",
+      "updated": "2026-10-23T16:00:00+08:00",
+      "provider": "招商银行",
+      "last4": "4417",
+      "expires": "2028-09",
+      "vault_item": "招行 Visa"
+    },
+    "asset-last4-short": {
+      "type": "asset",
+      "id": "ast_01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "title": "招行 Visa 4417",
+      "created": "2026-10-23T16:00:00+08:00",
+      "updated": "2026-10-23T16:00:00+08:00",
+      "kind": "card",
+      "provider": "招商银行",
+      "last4": "123",
+      "expires": "2028-09",
+      "vault_item": "招行 Visa"
+    },
+    "asset-currency-lower": {
+      "type": "asset",
+      "id": "ast_01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "title": "Claude Max",
+      "created": "2026-10-23T16:00:00+08:00",
+      "updated": "2026-10-23T16:00:00+08:00",
+      "kind": "subscription",
+      "provider": "Anthropic",
+      "cost": 200,
+      "currency": "usd",
+      "cycle": "monthly",
+      "renews_on": "2026-11-05",
+      "auto_renew": true,
+      "paid_with": "ast_01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "login": "someone@example.com",
+      "manage_url": "https://claude.ai/settings/billing"
+    },
+    "asset-renews-month-only": {
+      "type": "asset",
+      "id": "ast_01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "title": "Claude Max",
+      "created": "2026-10-23T16:00:00+08:00",
+      "updated": "2026-10-23T16:00:00+08:00",
+      "kind": "subscription",
+      "provider": "Anthropic",
+      "cost": 200,
+      "currency": "USD",
+      "cycle": "monthly",
+      "renews_on": "2026-11",
+      "auto_renew": true,
+      "paid_with": "ast_01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "login": "someone@example.com",
+      "manage_url": "https://claude.ai/settings/billing"
+    },
+    "asset-expires-bad-month": {
+      "type": "asset",
+      "id": "ast_01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "title": "招行 Visa 4417",
+      "created": "2026-10-23T16:00:00+08:00",
+      "updated": "2026-10-23T16:00:00+08:00",
+      "kind": "card",
+      "provider": "招商银行",
+      "last4": "4417",
+      "expires": "2028-13",
+      "vault_item": "招行 Visa"
+    },
+    "asset-cycle-zero": {
+      "type": "asset",
+      "id": "ast_01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "title": "Claude Max",
+      "created": "2026-10-23T16:00:00+08:00",
+      "updated": "2026-10-23T16:00:00+08:00",
+      "kind": "subscription",
+      "provider": "Anthropic",
+      "cost": 200,
+      "currency": "USD",
+      "cycle": 0,
+      "renews_on": "2026-11-05",
+      "auto_renew": true,
+      "paid_with": "ast_01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "login": "someone@example.com",
+      "manage_url": "https://claude.ai/settings/billing"
+    },
+    "asset-paid-with-wrong-prefix": {
+      "type": "asset",
+      "id": "ast_01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "title": "Claude Max",
+      "created": "2026-10-23T16:00:00+08:00",
+      "updated": "2026-10-23T16:00:00+08:00",
+      "kind": "subscription",
+      "provider": "Anthropic",
+      "cost": 200,
+      "currency": "USD",
+      "cycle": "monthly",
+      "renews_on": "2026-11-05",
+      "auto_renew": true,
+      "paid_with": "pap_01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "login": "someone@example.com",
+      "manage_url": "https://claude.ai/settings/billing"
+    },
+    "asset-card-in-login": {
+      "type": "asset",
+      "id": "ast_01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "title": "招行 Visa 4417",
+      "created": "2026-10-23T16:00:00+08:00",
+      "updated": "2026-10-23T16:00:00+08:00",
+      "kind": "card",
+      "provider": "招商银行",
+      "last4": "4417",
+      "expires": "2028-09",
+      "vault_item": "招行 Visa",
+      "login": "4111111111111111"
+    },
+    "asset-card-in-title-spaces": {
+      "type": "asset",
+      "id": "ast_01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "title": "Visa 4111 1111 1111 1111",
+      "created": "2026-10-23T16:00:00+08:00",
+      "updated": "2026-10-23T16:00:00+08:00",
+      "kind": "card",
+      "provider": "招商银行",
+      "last4": "4417",
+      "expires": "2028-09",
+      "vault_item": "招行 Visa"
+    },
+    "asset-card-in-title-hyphens": {
+      "type": "asset",
+      "id": "ast_01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "title": "4111-1111-1111-1111",
+      "created": "2026-10-23T16:00:00+08:00",
+      "updated": "2026-10-23T16:00:00+08:00",
+      "kind": "card",
+      "provider": "招商银行",
+      "last4": "4417",
+      "expires": "2028-09",
+      "vault_item": "招行 Visa"
+    },
+    "asset-card-as-number": {
+      "type": "asset",
+      "id": "ast_01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "title": "招行 Visa 4417",
+      "created": "2026-10-23T16:00:00+08:00",
+      "updated": "2026-10-23T16:00:00+08:00",
+      "kind": "card",
+      "provider": "招商银行",
+      "last4": "4417",
+      "expires": "2028-09",
+      "vault_item": "招行 Visa",
+      "note": 4111111111111111
+    },
+    "asset-card-nested": {
+      "type": "asset",
+      "id": "ast_01J9Z3K8M2N4P6Q8R0S2T4V6W8",
+      "title": "招行 Visa 4417",
+      "created": "2026-10-23T16:00:00+08:00",
+      "updated": "2026-10-23T16:00:00+08:00",
+      "kind": "card",
+      "provider": "招商银行",
+      "last4": "4417",
+      "expires": "2028-09",
+      "vault_item": "招行 Visa",
+      "aliases": [
+        "ok",
+        "5500 0000 0000 0004"
+      ]
+    }
+  },
+  "cardNumbers": [
+    "asset-card-in-login",
+    "asset-card-in-title-spaces",
+    "asset-card-in-title-hyphens",
+    "asset-card-as-number",
+    "asset-card-nested"
+  ]
+}
