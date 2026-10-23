@@ -15,7 +15,7 @@
 | `packages/core` | vault 解析、链接、索引、BibTeX，纯本地逻辑 |
 | `packages/api-client` | 调用 Hub 的 SDK，所有客户端共用 |
 | `apps/cli` | `lumio` 命令行 |
-| `apps/hub` | 服务器：HTTP API、job 队列、定时调度、MCP |
+| `apps/hub` | 服务器：HTTP API、job 队列、定时调度、提议队列 |
 | `apps/runtime` | 每台设备上的 daemon，领取 job 并调用 agent |
 | `apps/feishu-bot` | 飞书入口与通知 |
 | `apps/web` `apps/chrome-ext` `apps/mobile` | 后期客户端 |

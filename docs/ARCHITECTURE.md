@@ -18,7 +18,7 @@
 │ CLI │ 飞书 Bot │ Web/插件  │─API─▶│ Hub（唯一写入裁判，位置可配置）│
 └──────────────────────────┘ token │  校验 → 执行 ADR 0006 → 写文件 │
                                     │  监听文件变化 → 补全与索引    │
-                                    │  提议队列 · job 队列 · MCP    │
+                                    │  提议队列 · job 队列 · 搜索   │
                                     └───────┬───────────┬──────────┘
             Tailscale（或 HTTPS 反向代理）  │           │ 自动 commit
                    ┌────────────────────────┘           ▼
@@ -43,7 +43,7 @@ SQLite 只是派生索引；refs.bib 由各论文笔记的 BibTeX 一节生成
 | `packages/core` | vault 解析、链接、索引、BibTeX；纯本地，无网络 | schema |
 | `packages/api-client` | 调用 Hub 的 SDK | schema |
 | `apps/cli` | 命令行 | core, schema |
-| `apps/hub` | API、队列、调度、MCP | core, schema |
+| `apps/hub` | API、队列、调度（以后可加 MCP 适配层，ADR 0010） | core, schema |
 | `apps/runtime` | 设备 daemon（与 hub 只走 HTTP） | schema |
 | `apps/feishu-bot` `apps/web` 等 | 各个客户端 | api-client |
 
@@ -64,6 +64,8 @@ CLI、Hub、Runtime 用 `bun build --compile` 编译为单个二进制，分别�
   （P1 起由 Hub 自动）补全；两条路径共用同一个补全器（ADR 0009）。
 - **vault 中的空字段视为未填写**（ADR 0008）。
 - **执行不怕中断**：区分 Job 与 Attempt；exit 0 不等于成功；状态不明时交给人，不自动重试（ADR 0005）。
+- **AI 通过 CLI + skill 访问 Lumio**：所有能力只在 Hub API 中实现；有 shell 的 agent 用 `lumio … --json` 和
+  `skills/lumio/SKILL.md`；MCP 只在需要支持没有 shell 的客户端时，作为薄适配层再加（ADR 0010）。
 - **Agent 不自己实现**；Runtime 通过适配器调用现成 agent：`run(job, workspace) → result`。
 - **飞书只做入口与通知**；本地内容单向发布到飞书，飞书原生文档以只读快照拉回。
 - **密钥**：配置只写占位符，由 Runtime 从本机 secret store 注入。
@@ -73,7 +75,7 @@ CLI、Hub、Runtime 用 `bun build --compile` 编译为单个二进制，分别�
 | 阶段 | 内容 | 涉及模块 |
 |---|---|---|
 | P0 | `lumio new paper`（arXiv/DOI → 笔记 + BibTeX）、`lumio new idea`、`lumio sync`（补全元数据） | schema, core, cli |
-| P1 | indexer + MCP：让 AI 查询链接、由想法串出带引用的报告初稿 | core, hub, api-client |
+| P1 | Hub（文件监听与自动补全、索引、搜索 API、提议队列）；CLI 增加 `search`/`show`/`links`/`propose`（`--json`）；`skills/lumio/SKILL.md` | core, hub, cli, api-client |
 | P2 | 任务/实验；Runtime + job 派发；Python 实验 SDK；Chrome 插件入库 | runtime, hub, sdk/python, chrome-ext |
 | P3 | 飞书 Bot、多维表格镜像、定时工作流 | feishu-bot, hub |
 | P4 | Web Dashboard、Docker/Nix、对外 SDK、手机端 | web, infra, mobile |
