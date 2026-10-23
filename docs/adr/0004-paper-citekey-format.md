@@ -1,7 +1,7 @@
 # 0004 论文 citekey 格式：`姓_年份_标题缩写`
 
 - 状态：Accepted
-- 日期：2026-10-22（同日修订：分隔符由 `:` 改为 `_`）
+- 日期：2026-10-22（同日修订：分隔符由 `:` 改为 `_`；姓氏大小写规则明确为"只改首字母"）
 
 ## 背景
 citekey 同时用于笔记间的链接、`refs.bib` 的 key、论文写作中的 `\cite{}`，以及笔记的文件名。
@@ -12,7 +12,7 @@ citekey 同时用于笔记间的链接、`refs.bib` 的 key、论文写作中的
 
 | 部分 | 规则 | 例子 |
 |---|---|---|
-| 姓 | 第一作者的姓，转写为 ASCII，首字母大写；去掉空格、连字符、撇号，保留姓氏前缀 | `He`、`Muller`（Müller）、`VanDerMaaten`（van der Maaten）、`FernandezLopez` |
+| 姓 | 第一作者的姓，转写为 ASCII；去掉空格、连字符、撇号后直接拼接，保留姓氏前缀；**只把第一个字母改成大写，其余字母保持原样** | `He`、`Muller`（Müller）、`VanderMaaten`（van der Maaten）、`FernandezLopez`（Fernández-López）、`OBrien`（O'Brien） |
 | 年份 | 四位数，取首次公开的年份（arXiv 版与正式版不同年时，以 refs.bib 当前采用的版本为准） | `2020` |
 | 缩写 | 论文常用名称或方法名；没有现成名称时，取标题关键词的首字母或词干 | `LightGCN`、`ResNet`、`GPT3` |
 
