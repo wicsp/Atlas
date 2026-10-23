@@ -5,9 +5,10 @@
 
 | 编号 | 内容 | 负责 | 依赖 |
 |---|---|---|---|
-| [P0-1](P0-1-sync.md) | 补全器 + `lumio sync` | 后端（Codex） | — |
-| [P0-2](P0-2-new-idea.md) | `lumio new idea` | 后端（Codex） | P0-1 |
-| [P0-3](P0-3-new-paper.md) | `lumio new paper` | 后端（Codex） | P0-1 |
+| [P0-1](P0-1-sync.md) ✅ | 补全器 + `lumio sync` | 后端（Codex） | — |
+| [P0-2](P0-2-new-idea.md) ✅ | `lumio new idea` | 后端（Codex） | P0-1 |
+| [P0-3](P0-3-new-paper.md) ✅ | `lumio new paper` | 后端（Codex） | P0-1 |
+| [P0-4](P0-4-auto-citekey.md) | citekey 全自动生成，删除确认流程 | 后端（Codex） | P0-3 |
 
 ## 给实现者的约定
 - 开始前读 `AGENTS.md`、`docs/ARCHITECTURE.md`，以及任务说明里列出的 ADR。
